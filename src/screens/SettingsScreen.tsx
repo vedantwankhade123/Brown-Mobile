@@ -1947,13 +1947,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                             {item.id === 'models' && (
                               <View style={styles.modelsLogoStack}>
                                 <View style={styles.modelsStackedLogo1}>
-                                  <HuggingFaceLogo size={18} />
+                                  <HuggingFaceLogo size={16} />
                                 </View>
-                                <Image
-                                  source={require('../../Assets/gemini-logo.png')}
-                                  style={styles.modelsStackedLogo2}
-                                  resizeMode="contain"
-                                />
+                                <View style={styles.modelsStackedLogo2}>
+                                  <Image
+                                    source={require('../../Assets/gemini-logo.png')}
+                                    style={styles.geminiStackedImage}
+                                    resizeMode="contain"
+                                  />
+                                </View>
                               </View>
                             )}
                             {item.detail ? (
@@ -2207,9 +2209,9 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   modelsStackedLogo1: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2218,15 +2220,20 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   modelsStackedLogo2: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#ffffff',
-    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: '#1c1c1e',
-    marginLeft: -9,
+    marginLeft: -8,
     zIndex: 1,
+  },
+  geminiStackedImage: {
+    width: 16,
+    height: 16,
   },
   cleanMenuDivider: {
     height: 1,
