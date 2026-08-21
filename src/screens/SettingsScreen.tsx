@@ -300,15 +300,74 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Real location detection service
+  // Real high-accuracy location detection service
   const performRealLocationDetection = async () => {
     setIsDetectingLocation(true);
     setLocationStatusText('Detecting real-time device location…');
 
-    // 1. Try IP Geolocation services (works accurately across Wi-Fi & Cellular)
+    // 1. Prioritize precise GPS / Device Geolocation first (highest accuracy)
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      const gpsSuccess = await new Promise<boolean>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            try {
+              const { latitude, longitude } = position.coords;
+              
+              // A. Query OpenStreetMap Nominatim reverse geocoder
+              const osmRes = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
+                { headers: { 'User-Agent': 'UltronMobile/1.0' } }
+              );
+              if (osmRes.ok) {
+                const geo = await osmRes.json();
+                const addr = geo.address || {};
+                const city = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || addr.district || addr.state_district || addr.county;
+                const state = addr.state || addr.region;
+                const country = addr.country || 'India';
+                if (city) {
+                  const loc = state && state !== city ? `${city}, ${state}, ${country}` : `${city}, ${country}`;
+                  setHomeLocation(loc);
+                  setLocationStatusText(`✓ Located (GPS): ${loc}`);
+                  setIsDetectingLocation(false);
+                  resolve(true);
+                  return;
+                }
+              }
+
+              // B. Fallback to BigDataCloud client reverse geocode
+              const bdcRes = await fetch(
+                `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+              );
+              if (bdcRes.ok) {
+                const bdc = await bdcRes.json();
+                const city = bdc.city || bdc.locality || bdc.principalSubdivision;
+                const state = bdc.principalSubdivision;
+                const country = bdc.countryName || 'India';
+                if (city) {
+                  const loc = state && state !== city ? `${city}, ${state}, ${country}` : `${city}, ${country}`;
+                  setHomeLocation(loc);
+                  setLocationStatusText(`✓ Located (GPS): ${loc}`);
+                  setIsDetectingLocation(false);
+                  resolve(true);
+                  return;
+                }
+              }
+            } catch {}
+            resolve(false);
+          },
+          () => resolve(false),
+          { timeout: 7000, enableHighAccuracy: true, maximumAge: 10000 }
+        );
+      });
+
+      if (gpsSuccess) return;
+    }
+
+    // 2. Fallback to multi-tier IP Geolocation services if GPS is unavailable
     const ipServices = [
       'https://ipwho.is/',
       'https://ipapi.co/json/',
+      'https://freeipapi.com/api/json',
       'https://geolocation-db.com/json/',
     ];
 
@@ -320,13 +379,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         clearTimeout(timeoutId);
         if (res.ok) {
           const data = await res.json();
-          const city = data.city || data.locality || data.region;
-          const country = data.country || data.country_name || 'India';
-          const region = data.region || data.state;
+          const city = data.cityName || data.city || data.locality || data.region;
+          const country = data.countryName || data.country || data.country_name || 'India';
+          const region = data.regionName || data.region || data.state;
           if (city) {
             const loc = region && region !== city ? `${city}, ${region}, ${country}` : `${city}, ${country}`;
             setHomeLocation(loc);
-            setLocationStatusText(`✓ Located: ${loc}`);
+            setLocationStatusText(`✓ Located (Network): ${loc}`);
             setIsDetectingLocation(false);
             return;
           }
@@ -334,40 +393,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       } catch {}
     }
 
-    // 2. Fallback to navigator.geolocation with OpenStreetMap Nominatim reverse geocode
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          try {
-            const { latitude, longitude } = position.coords;
-            const res = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
-              { headers: { 'User-Agent': 'UltronMobileApp/1.0' } }
-            );
-            if (res.ok) {
-              const geo = await res.json();
-              const city = geo.address?.city || geo.address?.town || geo.address?.village || geo.address?.state_district;
-              const state = geo.address?.state;
-              const country = geo.address?.country || 'India';
-              if (city) {
-                const loc = state ? `${city}, ${state}, ${country}` : `${city}, ${country}`;
-                setHomeLocation(loc);
-                setLocationStatusText(`✓ Located: ${loc}`);
-                setIsDetectingLocation(false);
-                return;
-              }
-            }
-          } catch {}
-          fallbackTimezoneLocation();
-        },
-        () => {
-          fallbackTimezoneLocation();
-        },
-        { timeout: 4000, enableHighAccuracy: false }
-      );
-    } else {
-      fallbackTimezoneLocation();
-    }
+    // 3. Fallback to system timezone
+    fallbackTimezoneLocation();
   };
 
   const fallbackTimezoneLocation = () => {
@@ -967,22 +994,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </View>
 
             {/* Location Card with Info Tooltip Button and Auto-detect Toggle */}
-            <View style={styles.pageCardGroup}>
+            <View style={styles.locationCardGroup}>
               <View style={styles.locationHeaderRow}>
-                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={styles.sectionCardTitle}>Location</Text>
+                <View style={styles.locationTitleGroup}>
+                  <MapPinIcon size={18} color="#f87171" />
+                  <Text style={styles.locationSectionTitle}>Location</Text>
                   <TouchableOpacity
                     onPress={() =>
                       Alert.alert(
                         'Location Context',
-                        'Your location is used locally by Ultron AI for accurate weather forecasts, time zone synchronization, and local assistant queries. It stays 100% private on your device.'
+                        'Your location is used locally by Ultron AI for accurate real-time weather forecasts, time zone synchronization, and local assistant queries. It stays 100% private on your device.'
                       )
                     }
                     activeOpacity={0.7}
-                    style={{ padding: 4 }}
+                    style={styles.locationInfoBtn}
                     accessibilityLabel="About Location"
                   >
-                    <InfoIcon size={16} color="#a1a1aa" />
+                    <InfoIcon size={15} color="#8e8e93" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.autoLocationToggleRow}>
@@ -998,25 +1026,37 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
 
               <View style={styles.locationInputRow}>
-                <TextInput
-                  style={[styles.locationTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                  value={homeLocation}
-                  onChangeText={setHomeLocation}
-                  placeholder="e.g. Mumbai, India"
-                  placeholderTextColor="#71717a"
-                />
+                <View style={styles.locationInputBox}>
+                  <MapPinIcon size={16} color="#71717a" />
+                  <TextInput
+                    style={[styles.locationTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                    value={homeLocation}
+                    onChangeText={setHomeLocation}
+                    placeholder="e.g. Nagpur, Maharashtra, India"
+                    placeholderTextColor="#71717a"
+                  />
+                </View>
                 <TouchableOpacity
-                  style={styles.detectLocationBtn}
+                  style={[styles.detectLocationBtn, isDetectingLocation && { opacity: 0.7 }]}
                   onPress={performRealLocationDetection}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                   disabled={isDetectingLocation}
                 >
+                  <MapPinIcon size={14} color="#ffffff" />
                   <Text style={styles.detectLocationBtnText}>
-                    {isDetectingLocation ? '...' : 'Detect'}
+                    {isDetectingLocation ? 'Locating…' : 'Detect'}
                   </Text>
                 </TouchableOpacity>
               </View>
-              <Text style={styles.locationStatusHint}>{locationStatusText}</Text>
+
+              {locationStatusText ? (
+                <View style={styles.locationStatusRow}>
+                  <CheckIcon size={13} color="#34d399" />
+                  <Text style={styles.locationStatusHintText}>
+                    {locationStatusText.replace(/^✓\s*/, '')}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <Text style={styles.accountFooterNote}>
@@ -1147,35 +1187,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <Text style={styles.connectorDesc}>
                 Search and download open-source GGUFs from Hugging Face in Model Store. Pair Desktop Sync if you also want models already on your PC.
               </Text>
-            </View>
-
-            <View style={styles.pageCardGroup}>
-              <Text style={styles.sectionCardTitle}>Custom system instructions</Text>
-              <Text style={styles.sectionCardSubtitle}>
-                Synced with Ultron Desktop when this phone is paired. Used as the default assistant persona.
-              </Text>
-              <TextInput
-                style={[styles.geminiKeyInput, { minHeight: 88, textAlignVertical: 'top', marginTop: 10 }, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                value={systemPrompt}
-                onChangeText={setSystemPrompt}
-                placeholder="You are Ultron, a private on-device assistant..."
-                placeholderTextColor="#71717a"
-                multiline
-              />
-              <TouchableOpacity
-                style={[styles.saveKeyBtn, { alignSelf: 'flex-start', marginTop: 10 }]}
-                onPress={async () => {
-                  await ProfileService.applyProfile({ systemPrompt });
-                  try {
-                    const sync = DesktopSyncService.getInstance();
-                    if (sync.getStatus().isConnected) await sync.pushProfile({ systemPrompt });
-                  } catch {}
-                  Alert.alert('Saved', 'System instructions stored on this device.');
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.saveKeyBtnText}>Save instructions</Text>
-              </TouchableOpacity>
             </View>
 
             {/* Section 2: Installed Models Header with Fully Rounded + Add Models */}
@@ -2932,53 +2943,100 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '600',
   },
+  locationCardGroup: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
   locationHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
+  },
+  locationTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  locationSectionTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  locationInfoBtn: {
+    padding: 4,
+    borderRadius: 9999,
   },
   autoLocationToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
     flexShrink: 0,
   },
   autoLocationToggleLabel: {
-    color: '#a1a1aa',
-    fontSize: 12,
+    color: '#8e8e93',
+    fontSize: 13,
     fontWeight: '500',
   },
   locationInputRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  locationInputBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    backgroundColor: '#2c2c2e',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   locationTextInput: {
     flex: 1,
-    backgroundColor: '#111113',
-    borderRadius: 9999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
     color: '#ffffff',
     fontSize: 13.5,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    fontWeight: '500',
+    paddingVertical: 0,
   },
   detectLocationBtn: {
-    backgroundColor: '#27272a',
-    borderRadius: 9999,
-    paddingHorizontal: 16,
+    backgroundColor: '#007AFF',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
   },
   detectLocationBtnText: {
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
   },
-  locationStatusHint: {
+  locationStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 2,
+  },
+  locationStatusHintText: {
     color: '#34d399',
-    fontSize: 11.5,
-    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '500',
   },
   accountFooterNote: {
     color: '#71717a',
