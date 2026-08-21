@@ -345,14 +345,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
         ) : null}
 
         {/* Built-in Models by Tier */}
-        <View style={styles.sectionBlock}>
-          <Text style={styles.sectionEyebrow}>Recommended</Text>
-          <Text style={styles.sectionTitle}>Built-in Models</Text>
-          <Text style={styles.sectionSubtitle}>
-            Curated GGUFs that fit this phone. Download any card to use it offline.
-          </Text>
-        </View>
-
         {(['Ultra-Light', 'Standard', 'Flagship'] as MobileRamTier[]).map((tier) => {
           const models = grouped[tier];
           if (!models.length) return null;
