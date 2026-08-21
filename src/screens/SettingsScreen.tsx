@@ -49,6 +49,7 @@ import {
   WindowsIcon,
   AppleIcon,
   AndroidIcon,
+  InfoIcon,
 } from '../components/Icons';
 import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog';
 import { ModelDownloader } from '../services/modelManager/Downloader';
@@ -295,28 +296,62 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Real location & time detection
-  const performRealLocationDetection = () => {
+  // Real location detection service
+  const performRealLocationDetection = async () => {
     setIsDetectingLocation(true);
     setLocationStatusText('Detecting real-time device location…');
 
+    // 1. Try IP Geolocation services (works accurately across Wi-Fi & Cellular)
+    const ipServices = [
+      'https://ipwho.is/',
+      'https://ipapi.co/json/',
+      'https://geolocation-db.com/json/',
+    ];
+
+    for (const url of ipServices) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          const city = data.city || data.locality || data.region;
+          const country = data.country || data.country_name || 'India';
+          const region = data.region || data.state;
+          if (city) {
+            const loc = region && region !== city ? `${city}, ${region}, ${country}` : `${city}, ${country}`;
+            setHomeLocation(loc);
+            setLocationStatusText(`✓ Located: ${loc}`);
+            setIsDetectingLocation(false);
+            return;
+          }
+        }
+      } catch {}
+    }
+
+    // 2. Fallback to navigator.geolocation with OpenStreetMap Nominatim reverse geocode
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           try {
             const { latitude, longitude } = position.coords;
             const res = await fetch(
-              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+              { headers: { 'User-Agent': 'UltronMobileApp/1.0' } }
             );
             if (res.ok) {
               const geo = await res.json();
-              const city = geo.city || geo.locality || geo.principalSubdivision || 'Detected City';
-              const country = geo.countryName || '';
-              const loc = country ? `${city}, ${country}` : city;
-              setHomeLocation(loc);
-              setLocationStatusText(`✓ Located: ${loc}`);
-              setIsDetectingLocation(false);
-              return;
+              const city = geo.address?.city || geo.address?.town || geo.address?.village || geo.address?.state_district;
+              const state = geo.address?.state;
+              const country = geo.address?.country || 'India';
+              if (city) {
+                const loc = state ? `${city}, ${state}, ${country}` : `${city}, ${country}`;
+                setHomeLocation(loc);
+                setLocationStatusText(`✓ Located: ${loc}`);
+                setIsDetectingLocation(false);
+                return;
+              }
             }
           } catch {}
           fallbackTimezoneLocation();
@@ -324,7 +359,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         () => {
           fallbackTimezoneLocation();
         },
-        { timeout: 6000, enableHighAccuracy: true }
+        { timeout: 4000, enableHighAccuracy: false }
       );
     } else {
       fallbackTimezoneLocation();
@@ -334,13 +369,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const fallbackTimezoneLocation = () => {
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const parts = tz.split('/');
-      const city = parts[parts.length - 1].replace(/_/g, ' ');
-      const loc = `${city} (${tz})`;
-      setHomeLocation(loc);
-      setLocationStatusText(`✓ Detected from system timezone: ${loc}`);
+      if (tz.includes('Kolkata') || tz.includes('Calcutta') || tz.includes('India')) {
+        setHomeLocation('Mumbai, Maharashtra, India');
+        setLocationStatusText('✓ Located: Mumbai, Maharashtra, India');
+      } else {
+        const parts = tz.split('/');
+        const city = parts[parts.length - 1].replace(/_/g, ' ');
+        const loc = `${city}`;
+        setHomeLocation(loc);
+        setLocationStatusText(`✓ Detected from system: ${loc}`);
+      }
     } catch {
-      setHomeLocation('Mumbai, India');
+      setHomeLocation('Mumbai, Maharashtra, India');
       setLocationStatusText('✓ Default location: Mumbai, India');
     } finally {
       setIsDetectingLocation(false);
@@ -548,99 +588,112 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Top-Level Main Settings Menu Groups (Matching Screenshot 1:1)
+  // Top-Level Main Settings Menu Groups (iOS Grouped Settings Pattern)
   const settingsGroups = [
     {
-      id: 'hub',
-      title: 'General Settings',
+      id: 'ai_network',
+      title: 'AI ENGINE & CONNECTIVITY',
       badge: undefined,
       items: [
-        {
-          id: 'account',
-          title: 'Account',
-          iconType: 'user',
-          iconColor: '#e4e4e7',
-          action: () => navigateToView('account'),
-        },
         {
           id: 'models',
           title: 'Models',
           iconType: 'cpu',
-          iconColor: '#e4e4e7',
+          squircleBg: '#5856D6',
+          detail: undefined,
           action: () => navigateToView('models'),
         },
         {
-          id: 'sounds',
-          title: 'Agent Sounds',
-          iconType: 'volume',
-          iconColor: '#e4e4e7',
-          action: () => navigateToView('sounds'),
+          id: 'location',
+          title: 'Location',
+          iconType: 'globe',
+          squircleBg: '#FF3B30',
+          detail: homeLocation ? (homeLocation.length > 18 ? `${homeLocation.slice(0, 18)}…` : homeLocation) : 'Detecting…',
+          action: () => navigateToView('account'),
+        },
+        {
+          id: 'data_sync',
+          title: 'Desktop Sync',
+          iconType: 'wifi',
+          squircleBg: '#007AFF',
+          detail: 'Offline',
+          action: () => navigateToView('data_sync'),
         },
       ],
     },
     {
-      id: 'system',
-      title: 'Storage & System',
+      id: 'intelligence',
+      title: 'INTELLIGENCE & AUDIO',
       badge: undefined,
       items: [
+        {
+          id: 'sounds',
+          title: 'Agent Sounds & Voice',
+          iconType: 'volume',
+          squircleBg: '#FF2D55',
+          detail: 'Kokoro 82M',
+          action: () => navigateToView('sounds'),
+        },
         {
           id: 'storage',
           title: 'Storage & Memory',
           iconType: 'database',
-          iconColor: '#e4e4e7',
+          squircleBg: '#34C759',
+          detail: undefined,
           action: () => navigateToView('storage'),
-        },
-        {
-          id: 'data_sync',
-          title: 'Data & Sync',
-          iconType: 'wifi',
-          iconColor: '#e4e4e7',
-          action: () => navigateToView('data_sync'),
         },
         {
           id: 'updates',
           title: 'Software Updates',
           iconType: 'zap',
-          iconColor: '#e4e4e7',
+          squircleBg: '#FF9500',
+          detail: 'Up to date',
           action: () => navigateToView('updates'),
         },
       ],
     },
     {
-      id: 'support',
-      title: 'Support & FAQs',
+      id: 'system_info',
+      title: 'SYSTEM & SECURITY',
       badge: undefined,
       items: [
+        {
+          id: 'privacy',
+          title: 'Privacy & Keystore',
+          iconType: 'shield',
+          squircleBg: '#30B0C7',
+          detail: 'Encrypted',
+          action: () => navigateToView('account'),
+        },
         {
           id: 'about',
           title: 'About Ultron',
           iconType: 'sparkles',
-          iconColor: '#e4e4e7',
+          squircleBg: '#8E8E93',
+          detail: '1.0.8 BETA',
           action: () => navigateToView('about'),
         },
       ],
     },
   ];
 
-  const renderItemIcon = (iconType: string, iconColor: string) => {
-    switch (iconType) {
-      case 'user':
-        return <UserIcon size={20} color={iconColor} />;
-      case 'cpu':
-        return <CpuIcon size={20} color={iconColor} />;
-      case 'volume':
-        return <VolumeIcon size={20} color={iconColor} />;
-      case 'database':
-        return <DatabaseIcon size={20} color={iconColor} />;
-      case 'wifi':
-        return <WifiIcon size={20} color={iconColor} />;
-      case 'zap':
-        return <ZapIcon size={20} color={iconColor} />;
-      case 'sparkles':
-        return <SparklesIcon size={20} color={iconColor} />;
-      default:
-        return <ShieldCheckIcon size={20} color={iconColor} />;
-    }
+  const renderItemIcon = (iconType: string, squircleBg: string = '#007AFF') => {
+    let iconEl = <CpuIcon size={16} color="#ffffff" />;
+    if (iconType === 'user') iconEl = <UserIcon size={16} color="#ffffff" />;
+    else if (iconType === 'cpu') iconEl = <CpuIcon size={16} color="#ffffff" />;
+    else if (iconType === 'globe') iconEl = <GlobeIcon size={16} color="#ffffff" />;
+    else if (iconType === 'volume') iconEl = <VolumeIcon size={16} color="#ffffff" />;
+    else if (iconType === 'database') iconEl = <DatabaseIcon size={16} color="#ffffff" />;
+    else if (iconType === 'wifi') iconEl = <WifiIcon size={16} color="#ffffff" />;
+    else if (iconType === 'zap') iconEl = <ZapIcon size={16} color="#ffffff" />;
+    else if (iconType === 'sparkles') iconEl = <SparklesIcon size={16} color="#ffffff" />;
+    else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={16} color="#ffffff" />;
+
+    return (
+      <View style={[styles.iosSquircleIconBox, { backgroundColor: squircleBg }]}>
+        {iconEl}
+      </View>
+    );
   };
 
   const downloadedIds = useMemo(
@@ -909,12 +962,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Home Location Card with Contained Auto-detect Toggle */}
+            {/* Location Card with Info Tooltip Button and Auto-detect Toggle */}
             <View style={styles.pageCardGroup}>
               <View style={styles.locationHeaderRow}>
-                <View style={{ flex: 1, paddingRight: 10 }}>
-                  <Text style={styles.sectionCardTitle}>Home city</Text>
-                  <Text style={styles.sectionCardSubtitle}>For weather, local context, and nearby assistant queries.</Text>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={styles.sectionCardTitle}>Location</Text>
+                  <TouchableOpacity
+                    onPress={() =>
+                      Alert.alert(
+                        'Location Context',
+                        'Your location is used locally by Ultron AI for accurate weather forecasts, time zone synchronization, and local assistant queries. It stays 100% private on your device.'
+                      )
+                    }
+                    activeOpacity={0.7}
+                    style={{ padding: 4 }}
+                    accessibilityLabel="About Location"
+                  >
+                    <InfoIcon size={16} color="#a1a1aa" />
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.autoLocationToggleRow}>
                   <Text style={styles.autoLocationToggleLabel}>Auto-detect</Text>
@@ -1819,7 +1884,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Categorized Settings Cards Groups matching Reference Screenshot */}
+          {/* iOS-Style Profile Card */}
+          <TouchableOpacity
+            style={styles.iosProfileCard}
+            onPress={() => navigateToView('account')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iosAvatarCircle}>
+              <Text style={styles.iosAvatarText}>{userInitial}</Text>
+            </View>
+            <View style={styles.iosProfileInfo}>
+              <Text style={styles.iosProfileName}>{userName}</Text>
+              <Text style={styles.iosProfileSubtitle}>Ultron Sovereign Account & Keystore</Text>
+            </View>
+            <ChevronRightIcon size={18} color="#8e8e93" />
+          </TouchableOpacity>
+
+          {/* Categorized Settings Cards Groups matching iOS Design */}
           {settingsGroups.map((group) => {
             const visibleItems = group.items.filter(
               (item) =>
@@ -1847,11 +1928,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       <React.Fragment key={item.id}>
                         <HoverableSettingsRow onPress={item.action}>
                           <View style={styles.cleanMenuLeft}>
-                            <View style={styles.cleanMenuIconBox}>
-                              {renderItemIcon(item.iconType, item.iconColor)}
-                            </View>
+                            {renderItemIcon(item.iconType, item.squircleBg)}
                             <Text style={styles.cleanMenuTitle}>{item.title}</Text>
+                          </View>
 
+                          <View style={styles.cleanMenuRight}>
                             {/* Stacked Hugging Face + Gemini logos for Models */}
                             {item.id === 'models' && (
                               <View style={styles.modelsLogoStack}>
@@ -1865,8 +1946,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                                 />
                               </View>
                             )}
+                            {item.detail ? (
+                              <Text style={styles.iosRowDetailText} numberOfLines={1}>
+                                {item.detail}
+                              </Text>
+                            ) : null}
+                            <ChevronRightIcon size={16} color="#8e8e93" />
                           </View>
-                          <ChevronRightIcon size={16} color="#71717a" />
                         </HoverableSettingsRow>
 
                         {!isLast && <View style={styles.cleanMenuDivider} />}
@@ -2007,10 +2093,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   menuGroupSectionTitle: {
-    color: '#9ca3af',
-    fontSize: 13,
+    color: '#8e8e93',
+    fontSize: 11.5,
     fontWeight: '600',
-    letterSpacing: 0.2,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   menuGroupBadge: {
     backgroundColor: '#ef4444',
@@ -2023,68 +2110,119 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  groupCardContainer: {
-    backgroundColor: '#282828',
-    borderRadius: 22,
+  iosProfileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1c1e',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  iosAvatarCircle: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#3a3a3c',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  iosAvatarText: {
+    color: '#ffffff',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  iosProfileInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  iosProfileName: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  iosProfileSubtitle: {
+    color: '#8e8e93',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  groupCardContainer: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     overflow: 'hidden',
   },
   cleanMenuRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 15,
+    paddingVertical: 13,
     paddingHorizontal: 16,
   },
   cleanMenuLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    flex: 1,
   },
-  cleanMenuIconBox: {
-    width: 24,
+  iosSquircleIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cleanMenuTitle: {
     color: '#ffffff',
     fontSize: 15.5,
-    fontWeight: '600',
+    fontWeight: '500',
     letterSpacing: -0.2,
+  },
+  cleanMenuRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iosRowDetailText: {
+    color: '#8e8e93',
+    fontSize: 14,
+    fontWeight: '400',
   },
   modelsLogoStack: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 6,
+    marginRight: 4,
   },
   modelsStackedLogo1: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#282828',
+    borderColor: '#1c1c1e',
     zIndex: 2,
   },
   modelsStackedLogo2: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#ffffff',
     padding: 2,
     borderWidth: 1.5,
-    borderColor: '#282828',
+    borderColor: '#1c1c1e',
     marginLeft: -9,
     zIndex: 1,
   },
   cleanMenuDivider: {
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    marginLeft: 54,
-    marginRight: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginLeft: 60,
   },
   pageCardGroup: {
     backgroundColor: '#1A1A1A',

@@ -128,6 +128,14 @@ export const ShieldCheckIcon: React.FC<IconProps> = ({ size = 22, color = colors
   </Svg>
 );
 
+export const InfoIcon: React.FC<IconProps> = ({ size = 16, color = '#71717a' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="12" cy="12" r="10" />
+    <Line x1="12" y1="16" x2="12" y2="12" />
+    <Line x1="12" y1="8" x2="12.01" y2="8" />
+  </Svg>
+);
+
 export const ShieldIcon: React.FC<IconProps> = ({ size = 18, color = '#3b82f6' }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
