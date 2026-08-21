@@ -26,6 +26,7 @@ import {
   ImageIcon,
   AudioFileIcon,
   LaptopIcon,
+  CpuIcon,
 } from './Icons';
 import { ModelMetadata } from '../types/model';
 import { buildAvailableChatModels } from '../services/modelManager/ModelCatalog';
@@ -367,7 +368,14 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 showsVerticalScrollIndicator
               >
                 {availableModels.length === 0 ? (
-                  <Text style={styles.dropdownEmpty}>No models installed yet. Open the Model Store to download one.</Text>
+                  <View style={styles.dropdownEmptyContainer}>
+                    <View style={styles.dropdownEmptyIconBox}>
+                      <CpuIcon size={24} color="#a1a1aa" />
+                    </View>
+                    <Text style={styles.dropdownEmptyText}>
+                      No models installed yet. Open the Model Store to download one.
+                    </Text>
+                  </View>
                 ) : (
                   availableModels.map((m) => {
                   const isSelected = activeModel?.id === m.id;
@@ -450,7 +458,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                   }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.dropdownFooterText}>Manage all models in Store →</Text>
+                  <Text style={styles.dropdownFooterText}>Manage Models</Text>
                 </TouchableOpacity>
               )}
             </Animated.View>
@@ -719,17 +727,18 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 36,
-    maxHeight: 248,
-    backgroundColor: '#282828',
+    minHeight: 180,
+    maxHeight: 280,
+    backgroundColor: '#161618',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    padding: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.7,
+    shadowRadius: 18,
+    elevation: 24,
     zIndex: 50,
   },
   modelPickerWrap: {
@@ -812,9 +821,9 @@ const styles = StyleSheet.create({
   },
   dropdownHeader: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
     marginBottom: 6,
   },
   dropdownHeaderText: {
@@ -828,14 +837,30 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   dropdownScroll: {
-    maxHeight: 176,
+    maxHeight: 200,
   },
-  dropdownEmpty: {
+  dropdownEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 22,
+    paddingHorizontal: 16,
+    minHeight: 110,
+  },
+  dropdownEmptyIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  dropdownEmptyText: {
     color: '#a1a1aa',
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 18,
-    paddingHorizontal: 10,
-    paddingVertical: 12,
+    textAlign: 'center',
+    maxWidth: 240,
   },
   dropdownItem: {
     flexDirection: 'row',
@@ -930,16 +955,19 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   dropdownFooterBtn: {
-    marginTop: 6,
-    paddingTop: 8,
+    marginTop: 8,
+    paddingTop: 10,
+    paddingBottom: 4,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   dropdownFooterText: {
     color: '#3b82f6',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
+    textAlign: 'center',
   },
   modelHeaderRow: {
     flexDirection: 'row',
