@@ -11,6 +11,7 @@ import {
   Image,
   Platform,
   Modal,
+  Alert,
 } from 'react-native';
 import { ChatSession } from '../types/chat';
 import { colors } from '../theme/colors';
@@ -18,6 +19,7 @@ import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   PlusIcon,
   TrashIcon,
+  DownloadIcon,
   LaptopIcon,
   SettingsIcon,
   SearchIcon,
@@ -26,6 +28,7 @@ import {
   SparklesIcon,
   DocumentIcon,
 } from './Icons';
+import { ChatRepository } from '../services/storage/ChatRepository';
 
 interface DrawerSidebarProps {
   isOpen: boolean;
@@ -180,6 +183,50 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     );
   });
 
+  const handleDownloadSession = async (session: ChatSession) => {
+    try {
+      const repo = new ChatRepository();
+      const messages = await repo.getMessagesForSession(session.id);
+      if (!messages || messages.length === 0) {
+        Alert.alert('Empty Chat', 'No messages found to download.');
+        return;
+      }
+
+      const formattedDate = new Date(session.createdAt || Date.now()).toLocaleDateString();
+      const markdown = [
+        `# ${session.title}`,
+        `Date: ${formattedDate}`,
+        `Model: ${session.modelId || 'Ultron AI'}`,
+        `Messages: ${messages.length}`,
+        `\n---\n`,
+        ...messages.map((m: any) => {
+          const speaker = m.role === 'user' ? 'User' : 'Ultron';
+          return `### ${speaker}\n${m.content}\n`;
+        }),
+      ].join('\n');
+
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${session.title.replace(/[^a-z0-9_-]/gi, '_')}.md`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      } else {
+        Alert.alert(
+          'Chat Exported',
+          `"${session.title}" (${messages.length} messages) ready to export.`,
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (err: any) {
+      Alert.alert('Download Error', err?.message || 'Failed to download chat transcript.');
+    }
+  };
+
   // Split sessions into "Last 7 days" and "Older"
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recentSessions = filteredSessions.filter((s) => (s.updatedAt || s.createdAt) >= sevenDaysAgo);
@@ -266,6 +313,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               sessions.map((item: ChatSession) => {
                 const isActive = item.id === activeSessionId;
                 const isHovered = item.id === hoveredSessionId;
+                const showActions = isHovered || isActive;
                 const formattedTitle = formatConversationTitle(item.title);
                 const hoverHandlers =
                   Platform.OS === 'web'
@@ -307,16 +355,33 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                         </Text>
                       ) : null}
                     </View>
-                    {isHovered && (
+
+                    {/* Action buttons (Download/Export & Delete) shown on hover or active */}
+                    <View style={[styles.sessionActionsGroup, !showActions && styles.sessionActionsHidden]}>
                       <TouchableOpacity
-                        style={styles.deleteSessionBtn}
-                        onPress={() => onDeleteSession(item.id)}
+                        style={styles.actionIconBtn}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          handleDownloadSession(item);
+                        }}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Download / Export chat"
+                      >
+                        <DownloadIcon size={14} color="#a1a1aa" />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.actionIconBtn, styles.deleteActionBtn]}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          onDeleteSession(item.id);
+                        }}
                         activeOpacity={0.7}
                         accessibilityLabel="Delete chat"
                       >
-                        <TrashIcon size={15} color="#ef4444" />
+                        <TrashIcon size={14} color="#ef4444" />
                       </TouchableOpacity>
-                    )}
+                    </View>
                   </TouchableOpacity>
                 );
               })
@@ -693,6 +758,26 @@ const styles = StyleSheet.create({
   deleteSessionBtn: {
     padding: 6,
     backgroundColor: 'transparent',
+  },
+  sessionActionsGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 6,
+  },
+  sessionActionsHidden: {
+    opacity: 0,
+  },
+  actionIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  deleteActionBtn: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
   },
   drawerFooter: {
     paddingHorizontal: 12,
