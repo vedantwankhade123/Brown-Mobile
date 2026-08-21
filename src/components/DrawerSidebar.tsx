@@ -267,18 +267,29 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 </Text>
               </View>
 
-              {/* Close / Cross Button without Background */}
-              <TouchableOpacity
-                style={styles.closeCrossBtn}
-                onPress={handleClose}
-                activeOpacity={0.7}
-                accessibilityLabel="Close sidebar"
-              >
-                <CloseIcon size={18} color="#a1a1aa" />
-              </TouchableOpacity>
+              {/* Top-Right Header Actions: Close Cross Button + Search Button */}
+              <View style={styles.topRightActions}>
+                <TouchableOpacity
+                  style={styles.closeCrossBtn}
+                  onPress={handleClose}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Close sidebar"
+                >
+                  <CloseIcon size={18} color="#a1a1aa" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.searchToggleBtn}
+                  onPress={() => setIsSpotlightOpen(true)}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Search conversations"
+                >
+                  <SearchIcon size={18} color="#a1a1aa" />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Actions Row: New Chat Button + Spotlight Search Button without Background */}
+            {/* Actions Row: Full-width New Chat Button */}
             <View style={styles.actionRow}>
               <TouchableOpacity
                 style={styles.newChatBtn}
@@ -290,15 +301,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               >
                 <PlusIcon size={16} color="#000000" />
                 <Text style={styles.newChatText}>New Chat</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.searchToggleBtn}
-                onPress={() => setIsSpotlightOpen(true)}
-                activeOpacity={0.7}
-                accessibilityLabel="Search conversations"
-              >
-                <SearchIcon size={18} color="#a1a1aa" />
               </TouchableOpacity>
             </View>
           </View>
@@ -663,7 +665,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
+  topRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   closeCrossBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+  searchToggleBtn: {
     width: 32,
     height: 32,
     alignItems: 'center',
@@ -674,7 +689,7 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 2,
   },
   newChatBtn: {
     flex: 1,
@@ -690,14 +705,6 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 13.5,
     fontWeight: '700',
-  },
-  searchToggleBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
   },
   sessionsList: {
     flex: 1,
