@@ -338,7 +338,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             </View>
           )}
 
-            <View style={styles.modelPickerWrap}>
+            <View style={[styles.modelPickerWrap, { zIndex: showModelDropdown ? 500 : 1 }]}>
               {showModelDropdown && (
             <Animated.View
               style={[
@@ -528,95 +528,67 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                     <TouchableOpacity
                       style={[
                         styles.contextMenuItem,
-                        !canAttachDoc && styles.contextMenuItemDisabled,
-                        canAttachDoc && hoveredOption === 'doc' && styles.contextMenuItemHovered,
+                        hoveredOption === 'doc' && styles.contextMenuItemHovered,
                       ]}
-                      onPress={() => {
-                        if (canAttachDoc) {
-                          handleAttachFile('doc');
-                        } else {
-                          Alert.alert('Not Supported', `${activeModel?.name || 'Selected model'} does not support document ingestion.`);
-                        }
-                      }}
-                      disabled={!canAttachDoc}
-                      activeOpacity={canAttachDoc ? 0.65 : 1}
-                      {...(Platform.OS === 'web' && canAttachDoc
+                      onPress={() => handleAttachFile('doc')}
+                      activeOpacity={0.7}
+                      {...(Platform.OS === 'web'
                         ? ({
                             onMouseEnter: () => setHoveredOption('doc'),
                             onMouseLeave: () => setHoveredOption(null),
                           } as any)
                         : {})}
                     >
-                      <View style={styles.contextMenuIconBox}>
-                        <DocumentIcon size={17} color={canAttachDoc ? (hoveredOption === 'doc' ? '#93c5fd' : '#60a5fa') : '#52525b'} />
+                      <View style={[styles.contextMenuIconBox, hoveredOption === 'doc' && { backgroundColor: 'rgba(59, 130, 246, 0.22)' }]}>
+                        <DocumentIcon size={16} color={hoveredOption === 'doc' ? '#93c5fd' : '#60a5fa'} />
                       </View>
-                      <Text
-                        style={[
-                          styles.contextMenuText,
-                          !canAttachDoc && styles.contextMenuTextDisabled,
-                          canAttachDoc && hoveredOption === 'doc' && styles.contextMenuTextHovered,
-                        ]}
-                      >
+                      <Text style={[styles.contextMenuText, hoveredOption === 'doc' && styles.contextMenuTextHovered]}>
                         Add Document
                       </Text>
-                      {canAttachDoc ? (
-                        <ChevronRightIcon
-                          size={13}
-                          color={hoveredOption === 'doc' ? '#ffffff' : '#71717a'}
-                        />
-                      ) : (
-                        <View style={styles.disabledBadge}>
-                          <Text style={styles.disabledBadgeText}>Disabled</Text>
-                        </View>
-                      )}
+                      <ChevronRightIcon
+                        size={14}
+                        color={hoveredOption === 'doc' ? '#ffffff' : '#71717a'}
+                      />
                     </TouchableOpacity>
 
                     {/* Option 2: Add Image */}
                     <TouchableOpacity
                       style={[
                         styles.contextMenuItem,
-                        !canAttachImg && styles.contextMenuItemDisabled,
-                        canAttachImg && hoveredOption === 'img' && styles.contextMenuItemHovered,
+                        hoveredOption === 'img' && styles.contextMenuItemHovered,
                       ]}
                       onPress={() => {
                         if (canAttachImg) {
                           handleAttachFile('img');
                         } else {
                           Alert.alert(
-                            'Vision Model Required',
-                            `The current model (${activeModel?.name || 'Text Model'}) is a text-only neural engine. Switch to an online or vision model to analyze images.`
+                            'Vision Model',
+                            `The current model (${activeModel?.name || 'Selected Model'}) is optimized for text reasoning. Switch to a vision model (e.g. Gemini Cloud) to analyze photos and images.`
                           );
                         }
                       }}
-                      disabled={!canAttachImg}
-                      activeOpacity={canAttachImg ? 0.65 : 1}
-                      {...(Platform.OS === 'web' && canAttachImg
+                      activeOpacity={0.7}
+                      {...(Platform.OS === 'web'
                         ? ({
                             onMouseEnter: () => setHoveredOption('img'),
                             onMouseLeave: () => setHoveredOption(null),
                           } as any)
                         : {})}
                     >
-                      <View style={styles.contextMenuIconBox}>
-                        <ImageIcon size={17} color={canAttachImg ? (hoveredOption === 'img' ? '#6ee7b7' : '#34d399') : '#52525b'} />
+                      <View style={[styles.contextMenuIconBox, hoveredOption === 'img' && { backgroundColor: 'rgba(16, 185, 129, 0.22)' }]}>
+                        <ImageIcon size={16} color={hoveredOption === 'img' ? '#6ee7b7' : '#34d399'} />
                       </View>
-                      <Text
-                        style={[
-                          styles.contextMenuText,
-                          !canAttachImg && styles.contextMenuTextDisabled,
-                          canAttachImg && hoveredOption === 'img' && styles.contextMenuTextHovered,
-                        ]}
-                      >
+                      <Text style={[styles.contextMenuText, hoveredOption === 'img' && styles.contextMenuTextHovered]}>
                         Add Image
                       </Text>
                       {canAttachImg ? (
                         <ChevronRightIcon
-                          size={13}
+                          size={14}
                           color={hoveredOption === 'img' ? '#ffffff' : '#71717a'}
                         />
                       ) : (
                         <View style={styles.disabledBadge}>
-                          <Text style={styles.disabledBadgeText}>Vision only</Text>
+                          <Text style={styles.disabledBadgeText}>Vision</Text>
                         </View>
                       )}
                     </TouchableOpacity>
@@ -625,47 +597,27 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                     <TouchableOpacity
                       style={[
                         styles.contextMenuItem,
-                        !canAttachAudio && styles.contextMenuItemDisabled,
-                        canAttachAudio && hoveredOption === 'audio' && styles.contextMenuItemHovered,
+                        hoveredOption === 'audio' && styles.contextMenuItemHovered,
                       ]}
-                      onPress={() => {
-                        if (canAttachAudio) {
-                          handleAttachFile('audio');
-                        } else {
-                          Alert.alert('Not Supported', `${activeModel?.name || 'Selected model'} does not support audio transcription.`);
-                        }
-                      }}
-                      disabled={!canAttachAudio}
-                      activeOpacity={canAttachAudio ? 0.65 : 1}
-                      {...(Platform.OS === 'web' && canAttachAudio
+                      onPress={() => handleAttachFile('audio')}
+                      activeOpacity={0.7}
+                      {...(Platform.OS === 'web'
                         ? ({
                             onMouseEnter: () => setHoveredOption('audio'),
                             onMouseLeave: () => setHoveredOption(null),
                           } as any)
                         : {})}
                     >
-                      <View style={styles.contextMenuIconBox}>
-                        <AudioFileIcon size={17} color={canAttachAudio ? (hoveredOption === 'audio' ? '#e9d5ff' : '#c084fc') : '#52525b'} />
+                      <View style={[styles.contextMenuIconBox, hoveredOption === 'audio' && { backgroundColor: 'rgba(168, 85, 247, 0.22)' }]}>
+                        <AudioFileIcon size={16} color={hoveredOption === 'audio' ? '#e9d5ff' : '#c084fc'} />
                       </View>
-                      <Text
-                        style={[
-                          styles.contextMenuText,
-                          !canAttachAudio && styles.contextMenuTextDisabled,
-                          canAttachAudio && hoveredOption === 'audio' && styles.contextMenuTextHovered,
-                        ]}
-                      >
+                      <Text style={[styles.contextMenuText, hoveredOption === 'audio' && styles.contextMenuTextHovered]}>
                         Add Voice File
                       </Text>
-                      {canAttachAudio ? (
-                        <ChevronRightIcon
-                          size={13}
-                          color={hoveredOption === 'audio' ? '#ffffff' : '#71717a'}
-                        />
-                      ) : (
-                        <View style={styles.disabledBadge}>
-                          <Text style={styles.disabledBadgeText}>Disabled</Text>
-                        </View>
-                      )}
+                      <ChevronRightIcon
+                        size={14}
+                        color={hoveredOption === 'audio' ? '#ffffff' : '#71717a'}
+                      />
                     </TouchableOpacity>
                   </Animated.View>
                 )}
@@ -789,67 +741,72 @@ const styles = StyleSheet.create({
   },
   plusBtnAnchor: {
     position: 'relative',
-    zIndex: 50,
+    zIndex: 100,
   },
   attachContextMenu: {
     position: 'absolute',
-    bottom: 44,
-    left: -6,
-    backgroundColor: '#1f1f23',
-    borderRadius: 16,
+    bottom: 48,
+    left: -4,
+    backgroundColor: '#141416',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     padding: 6,
-    width: 220,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 14,
-    elevation: 16,
-    zIndex: 60,
-    gap: 2,
+    width: 232,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.85,
+    shadowRadius: 24,
+    elevation: 32,
+    zIndex: 999,
+    gap: 3,
   },
   contextMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: 'transparent',
+    cursor: 'pointer' as any,
   },
   contextMenuItemHovered: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   contextMenuItemDisabled: {
-    opacity: 0.38,
+    opacity: 0.45,
   },
   contextMenuIconBox: {
-    width: 22,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   contextMenuText: {
     flex: 1,
     color: '#e4e4e7',
-    fontSize: 13.5,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.2,
   },
   contextMenuTextHovered: {
     color: '#ffffff',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   contextMenuTextDisabled: {
     color: '#71717a',
   },
   disabledBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     borderRadius: 6,
   },
   disabledBadgeText: {
-    color: '#71717a',
+    color: '#a1a1aa',
     fontSize: 10,
     fontWeight: '600',
   },
