@@ -75,31 +75,33 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       {/* Top Header: Model Name & Clean Transparent Brand Logo */}
       <View style={styles.topRow}>
         <View style={styles.titleArea}>
-          <Text style={styles.modelName}>{model.name}</Text>
+          <Text style={styles.modelName} numberOfLines={1}>
+            {model.name}
+          </Text>
         </View>
 
         {/* Clean Brand Logo Without Background */}
         <View style={styles.brandBadge}>
           {model.source === 'online' || model.id.includes('ollama') ? (
             <View style={styles.brandRow}>
-              <Image source={OLLAMA_LOGO} style={{ width: 16, height: 16, tintColor: '#ffffff' }} resizeMode="contain" />
+              <Image source={OLLAMA_LOGO} style={{ width: 15, height: 15, tintColor: '#ffffff' }} resizeMode="contain" />
               <Text style={styles.brandText}>Ollama</Text>
             </View>
           ) : model.source === 'cloud' || model.id.includes('gemini') ? (
             <View style={styles.brandRow}>
-              <Image source={GEMINI_LOGO} style={{ width: 16, height: 16 }} resizeMode="contain" />
+              <Image source={GEMINI_LOGO} style={{ width: 15, height: 15 }} resizeMode="contain" />
               <Text style={styles.brandText}>Google Gemini</Text>
             </View>
           ) : (
             <View style={styles.brandRow}>
-              <HuggingFaceLogo size={18} />
+              <HuggingFaceLogo size={16} />
               <Text style={styles.brandText}>Hugging Face</Text>
             </View>
           )}
         </View>
       </View>
 
-      {/* Weights & Parameters Info (Clean White Typography) */}
+      {/* Weights & Parameters Info (Secondary Content in Blue Color) */}
       <View style={styles.specsContainer}>
         <View style={styles.specItem}>
           <Text style={styles.specLabel}>Weights:</Text>
@@ -119,7 +121,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
         </View>
       </View>
 
-      {/* Supports / Capabilities Tags (Prominent White Labels) */}
+      {/* Supports / Capabilities Tags (Blue Badges) */}
       <View style={styles.featureTagsRow}>
         <Text style={styles.supportsHeading}>Supports:</Text>
         <View style={styles.tagsGroup}>
@@ -150,16 +152,19 @@ export const ModelCard: React.FC<ModelCardProps> = ({
         </View>
       )}
 
-      {/* Bottom Action Row */}
+      {/* Bottom Action Row: "Size: <size>" on Left + Compact Buttons on Right */}
       <View style={styles.bottomRow}>
-        <Text style={styles.bottomSizeText}>{model.sizeFormatted}</Text>
+        <View style={styles.bottomSizeRow}>
+          <DownloadIcon size={14} color="#60a5fa" />
+          <Text style={styles.bottomSizeText}>Size: {model.sizeFormatted}</Text>
+        </View>
 
         <View style={styles.actionsGroup}>
           {isDownloaded ? (
             <>
               {isActive ? (
                 <View style={styles.activePill}>
-                  <CheckIcon size={13} color="#22c55e" />
+                  <CheckIcon size={12} color="#22c55e" />
                   <Text style={styles.activePillText}>ACTIVE</Text>
                 </View>
               ) : (
@@ -168,7 +173,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                   onPress={() => onSelect(model)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.loadBtnText}>Load Model</Text>
+                  <Text style={styles.loadBtnText}>Load</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity
@@ -176,7 +181,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                 onPress={() => onDelete(model.id)}
                 activeOpacity={0.7}
               >
-                <TrashIcon size={16} color="#ef4444" />
+                <TrashIcon size={15} color="#ef4444" />
               </TouchableOpacity>
             </>
           ) : isDownloading ? (
@@ -185,7 +190,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => onPause?.(model.id)}
               activeOpacity={0.7}
             >
-              <PauseIcon size={14} color="#ffffff" />
+              <PauseIcon size={13} color="#ffffff" />
               <Text style={styles.pauseBtnText}>Pause</Text>
             </TouchableOpacity>
           ) : isPaused ? (
@@ -194,7 +199,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => onResume?.(model.id)}
               activeOpacity={0.7}
             >
-              <DownloadIcon size={14} color="#000000" />
+              <DownloadIcon size={13} color="#ffffff" />
               <Text style={styles.downloadBtnText}>Resume {downloadState.progress}%</Text>
             </TouchableOpacity>
           ) : (
@@ -203,7 +208,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => onDownload(model)}
               activeOpacity={0.7}
             >
-              <DownloadIcon size={14} color="#000000" />
+              <DownloadIcon size={13} color="#ffffff" />
               <Text style={styles.downloadBtnText}>Get GGUF</Text>
             </TouchableOpacity>
           )}
@@ -216,31 +221,31 @@ export const ModelCard: React.FC<ModelCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#18181b',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   activeCard: {
-    borderColor: '#ffffff',
-    backgroundColor: '#202024',
+    borderColor: '#3b82f6',
+    backgroundColor: '#1c1c20',
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   titleArea: {
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
   modelName: {
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   brandBadge: {
     backgroundColor: 'transparent',
@@ -250,77 +255,76 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: 'transparent',
   },
   brandText: {
-    color: '#ffffff',
-    fontSize: 12.5,
+    color: '#a1a1aa',
+    fontSize: 11.5,
     fontWeight: '600',
-    letterSpacing: -0.1,
   },
   specsContainer: {
-    gap: 6,
-    marginBottom: 12,
+    gap: 4,
+    marginBottom: 8,
   },
   specItem: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 6,
+    gap: 5,
     flexWrap: 'wrap',
   },
   specLabel: {
-    color: '#ffffff',
-    fontSize: 13.5,
+    color: '#60a5fa',
+    fontSize: 12.5,
     fontWeight: '700',
   },
   specValue: {
-    color: '#ffffff',
-    fontSize: 13.5,
+    color: '#93c5fd',
+    fontSize: 12.5,
     fontWeight: '500',
     flexShrink: 1,
   },
   featureTagsRow: {
     marginTop: 2,
-    marginBottom: 14,
-    gap: 6,
+    marginBottom: 10,
+    gap: 4,
   },
   supportsHeading: {
-    color: '#ffffff',
-    fontSize: 13,
+    color: '#60a5fa',
+    fontSize: 12,
     fontWeight: '700',
     marginBottom: 2,
   },
   tagsGroup: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 5,
   },
   featureBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(59, 130, 246, 0.25)',
   },
   featureBadgeText: {
-    color: '#ffffff',
-    fontSize: 12,
+    color: '#93c5fd',
+    fontSize: 11,
     fontWeight: '600',
   },
   progressContainer: {
-    marginVertical: 12,
+    marginVertical: 8,
   },
   progressBarBackground: {
-    height: 6,
+    height: 5,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 3,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#3b82f6',
   },
   progressStats: {
     flexDirection: 'row',
@@ -328,7 +332,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   progressText: {
-    color: '#ffffff',
+    color: '#60a5fa',
     fontSize: 11,
     fontWeight: '600',
   },
@@ -340,80 +344,85 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 12,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
+  bottomSizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
   bottomSizeText: {
-    color: '#ffffff',
-    fontSize: 14,
+    color: '#60a5fa',
+    fontSize: 13,
     fontWeight: '700',
   },
   actionsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   downloadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 16,
-    paddingVertical: 9,
+    gap: 5,
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
     borderRadius: 9999,
   },
   downloadBtnText: {
-    color: '#000000',
-    fontSize: 13,
+    color: '#ffffff',
+    fontSize: 12.5,
     fontWeight: '700',
   },
   loadBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 9999,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
   },
   loadBtnText: {
-    color: '#ffffff',
-    fontSize: 13,
+    color: '#60a5fa',
+    fontSize: 12,
     fontWeight: '600',
   },
   deleteBtn: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
   },
   pauseBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
     backgroundColor: '#3f3f46',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 9999,
   },
   pauseBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
   activePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
     backgroundColor: 'rgba(34, 197, 94, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 9999,
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.3)',
   },
   activePillText: {
     color: '#22c55e',
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
