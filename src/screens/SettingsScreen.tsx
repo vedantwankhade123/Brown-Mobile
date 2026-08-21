@@ -588,18 +588,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Top-Level Main Settings Menu Groups (iOS Grouped Settings Pattern)
+  // Top-Level Main Settings Menu Groups (Title Cased & Transparent Icons)
   const settingsGroups = [
     {
-      id: 'ai_network',
-      title: 'AI ENGINE & CONNECTIVITY',
+      id: 'general_account',
+      title: 'General & Account',
       badge: undefined,
       items: [
+        {
+          id: 'account',
+          title: 'Account',
+          iconType: 'user',
+          iconColor: '#60a5fa',
+          detail: userName || 'Profile',
+          action: () => navigateToView('account'),
+        },
         {
           id: 'models',
           title: 'Models',
           iconType: 'cpu',
-          squircleBg: '#5856D6',
+          iconColor: '#c084fc',
           detail: undefined,
           action: () => navigateToView('models'),
         },
@@ -607,7 +615,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           id: 'location',
           title: 'Location',
           iconType: 'globe',
-          squircleBg: '#FF3B30',
+          iconColor: '#f87171',
           detail: homeLocation ? (homeLocation.length > 18 ? `${homeLocation.slice(0, 18)}…` : homeLocation) : 'Detecting…',
           action: () => navigateToView('account'),
         },
@@ -615,22 +623,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           id: 'data_sync',
           title: 'Desktop Sync',
           iconType: 'wifi',
-          squircleBg: '#007AFF',
+          iconColor: '#38bdf8',
           detail: 'Offline',
           action: () => navigateToView('data_sync'),
         },
       ],
     },
     {
-      id: 'intelligence',
-      title: 'INTELLIGENCE & AUDIO',
+      id: 'voice_storage',
+      title: 'Voice & Storage',
       badge: undefined,
       items: [
         {
           id: 'sounds',
-          title: 'Agent Sounds & Voice',
+          title: 'Voice & Speech',
           iconType: 'volume',
-          squircleBg: '#FF2D55',
+          iconColor: '#fb7185',
           detail: 'Kokoro 82M',
           action: () => navigateToView('sounds'),
         },
@@ -638,7 +646,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           id: 'storage',
           title: 'Storage & Memory',
           iconType: 'database',
-          squircleBg: '#34C759',
+          iconColor: '#4ade80',
           detail: undefined,
           action: () => navigateToView('storage'),
         },
@@ -646,51 +654,43 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           id: 'updates',
           title: 'Software Updates',
           iconType: 'zap',
-          squircleBg: '#FF9500',
-          detail: 'Up to date',
+          iconColor: '#fb923c',
+          detail: 'BETA v1',
           action: () => navigateToView('updates'),
         },
       ],
     },
     {
-      id: 'system_info',
-      title: 'SYSTEM & SECURITY',
+      id: 'about_system',
+      title: 'About & System',
       badge: undefined,
       items: [
-        {
-          id: 'privacy',
-          title: 'Privacy & Keystore',
-          iconType: 'shield',
-          squircleBg: '#30B0C7',
-          detail: 'Encrypted',
-          action: () => navigateToView('account'),
-        },
         {
           id: 'about',
           title: 'About Ultron',
           iconType: 'sparkles',
-          squircleBg: '#8E8E93',
-          detail: '1.0.8 BETA',
+          iconColor: '#e4e4e7',
+          detail: 'BETA v1',
           action: () => navigateToView('about'),
         },
       ],
     },
   ];
 
-  const renderItemIcon = (iconType: string, squircleBg: string = '#007AFF') => {
-    let iconEl = <CpuIcon size={16} color="#ffffff" />;
-    if (iconType === 'user') iconEl = <UserIcon size={16} color="#ffffff" />;
-    else if (iconType === 'cpu') iconEl = <CpuIcon size={16} color="#ffffff" />;
-    else if (iconType === 'globe') iconEl = <GlobeIcon size={16} color="#ffffff" />;
-    else if (iconType === 'volume') iconEl = <VolumeIcon size={16} color="#ffffff" />;
-    else if (iconType === 'database') iconEl = <DatabaseIcon size={16} color="#ffffff" />;
-    else if (iconType === 'wifi') iconEl = <WifiIcon size={16} color="#ffffff" />;
-    else if (iconType === 'zap') iconEl = <ZapIcon size={16} color="#ffffff" />;
-    else if (iconType === 'sparkles') iconEl = <SparklesIcon size={16} color="#ffffff" />;
-    else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={16} color="#ffffff" />;
+  const renderItemIcon = (iconType: string, iconColor: string = '#ffffff') => {
+    let iconEl = <CpuIcon size={19} color={iconColor} />;
+    if (iconType === 'user') iconEl = <UserIcon size={19} color={iconColor} />;
+    else if (iconType === 'cpu') iconEl = <CpuIcon size={19} color={iconColor} />;
+    else if (iconType === 'globe') iconEl = <GlobeIcon size={19} color={iconColor} />;
+    else if (iconType === 'volume') iconEl = <VolumeIcon size={19} color={iconColor} />;
+    else if (iconType === 'database') iconEl = <DatabaseIcon size={19} color={iconColor} />;
+    else if (iconType === 'wifi') iconEl = <WifiIcon size={19} color={iconColor} />;
+    else if (iconType === 'zap') iconEl = <ZapIcon size={19} color={iconColor} />;
+    else if (iconType === 'sparkles') iconEl = <SparklesIcon size={19} color={iconColor} />;
+    else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={19} color={iconColor} />;
 
     return (
-      <View style={[styles.iosSquircleIconBox, { backgroundColor: squircleBg }]}>
+      <View style={styles.cleanMenuIconBox}>
         {iconEl}
       </View>
     );
@@ -1928,7 +1928,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       <React.Fragment key={item.id}>
                         <HoverableSettingsRow onPress={item.action}>
                           <View style={styles.cleanMenuLeft}>
-                            {renderItemIcon(item.iconType, item.squircleBg)}
+                            {renderItemIcon(item.iconType, item.iconColor)}
                             <Text style={styles.cleanMenuTitle}>{item.title}</Text>
                           </View>
 
@@ -2169,12 +2169,12 @@ const styles = StyleSheet.create({
     gap: 14,
     flex: 1,
   },
-  iosSquircleIconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 7,
+  cleanMenuIconBox: {
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   cleanMenuTitle: {
     color: '#ffffff',

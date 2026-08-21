@@ -1,4 +1,4 @@
-# Ultron Mobile (Phase 1 MVP)
+# Ultron Mobile (BETA v1)
 
 **Ultron Mobile** is an autonomous, privacy-first, on-device AI conversational companion for **iOS (16+)** and **Android (11+)**. It runs quantized Small Language Models (SLMs) completely offline without cloud telemetry or data leakage.
 
@@ -9,7 +9,7 @@
 - **100% Offline On-Device Inference**: Runs quantized `.gguf` neural models (`Llama 3.2 1B/3B`, `Gemma 2 2B`, `Qwen 2.5 1.5B`) directly on phone hardware.
 - **Hardware Acceleration**: Bridges to Apple Neural Engine / Metal via `llama.rn` on iOS, and Vulkan / OpenCL / NPU on Android.
 - **Zero-Telemetry Air Gap**: Zero analytics, zero logging servers, 100% private.
-- **Visual Model Store & GGUF Downloader**: One-tap model manager with storage meters and RAM tier recommendations (1GB, 2GB, 3GB).
+- **Visual Model Store & GGUF Downloader**: One-tap model manager with storage meters and RAM tier recommendations.
 - **Encrypted Local Storage**: Conversation history stored in local SQLite encrypted via iOS Keychain / Android Keystore.
 - **Voice Mode**: Whisper speech recognition and neural text-to-speech audio playback.
 - **Desktop Ultron Sync**: Optional local Wi-Fi pairing to discover and sync conversation threads with your Desktop Ultron instance.
@@ -71,11 +71,9 @@ cd mobile
 npm start
 ```
 
-### Build for Native iOS & Android
-```bash
-# Android
-npx expo run:android
+---
 
-# iOS (macOS host required)
-npx expo run:ios
-```
+## 📄 License & Intellectual Property
+
+Ultron Mobile is **Proprietary & Confidential Software**. Copyright (c) 2026 Vedant Wankhade. All Rights Reserved. See [LICENSE](LICENSE) for details.
+

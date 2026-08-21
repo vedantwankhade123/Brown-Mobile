@@ -263,7 +263,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   resizeMode="contain"
                 />
                 <Text style={styles.brandTitle}>Ultron</Text>
-                <Text style={styles.betaText}>BETA</Text>
+                <Text style={styles.betaText}>BETA v1</Text>
               </View>
 
               {/* Close / Cross Button without Background */}
