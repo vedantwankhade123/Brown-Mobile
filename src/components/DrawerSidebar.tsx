@@ -662,8 +662,7 @@ const styles = StyleSheet.create({
     color: '#3b82f6',
     fontSize: 11.5,
     fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   topRightActions: {
     flexDirection: 'row',

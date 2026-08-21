@@ -29,11 +29,6 @@ export const Header: React.FC<HeaderProps> = ({
           </TouchableOpacity>
 
           <View style={styles.brandLeft}>
-            <Image
-              source={require('../../Assets/ultron-logo.png')}
-              style={styles.headerLogo}
-              resizeMode="contain"
-            />
             <Text style={styles.brandTitle}>
               Ultron <Text style={styles.betaText}>BETA v1</Text>
             </Text>
@@ -91,12 +86,8 @@ const styles = StyleSheet.create({
   brandLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    paddingLeft: 4,
     paddingRight: 6,
-  },
-  headerLogo: {
-    width: 21,
-    height: 21,
   },
   brandTitle: {
     color: '#ffffff',
@@ -108,8 +99,7 @@ const styles = StyleSheet.create({
     color: '#3b82f6',
     fontSize: 11.5,
     fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   iconButton: {
     width: 32,
