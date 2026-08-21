@@ -2124,7 +2124,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1c1c1e',
-    borderRadius: 14,
+    borderRadius: 22,
     padding: 14,
     marginBottom: 18,
     borderWidth: 1,
@@ -2161,7 +2161,7 @@ const styles = StyleSheet.create({
   },
   groupCardContainer: {
     backgroundColor: '#1c1c1e',
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
     overflow: 'hidden',
@@ -2236,7 +2236,7 @@ const styles = StyleSheet.create({
   },
   pageCardGroup: {
     backgroundColor: '#1A1A1A',
-    borderRadius: 20,
+    borderRadius: 22,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: 1,
@@ -2589,7 +2589,7 @@ const styles = StyleSheet.create({
   /* Desktop Connectors & Models Styles */
   connectorCard: {
     backgroundColor: '#1A1A1A',
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -2899,7 +2899,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1A1A1A',
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -2944,7 +2944,7 @@ const styles = StyleSheet.create({
   },
   locationCardGroup: {
     backgroundColor: '#1c1c1e',
-    borderRadius: 16,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -3088,7 +3088,7 @@ const styles = StyleSheet.create({
   /* Software Updates Styles */
   updateCard: {
     backgroundColor: '#1A1A1A',
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -3127,7 +3127,7 @@ const styles = StyleSheet.create({
   /* About Screen Styles */
   aboutCard: {
     backgroundColor: '#1A1A1A',
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 18,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
