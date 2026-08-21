@@ -262,8 +262,9 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   style={styles.brandLogo}
                   resizeMode="contain"
                 />
-                <Text style={styles.brandTitle}>Ultron</Text>
-                <Text style={styles.betaText}>BETA v1</Text>
+                <Text style={styles.brandTitle}>
+                  Ultron <Text style={styles.betaText}>BETA v1</Text>
+                </Text>
               </View>
 
               {/* Close / Cross Button without Background */}
@@ -657,10 +658,9 @@ const styles = StyleSheet.create({
   },
   betaText: {
     color: '#3b82f6',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
-    letterSpacing: 0.5,
-    marginLeft: 1,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   closeCrossBtn: {
