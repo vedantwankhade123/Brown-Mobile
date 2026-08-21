@@ -266,17 +266,8 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 </Text>
               </View>
 
-              {/* Top-Right Header Actions: Close Cross Button + Search Button */}
+              {/* Top-Right Header Actions: Search Button (left) + Close Cross Button (right) */}
               <View style={styles.topRightActions}>
-                <TouchableOpacity
-                  style={styles.closeCrossBtn}
-                  onPress={handleClose}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Close sidebar"
-                >
-                  <CloseIcon size={18} color="#a1a1aa" />
-                </TouchableOpacity>
-
                 <TouchableOpacity
                   style={styles.searchToggleBtn}
                   onPress={() => setIsSpotlightOpen(true)}
@@ -284,6 +275,15 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   accessibilityLabel="Search conversations"
                 >
                   <SearchIcon size={18} color="#a1a1aa" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.closeCrossBtn}
+                  onPress={handleClose}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Close sidebar"
+                >
+                  <CloseIcon size={18} color="#a1a1aa" />
                 </TouchableOpacity>
               </View>
             </View>
