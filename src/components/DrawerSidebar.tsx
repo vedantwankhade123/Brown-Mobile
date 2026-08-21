@@ -17,13 +17,12 @@ import { ChatSession } from '../types/chat';
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
-  PlusIcon,
-  TrashIcon,
-  DownloadIcon,
-  LaptopIcon,
-  SettingsIcon,
-  SearchIcon,
   CloseIcon,
+  PlusIcon,
+  SearchIcon,
+  TrashIcon,
+  SettingsIcon,
+  LaptopIcon,
   PencilIcon,
   SparklesIcon,
   DocumentIcon,
@@ -330,7 +329,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     key={item.id}
                     style={[
                       styles.sessionItem,
-                      isActive && styles.sessionItemActive,
                       isHovered && styles.sessionItemHovered,
                     ]}
                     onPress={() => {
@@ -359,22 +357,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                       ) : null}
                     </View>
 
-                    {/* Action buttons (Download/Export & Delete) shown on hover or active */}
-                    <View style={[styles.sessionActionsGroup, !showActions && styles.sessionActionsHidden]}>
+                    {/* Delete action button shown on hover */}
+                    {showActions && (
                       <TouchableOpacity
-                        style={styles.actionIconBtn}
-                        onPress={(e: any) => {
-                          e?.stopPropagation?.();
-                          handleDownloadSession(item);
-                        }}
-                        activeOpacity={0.7}
-                        accessibilityLabel="Download / Export chat"
-                      >
-                        <DownloadIcon size={14} color="#a1a1aa" />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.actionIconBtn, styles.deleteActionBtn]}
+                        style={styles.deleteActionBtn}
                         onPress={(e: any) => {
                           e?.stopPropagation?.();
                           onDeleteSession(item.id);
@@ -384,7 +370,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                       >
                         <TrashIcon size={14} color="#ef4444" />
                       </TouchableOpacity>
-                    </View>
+                    )}
                   </TouchableOpacity>
                 );
               })
@@ -728,28 +714,30 @@ const styles = StyleSheet.create({
   sessionItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: 'transparent',
     borderRadius: 12,
-    marginBottom: 4,
+    marginBottom: 2,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
     borderColor: 'transparent',
   },
   sessionItemActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'transparent',
   },
   sessionItemHovered: {
-    backgroundColor: 'rgba(255, 255, 255, 0.10)',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#1c1c1e',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   sessionContent: {
     flex: 1,
     paddingVertical: 2,
+    marginRight: 8,
   },
   sessionTitle: {
     color: '#d4d4d8',
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '500',
   },
   sessionTitleActive: {
@@ -758,31 +746,15 @@ const styles = StyleSheet.create({
   },
   sessionPreview: {
     color: '#71717a',
-    fontSize: 11,
+    fontSize: 11.5,
     marginTop: 2,
   },
-  deleteSessionBtn: {
-    padding: 6,
-    backgroundColor: 'transparent',
-  },
-  sessionActionsGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginLeft: 6,
-  },
-  sessionActionsHidden: {
-    opacity: 0,
-  },
-  actionIconBtn: {
+  deleteActionBtn: {
     width: 28,
     height: 28,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  deleteActionBtn: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
   },
   drawerFooter: {
