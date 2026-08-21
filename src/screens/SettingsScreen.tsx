@@ -584,10 +584,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Platform-aware "Also Available On" links
   const currentPlatform = Platform.OS; // 'android' | 'ios' | 'web' | 'windows' | 'macos'
   const allPlatforms = [
-    { id: 'windows', label: 'Download for Windows', icon: 'windows', color: '#0078D4', branded: true, url: `${ULTRON_DOWNLOAD_URL}?platform=windows` },
-    { id: 'macos', label: 'Download for macOS', icon: 'apple', color: '#000000', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=macos` },
-    { id: 'ios', label: 'Download for iOS', icon: 'apple', color: '#007AFF', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=ios` },
-    { id: 'android', label: 'Download for Android', icon: 'android', color: '#3DDC84', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=android` },
+    { id: 'windows', label: 'Download for Windows', icon: 'windows', color: '#0078D4', branded: true, url: `${ULTRON_DOWNLOAD_URL}?platform=windows`, disabled: false },
+    { id: 'macos', label: 'Download for macOS', icon: 'apple', color: '#000000', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=macos`, disabled: true },
+    { id: 'ios', label: 'Download for iOS', icon: 'apple', color: '#007AFF', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=ios`, disabled: true },
+    { id: 'android', label: 'Download for Android', icon: 'android', color: '#3DDC84', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=android`, disabled: false },
   ];
   // Filter out the current platform
   const otherPlatforms = allPlatforms.filter((p) => {
@@ -1750,10 +1750,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
               <Text style={styles.aboutSectionTitle}>About Ultron</Text>
               <Text style={styles.aboutParagraph}>
-                Ultron is an advanced, privacy-first conversational AI companion built to run directly on smartphone hardware. It operates locally on your device, interacts naturally via text and speech, and assists with intelligent chat, summarization, analysis, and offline knowledge — without sending your personal data to remote cloud servers.
+                Ultron is an advanced, sovereign conversational AI companion built to run directly on smartphone hardware. All SLM neural model inference, prompt executions, and chat histories operate locally inside a 100% private on-device sandbox. No personal data, chat context, or telemetry is ever transmitted to remote servers.
               </Text>
               <Text style={[styles.aboutParagraph, { marginTop: 8 }]}>
-                Powered by quantized GGUF neural models with optional fallback to Google Gemini cloud intelligence when requested, Ultron delivers fast, autonomous capability while keeping you in complete control.
+                Powered by quantized GGUF neural models with optional fallback to Google Gemini cloud intelligence when requested, Ultron delivers fast, autonomous capability while keeping you in complete sovereign control.
               </Text>
 
               {/* Specs Grid (Desktop Parity) */}
@@ -1765,10 +1765,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <View style={styles.aboutSpecItem}>
                   <Text style={styles.aboutSpecLabel}>PLATFORM</Text>
                   <Text style={styles.aboutSpecValue}>{Platform.OS.toUpperCase()}</Text>
-                </View>
-                <View style={styles.aboutSpecItem}>
-                  <Text style={styles.aboutSpecLabel}>PRIVACY MODEL</Text>
-                  <Text style={[styles.aboutSpecValue, { color: '#10b981' }]}>100% Local Sandbox</Text>
                 </View>
                 <View style={styles.aboutSpecItem}>
                   <Text style={styles.aboutSpecLabel}>NEURAL ENGINE</Text>
@@ -1802,22 +1798,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   {otherPlatforms.map((platform) => (
                     <TouchableOpacity
                       key={platform.id}
-                      style={styles.platformButton}
-                      onPress={() => handleOpenDownloadLink(platform.url)}
-                      activeOpacity={0.8}
+                      style={[styles.platformButton, platform.disabled && { opacity: 0.45 }]}
+                      onPress={() => {
+                        if (platform.disabled) {
+                          Alert.alert('In Development', `${platform.label.replace('Download for ', '')} build is currently in development.`);
+                          return;
+                        }
+                        handleOpenDownloadLink(platform.url);
+                      }}
+                      disabled={platform.disabled}
+                      activeOpacity={platform.disabled ? 1 : 0.8}
                     >
                       {renderPlatformIcon(platform, 18)}
                       <Text style={styles.platformButtonText}>{platform.label}</Text>
-                      <Text style={styles.platformButtonArrow}>↗</Text>
+                      <Text style={styles.platformButtonArrow}>{platform.disabled ? '🔒' : '↗'}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               </View>
             </View>
-
-            <TouchableOpacity style={styles.primaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
-              <Text style={styles.primaryFullBtnText}>Back to Settings</Text>
-            </TouchableOpacity>
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
