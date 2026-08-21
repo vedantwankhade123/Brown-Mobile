@@ -377,8 +377,38 @@ export const AppleIcon: React.FC<IconProps> = ({ size = 16, color = '#ffffff' })
   </Svg>
 );
 
-export const AndroidIcon: React.FC<IconProps> = ({ size = 16, color = '#ffffff' }) => (
+export const MapPinIcon: React.FC<IconProps> = ({ size = 20, color = '#f87171' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+    <Circle cx="12" cy="10" r="3" />
+  </Svg>
+);
+
+export const SyncArrowsIcon: React.FC<IconProps> = ({ size = 20, color = '#38bdf8' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Polyline points="23 4 23 10 17 10" />
+    <Polyline points="1 20 1 14 7 14" />
+    <Path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+  </Svg>
+);
+
+export const SoftwareUpdateIcon: React.FC<IconProps> = ({ size = 20, color = '#fb923c' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M12 3v12m0 0l-4-4m4 4l4-4" />
+    <Path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+  </Svg>
+);
+
+export const AboutUltronIcon: React.FC<IconProps> = ({ size = 20, color = '#e4e4e7' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="12" cy="12" r="10" />
+    <Line x1="12" y1="16" x2="12" y2="12" />
+    <Line x1="12" y1="8" x2="12.01" y2="8" />
+  </Svg>
+);
+
+export const AndroidIcon: React.FC<IconProps> = ({ size = 16, color = '#3DDC84' }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-    <Path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V7H6v11zM3.5 7C2.67 7 2 7.67 2 8.5v7c0 .83.67 1.5 1.5 1.5S5 16.33 5 15.5v-7C5 7.67 4.33 7 3.5 7zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85.55 12.95.25 12 .25c-.96 0-1.86.3-2.64.38L7.88.15c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.26 6 5.01 6 7h12c0-1.99-.97-3.75-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z" />
+    <Path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1556-.2696.0633-.6138-.2064-.7694-.2691-.1556-.6133-.0633-.7689.2064l-2.023 3.5042C15.3585 8.169 13.7235 7.82 12 7.82c-1.724 0-3.359.349-4.885.9854L5.092 5.3013c-.1556-.2697-.4998-.362-.7689-.2064-.2697.1556-.362.4998-.2064.7694l1.996 3.4572C2.688 11.286 0 15.378 0 20.148h24c0-4.77-2.688-8.862-6.1185-10.8266" />
   </Svg>
 );

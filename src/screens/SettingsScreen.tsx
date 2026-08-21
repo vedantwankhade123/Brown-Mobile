@@ -50,6 +50,10 @@ import {
   AppleIcon,
   AndroidIcon,
   InfoIcon,
+  MapPinIcon,
+  SyncArrowsIcon,
+  SoftwareUpdateIcon,
+  AboutUltronIcon,
 } from '../components/Icons';
 import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog';
 import { ModelDownloader } from '../services/modelManager/Downloader';
@@ -570,7 +574,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     switch (platform.icon) {
       case 'windows': return <WindowsIcon size={size} color={platform.color} branded={platform.branded} />;
       case 'apple': return <AppleIcon size={size} color={platform.color} />;
-      case 'android': return <AndroidIcon size={size} color={platform.color} />;
+      case 'android': return <Image source={require('../../Assets/android-logo.png')} style={{ width: size + 2, height: size + 2 }} resizeMode="contain" />;
       default: return <GlobeIcon size={size} color={platform.color} />;
     }
   };
@@ -614,7 +618,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {
           id: 'location',
           title: 'Location',
-          iconType: 'globe',
+          iconType: 'location',
           iconColor: '#f87171',
           detail: homeLocation ? (homeLocation.length > 18 ? `${homeLocation.slice(0, 18)}…` : homeLocation) : 'Detecting…',
           action: () => navigateToView('account'),
@@ -622,7 +626,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {
           id: 'data_sync',
           title: 'Desktop Sync',
-          iconType: 'wifi',
+          iconType: 'sync',
           iconColor: '#38bdf8',
           detail: 'Offline',
           action: () => navigateToView('data_sync'),
@@ -653,7 +657,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {
           id: 'updates',
           title: 'Software Updates',
-          iconType: 'zap',
+          iconType: 'update',
           iconColor: '#fb923c',
           detail: 'BETA v1',
           action: () => navigateToView('updates'),
@@ -668,7 +672,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {
           id: 'about',
           title: 'About Ultron',
-          iconType: 'sparkles',
+          iconType: 'about',
           iconColor: '#e4e4e7',
           detail: 'BETA v1',
           action: () => navigateToView('about'),
@@ -681,12 +685,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     let iconEl = <CpuIcon size={19} color={iconColor} />;
     if (iconType === 'user') iconEl = <UserIcon size={19} color={iconColor} />;
     else if (iconType === 'cpu') iconEl = <CpuIcon size={19} color={iconColor} />;
-    else if (iconType === 'globe') iconEl = <GlobeIcon size={19} color={iconColor} />;
+    else if (iconType === 'location') iconEl = <MapPinIcon size={19} color={iconColor} />;
+    else if (iconType === 'sync') iconEl = <SyncArrowsIcon size={19} color={iconColor} />;
     else if (iconType === 'volume') iconEl = <VolumeIcon size={19} color={iconColor} />;
     else if (iconType === 'database') iconEl = <DatabaseIcon size={19} color={iconColor} />;
-    else if (iconType === 'wifi') iconEl = <WifiIcon size={19} color={iconColor} />;
-    else if (iconType === 'zap') iconEl = <ZapIcon size={19} color={iconColor} />;
-    else if (iconType === 'sparkles') iconEl = <SparklesIcon size={19} color={iconColor} />;
+    else if (iconType === 'update') iconEl = <SoftwareUpdateIcon size={19} color={iconColor} />;
+    else if (iconType === 'about') iconEl = <AboutUltronIcon size={19} color={iconColor} />;
     else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={19} color={iconColor} />;
 
     return (
@@ -1765,21 +1769,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.aboutLinksContainer}>
                 <TouchableOpacity
                   style={styles.aboutLinkBtn}
-                  onPress={() => Alert.alert('GitHub', 'https://github.com/vedantwankhade123/Ultron')}
+                  onPress={() => {
+                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                      window.open('https://github.com/vedantwankhade123', '_blank');
+                    } else {
+                      Alert.alert('GitHub', 'https://github.com/vedantwankhade123');
+                    }
+                  }}
                   activeOpacity={0.8}
                 >
                   <GithubIcon size={16} color="#000000" />
-                  <Text style={styles.aboutLinkBtnText}>GitHub Repository</Text>
-                  <Text style={styles.platformButtonArrow}>↗</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.aboutLinkBtn}
-                  onPress={() => Alert.alert('Releases', 'https://github.com/vedantwankhade123/Ultron/releases')}
-                  activeOpacity={0.8}
-                >
-                  <GithubIcon size={16} color="#000000" />
-                  <Text style={styles.aboutLinkBtnText}>{'Releases & Changelog'}</Text>
+                  <Text style={styles.aboutLinkBtnText}>GitHub</Text>
                   <Text style={styles.platformButtonArrow}>↗</Text>
                 </TouchableOpacity>
               </View>
@@ -1895,7 +1895,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </View>
             <View style={styles.iosProfileInfo}>
               <Text style={styles.iosProfileName}>{userName}</Text>
-              <Text style={styles.iosProfileSubtitle}>Ultron Sovereign Account & Keystore</Text>
+              <Text style={styles.iosProfileSubtitle}>{userEmail || 'vedantwankhade47@gmail.com'}</Text>
             </View>
             <ChevronRightIcon size={18} color="#8e8e93" />
           </TouchableOpacity>
