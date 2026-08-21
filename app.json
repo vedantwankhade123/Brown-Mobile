@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Ultron AI",
+    "slug": "ultron-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ultron.mobile",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Ultron requires speech recognition for voice AI conversations.",
+        "NSMicrophoneUsageDescription": "Ultron requires microphone access to enable voice queries.",
+        "NSLocalNetworkUsageDescription": "Ultron requires local network access to synchronize with your desktop instance."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.ultron.mobile",
+      "permissions": [
+        "RECORD_AUDIO",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE"
+      ]
+    },
+    "plugins": [
+      "expo-font"
+    ]
+  }
+}
