@@ -2104,10 +2104,9 @@ const styles = StyleSheet.create({
   },
   menuGroupSectionTitle: {
     color: '#8e8e93',
-    fontSize: 11.5,
+    fontSize: 12.5,
     fontWeight: '600',
-    letterSpacing: 0.4,
-    textTransform: 'uppercase',
+    letterSpacing: -0.1,
   },
   menuGroupBadge: {
     backgroundColor: '#ef4444',
