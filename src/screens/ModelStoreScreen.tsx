@@ -30,9 +30,8 @@ import { LlamaEngine } from '../services/inference/LlamaEngine';
 import { ModelMetadata, ModelDownloadState, MobileRamTier } from '../types/model';
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
-import { ScreenHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
-import { SearchIcon } from '../components/Icons';
+import { SearchIcon, ChevronLeftIcon, CloseIcon } from '../components/Icons';
 
 interface ModelStoreScreenProps {
   onBack: () => void;
@@ -63,6 +62,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
   const [activeModel, setActiveModel] = useState<ModelMetadata | null>(null);
   const [catalog, setCatalog] = useState<ModelMetadata[]>(MOBILE_GGUF_LIBRARY);
   const [hfModels, setHfModels] = useState<ModelMetadata[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hfStatus, setHfStatus] = useState('Search Hugging Face for more GGUFs.');
   const [hfLoading, setHfLoading] = useState(false);
@@ -211,9 +211,69 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScreenHeader title="Model Store" onBack={onBack} />
+      {/* Dynamic Header: Standard vs Full-Width Search */}
+      {!isSearchOpen ? (
+        <View style={styles.headerBar}>
+          <TouchableOpacity
+            onPress={onBack}
+            style={styles.headerBackBtn}
+            activeOpacity={0.7}
+            accessibilityLabel="Go back"
+          >
+            <ChevronLeftIcon size={22} color="#ffffff" />
+          </TouchableOpacity>
+
+          <Text style={styles.headerTitle}>Model Store</Text>
+
+          <TouchableOpacity
+            onPress={() => setIsSearchOpen(true)}
+            style={styles.headerSearchIconBtn}
+            activeOpacity={0.7}
+            accessibilityLabel="Search Hugging Face models"
+          >
+            <SearchIcon size={20} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.headerSearchBar}>
+          <SearchIcon size={18} color="#a1a1aa" />
+          <TextInput
+            autoFocus
+            style={[styles.headerSearchInput, Platform.OS === 'web' ? ({ outline: 'none' } as any) : {}]}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search Hugging Face GGUFs..."
+            placeholderTextColor="#71717a"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            onSubmitEditing={() => runHuggingFaceSearch(searchQuery, false)}
+          />
+          {searchQuery.trim().length > 0 && (
+            <TouchableOpacity
+              onPress={() => runHuggingFaceSearch(searchQuery, false)}
+              style={styles.headerSubmitBtn}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerSubmitBtnText}>Search</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={() => {
+              setIsSearchOpen(false);
+              setSearchQuery('');
+            }}
+            style={styles.headerSearchCloseBtn}
+            activeOpacity={0.7}
+            accessibilityLabel="Close search"
+          >
+            <CloseIcon size={18} color="#a1a1aa" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+        {/* Device Safe Mode Overview */}
         <View style={styles.hardwareCard}>
           <Text style={styles.hardwareTitle}>Device Safe Mode</Text>
           <View style={styles.hardwareGrid}>
@@ -235,43 +295,56 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
           <Text style={styles.liveStatus}>{liveStatus}</Text>
         </View>
 
-        <View style={styles.searchCard}>
-          <View style={styles.searchTitleRow}>
-            <HuggingFaceLogo size={28} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.sectionTitle}>Search Hugging Face</Text>
-              <Text style={styles.sectionSubtitle}>
-                Find GGUF weights and install them {HF_PAGE_SIZE} at a time.
-              </Text>
+        {/* Live Hugging Face Search Results (Prominent at top when searched) */}
+        {searchQuery.trim().length > 0 || hfModels.length > 0 ? (
+          <View style={styles.sectionBlock}>
+            <View style={styles.sectionTitleRow}>
+              <HuggingFaceLogo size={22} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionEyebrow}>Hugging Face GGUF Catalog</Text>
+                <Text style={styles.sectionTitle}>
+                  {searchQuery.trim() ? `Results for “${searchQuery}”` : 'Live Hugging Face Models'}
+                </Text>
+              </View>
             </View>
-          </View>
-          <View style={styles.searchRow}>
-            <View style={styles.searchField}>
-              <SearchIcon size={16} color="#71717a" />
-              <TextInput
-                style={[styles.searchInput, Platform.OS === 'web' ? ({ outline: 'none' } as any) : {}]}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="e.g. llama 3.2, qwen, phi, gemma"
-                placeholderTextColor="#71717a"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-                onSubmitEditing={() => runHuggingFaceSearch(searchQuery, false)}
-              />
-            </View>
-            <TouchableOpacity
-              style={styles.searchBtn}
-              onPress={() => runHuggingFaceSearch(searchQuery, false)}
-              activeOpacity={0.8}
-              disabled={hfLoading}
-            >
-              <Text style={styles.searchBtnText}>{hfLoading ? '…' : 'Search'}</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.hfStatus}>{hfStatus}</Text>
-        </View>
+            <Text style={styles.sectionSubtitle}>{hfStatus}</Text>
 
+            {hfLoading && hfModels.length === 0 ? (
+              <ActivityIndicator color="#ffffff" style={{ marginVertical: 18 }} />
+            ) : null}
+
+            {hfModels
+              .filter((m) => !catalog.some((c) => c.id === m.id || c.filename === m.filename))
+              .map((model) => (
+                <ModelCard
+                  key={model.id}
+                  model={model}
+                  downloadState={downloader.getState(model.id)}
+                  isActive={activeModel?.id === model.id}
+                  onSelect={handleSelectModel}
+                  onDownload={handleDownload}
+                  onDelete={handleDelete}
+                  onPause={(id) => downloader.pauseDownload(id)}
+                  onResume={(id) => downloader.resumeDownload(id)}
+                />
+              ))}
+
+            {(hfNextUrl || hfModels.length > 0) && (
+              <TouchableOpacity
+                style={[styles.loadMoreBtn, hfLoading && { opacity: 0.6 }]}
+                onPress={() => runHuggingFaceSearch(lastQuery, true, hfNextUrl, hfSkip)}
+                activeOpacity={0.8}
+                disabled={hfLoading || !hfNextUrl}
+              >
+                <Text style={styles.loadMoreText}>
+                  {hfLoading ? 'Loading…' : hfNextUrl ? `Load more models (${HF_PAGE_SIZE})` : 'No more results'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
+
+        {/* Built-in Models by Tier */}
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionEyebrow}>Recommended</Text>
           <Text style={styles.sectionTitle}>Built-in Models</Text>
@@ -309,51 +382,10 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
           );
         })}
 
-        <View style={styles.sectionBlock}>
-          <View style={styles.sectionTitleRow}>
-            <HuggingFaceLogo size={22} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.sectionEyebrow}>Live Catalog</Text>
-              <Text style={styles.sectionTitle}>From Hugging Face</Text>
-            </View>
-          </View>
-          <Text style={styles.sectionSubtitle}>
-            Results for “{lastQuery}”. Download a card to install it on this phone.
-          </Text>
-        </View>
-        {hfLoading && hfModels.length === 0 ? (
-          <ActivityIndicator color="#ffffff" style={{ marginVertical: 18 }} />
-        ) : null}
-        {hfModels
-          .filter((m) => !catalog.some((c) => c.id === m.id || c.filename === m.filename))
-          .map((model) => (
-            <ModelCard
-              key={model.id}
-              model={model}
-              downloadState={downloader.getState(model.id)}
-              isActive={activeModel?.id === model.id}
-              onSelect={handleSelectModel}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-              onPause={(id) => downloader.pauseDownload(id)}
-              onResume={(id) => downloader.resumeDownload(id)}
-            />
-          ))}
-        {(hfNextUrl || hfModels.length > 0) && (
-          <TouchableOpacity
-            style={[styles.loadMoreBtn, hfLoading && { opacity: 0.6 }]}
-            onPress={() => runHuggingFaceSearch(lastQuery, true, hfNextUrl, hfSkip)}
-            activeOpacity={0.8}
-            disabled={hfLoading || !hfNextUrl}
-          >
-            <Text style={styles.loadMoreText}>
-              {hfLoading ? 'Loading…' : hfNextUrl ? `Load more models (${HF_PAGE_SIZE})` : 'No more results'}
-            </Text>
-          </TouchableOpacity>
-        )}
         <View style={{ height: 32 }} />
       </ScrollView>
 
+      {/* Download Destination Sheet Modal */}
       <Modal visible={!!pendingModel} transparent animationType="fade" onRequestClose={() => setPendingModel(null)}>
         <View style={styles.sheetBackdrop}>
           <View style={styles.sheet}>
@@ -412,7 +444,68 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#000000',
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#000000',
+  },
+  headerBackBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  headerSearchIconBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#18181b',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    gap: 10,
+  },
+  headerSearchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 15,
+    paddingVertical: 6,
+  },
+  headerSubmitBtn: {
+    backgroundColor: '#ffffff',
+    borderRadius: 9999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  headerSubmitBtnText: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerSearchCloseBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollArea: {
     flex: 1,
@@ -425,11 +518,11 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   hardwareTitle: {
-    color: '#a1a1aa',
-    fontSize: 13,
+    color: '#ffffff',
+    fontSize: 13.5,
     fontWeight: '700',
     marginBottom: spacing.sm,
   },
@@ -441,73 +534,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   metricLabel: {
-    color: colors.textSecondary,
-    fontSize: 11,
+    color: '#a1a1aa',
+    fontSize: 11.5,
     marginBottom: 2,
   },
   metricValue: {
-    color: colors.textPrimary,
+    color: '#ffffff',
     fontSize: typography.fontSize.md,
     fontWeight: '700',
   },
   liveStatus: {
-    color: colors.textMuted,
+    color: '#71717a',
     fontSize: 11,
     marginTop: 12,
     lineHeight: 16,
-  },
-  searchCard: {
-    backgroundColor: '#18181b',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  searchTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
-  },
-  searchField: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#111113',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  searchInput: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 14,
-    paddingVertical: 10,
-  },
-  searchBtn: {
-    backgroundColor: '#ffffff',
-    borderRadius: 9999,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-  },
-  searchBtnText: {
-    color: '#000000',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  hfStatus: {
-    color: '#a1a1aa',
-    fontSize: 11,
-    marginTop: 10,
   },
   loadMoreBtn: {
     backgroundColor: '#27272a',
@@ -515,9 +555,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 8,
-    marginBottom: 12,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   loadMoreText: {
     color: '#ffffff',
@@ -541,14 +581,14 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   sectionTitle: {
-    color: colors.textPrimary,
+    color: '#ffffff',
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: -0.2,
     marginBottom: 2,
   },
   sectionSubtitle: {
-    color: colors.textMuted,
+    color: '#a1a1aa',
     fontSize: typography.fontSize.xs,
     marginBottom: spacing.md,
     lineHeight: 16,
@@ -572,7 +612,7 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     paddingHorizontal: 6,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -583,7 +623,7 @@ const styles = StyleSheet.create({
   },
   sheetBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.72)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -600,7 +640,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sheetSubtitle: {
-    color: colors.textSecondary,
+    color: '#a1a1aa',
     fontSize: 13,
     marginTop: 6,
     marginBottom: 14,
@@ -611,7 +651,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sheetLabel: {
-    color: colors.textMuted,
+    color: '#71717a',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.4,
@@ -634,7 +674,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   pathOptionPath: {
-    color: colors.textMuted,
+    color: '#a1a1aa',
     fontSize: 11,
     marginTop: 4,
   },

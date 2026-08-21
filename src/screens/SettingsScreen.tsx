@@ -1852,22 +1852,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                             </View>
                             <Text style={styles.cleanMenuTitle}>{item.title}</Text>
 
-                            {/* Stacked Hugging Face + Ollama + Gemini logos for Models */}
+                            {/* Stacked Hugging Face + Gemini logos for Models */}
                             {item.id === 'models' && (
                               <View style={styles.modelsLogoStack}>
                                 <View style={styles.modelsStackedLogo1}>
                                   <HuggingFaceLogo size={18} />
                                 </View>
-                                <View style={[styles.modelsStackedLogo2, { backgroundColor: '#18181b', alignItems: 'center', justifyContent: 'center' }]}>
-                                  <Image
-                                    source={require('../../Assets/ollama-logo.png')}
-                                    style={{ width: 16, height: 16, tintColor: '#ffffff' }}
-                                    resizeMode="contain"
-                                  />
-                                </View>
                                 <Image
                                   source={require('../../Assets/gemini-logo.png')}
-                                  style={[styles.modelsStackedLogo2, { marginLeft: -6 }]}
+                                  style={styles.modelsStackedLogo2}
                                   resizeMode="contain"
                                 />
                               </View>
