@@ -19,6 +19,7 @@ import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon } from '../components/Icons';
+import { SyncIllustration } from '../components/SyncIllustration';
 
 const Easing = (Animated as any).Easing || {
   out: (f: any) => f,
@@ -403,7 +404,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                 ))
               ) : (
                 <View style={styles.emptyCard}>
-                  <LaptopIcon size={28} color="#a1a1aa" />
+                  <SyncIllustration width={260} height={105} />
                   <Text style={styles.emptyTitle}>No Windows PC found</Text>
                   <Text style={styles.emptyBody}>
                     Open Ultron on your computer, stay on this Wi-Fi, then scan again.
