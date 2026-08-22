@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Platform } from 'react-native';
+import { View, StyleSheet, Animated } from 'react-native';
 import Svg, {
   Rect,
   Circle,
@@ -12,7 +12,6 @@ import Svg, {
 } from 'react-native-svg';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const AnimatedG = Animated.createAnimatedComponent(G);
 
 interface SyncIllustrationProps {
   width?: number;
@@ -268,56 +267,15 @@ export const SyncIllustration: React.FC<SyncIllustrationProps> = ({
           />
         </G>
 
-        {/* 5. Center Sync Badge */}
-        <G>
-          {/* Ring */}
-          <Circle
-            cx={160}
-            cy={60}
-            r={18}
-            stroke="rgba(255, 255, 255, 0.12)"
-            strokeWidth={1}
-            fill="url(#mobile-sync-ring)"
-          />
-          {/* Dual Sync Arrows */}
-          <AnimatedG
-            origin="160, 60"
-            style={{
-              transform: [{ rotate: syncSpin }],
-            }}
-          >
-            <Path
-              d="M 152 54 A 10 10 0 0 1 168 57"
-              stroke="#ffffff"
-              strokeWidth={1.5}
-              strokeLinecap="round"
-              fill="none"
-            />
-            <Path
-              d="M 165 55 L 168 57 L 166 60"
-              stroke="#ffffff"
-              strokeWidth={1.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-            <Path
-              d="M 168 66 A 10 10 0 0 1 152 63"
-              stroke="#ffffff"
-              strokeWidth={1.5}
-              strokeLinecap="round"
-              fill="none"
-            />
-            <Path
-              d="M 155 65 L 152 63 L 154 60"
-              stroke="#ffffff"
-              strokeWidth={1.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            />
-          </AnimatedG>
-        </G>
+        {/* 5. Center Static Ring */}
+        <Circle
+          cx="160"
+          cy="60"
+          r="18"
+          stroke="rgba(255, 255, 255, 0.12)"
+          strokeWidth={1}
+          fill="url(#mobile-sync-ring)"
+        />
 
         {/* 6. Laptop / Desktop Screen (Right) */}
         <G transform="translate(232, 26)">
@@ -395,12 +353,67 @@ export const SyncIllustration: React.FC<SyncIllustrationProps> = ({
           />
         </G>
       </Svg>
+
+      {/* 7. Centered In-Place Rotating Sync Arrows */}
+      <Animated.View
+        style={[
+          styles.syncCenterIcon,
+          {
+            transform: [{ rotate: syncSpin }],
+          },
+        ]}
+      >
+        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+          <Path
+            d="M 4 8 A 8 8 0 0 1 20 11"
+            stroke="#ffffff"
+            strokeWidth={1.75}
+            strokeLinecap="round"
+            fill="none"
+          />
+          <Path
+            d="M 17 9 L 20 11 L 18 14"
+            stroke="#ffffff"
+            strokeWidth={1.75}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+          <Path
+            d="M 20 16 A 8 8 0 0 1 4 13"
+            stroke="#ffffff"
+            strokeWidth={1.75}
+            strokeLinecap="round"
+            fill="none"
+          />
+          <Path
+            d="M 7 15 L 4 13 L 6 10"
+            stroke="#ffffff"
+            strokeWidth={1.75}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </Svg>
+      </Animated.View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncCenterIcon: {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    marginLeft: -10,
+    marginTop: -10,
+    width: 20,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

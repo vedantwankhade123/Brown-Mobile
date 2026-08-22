@@ -79,6 +79,7 @@ interface SettingsScreenProps {
   onClearHistory: () => void;
   onRerunOnboarding?: () => void;
   onOpenModelStore?: () => void;
+  onOpenDesktopSync?: () => void;
 }
 
 const MONTHS_LIST = [
@@ -124,6 +125,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onBack,
   onClearHistory,
   onOpenModelStore,
+  onOpenDesktopSync,
 }) => {
   const [profile, setProfile] = useState<ConsentRecord | null>(null);
   const [currentView, setCurrentView] = useState<SettingsView>('main');
@@ -1462,6 +1464,52 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Data & Sync')}
           <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+            {/* 1. Workstation Connection & Pairing Card */}
+            <View style={styles.pageCardGroup}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <LaptopIcon size={18} color="#ffffff" />
+                  <Text style={styles.sectionCardTitle}>Workstation Connection</Text>
+                </View>
+                <View style={[
+                  styles.syncStatusPill,
+                  status.isConnected ? styles.syncStatusPillConnected : styles.syncStatusPillDisconnected
+                ]}>
+                  <View style={[
+                    styles.syncStatusDot,
+                    status.isConnected ? styles.syncStatusDotConnected : styles.syncStatusDotDisconnected
+                  ]} />
+                  <Text style={[
+                    styles.syncStatusPillText,
+                    status.isConnected ? styles.syncStatusPillTextConnected : styles.syncStatusPillTextDisconnected
+                  ]}>
+                    {status.isConnected ? 'Connected' : 'Not Paired'}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.sectionCardSubtitle}>
+                {status.isConnected
+                  ? `Paired with ${status.activeDesktop?.name || 'Windows PC'} (${status.activeDesktop?.ipAddress || 'Local Network'}).`
+                  : 'Connect and pair this mobile app with your Windows PC to sync chats, transfer models, and use live companion features.'}
+              </Text>
+
+              <TouchableOpacity
+                style={styles.connectWorkstationBtn}
+                onPress={() => {
+                  if (onOpenDesktopSync) {
+                    onOpenDesktopSync();
+                  }
+                }}
+                activeOpacity={0.85}
+              >
+                <WifiIcon size={16} color="#000000" />
+                <Text style={styles.connectWorkstationBtnText}>
+                  {status.isConnected ? 'Switch / Connect Another PC' : 'Connect / Pair Device'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.pageCardGroup}>
               <View style={styles.toggleRow}>
                 <View style={{ flex: 1 }}>
@@ -2590,6 +2638,60 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 13.5,
     fontWeight: '700',
+  },
+  connectWorkstationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 9999,
+    paddingVertical: 12,
+    marginTop: 10,
+  },
+  connectWorkstationBtnText: {
+    color: '#000000',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  syncStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9999,
+  },
+  syncStatusPillConnected: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  syncStatusPillDisconnected: {
+    backgroundColor: 'rgba(161, 161, 170, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(161, 161, 170, 0.25)',
+  },
+  syncStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  syncStatusDotConnected: {
+    backgroundColor: '#22c55e',
+  },
+  syncStatusDotDisconnected: {
+    backgroundColor: '#a1a1aa',
+  },
+  syncStatusPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  syncStatusPillTextConnected: {
+    color: '#22c55e',
+  },
+  syncStatusPillTextDisconnected: {
+    color: '#a1a1aa',
   },
 
   /* Desktop Connectors & Models Styles */

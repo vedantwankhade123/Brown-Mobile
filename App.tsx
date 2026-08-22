@@ -248,6 +248,7 @@ export default function App() {
             onClearHistory={handleClearHistory}
             onRerunOnboarding={handleRerunOnboarding}
             onOpenModelStore={() => setCurrentScreen('modelStore')}
+            onOpenDesktopSync={() => setCurrentScreen('desktopSync')}
           />
         )}
 
