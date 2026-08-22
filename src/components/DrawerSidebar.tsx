@@ -15,10 +15,8 @@ import {
 } from 'react-native';
 import { ChatSession } from '../types/chat';
 import { colors } from '../theme/colors';
-import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   CloseIcon,
-  PlusIcon,
   SearchIcon,
   TrashIcon,
   SettingsIcon,
@@ -28,6 +26,7 @@ import {
   DocumentIcon,
 } from './Icons';
 import { ChatRepository } from '../services/storage/ChatRepository';
+import { ConsentService } from '../services/storage/ConsentService';
 
 interface DrawerSidebarProps {
   isOpen: boolean;
@@ -42,6 +41,38 @@ interface DrawerSidebarProps {
 }
 
 /**
+ * Sidebar toggle/collapse icon matching desktop
+ */
+const SidebarToggleIcon: React.FC<{ size?: number; color?: string }> = ({
+  size = 18,
+  color = '#ffffff',
+}) => (
+  <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderWidth: 1.5,
+        borderColor: color,
+        borderRadius: 4,
+        position: 'relative',
+      }}
+    >
+      <View
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          right: Math.round(size * 0.35),
+          width: 1.5,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  </View>
+);
+
+/**
  * Formats conversation titles so the first letter of each word is in uppercase
  * and the remaining letters are in lowercase.
  */
@@ -52,7 +83,6 @@ function formatConversationTitle(rawTitle: string): string {
     .split(/\s+/)
     .map((word) => {
       if (!word) return '';
-      // Preserve standard short acronyms (e.g., AI, PDF, API, SQL)
       if (word.length <= 4 && word === word.toUpperCase() && /^[A-Z0-9]+$/.test(word)) {
         return word;
       }
@@ -62,27 +92,19 @@ function formatConversationTitle(rawTitle: string): string {
 }
 
 /**
- * Formats dates into human-readable timestamps matching the spotlight reference UI:
- * e.g. "Sun, 12:27 AM", "Jan 8", "Nov 25, 2025"
+ * Formats timestamps like "Aug 20 at 1:05 AM"
  */
 function formatSessionDate(timestamp?: number): string {
   if (!timestamp) return 'Recently';
-  const now = new Date();
   const date = new Date(timestamp);
-  const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } else if (diffDays < 7) {
-    return date.toLocaleDateString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  } else if (date.getFullYear() === now.getFullYear()) {
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-  } else {
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-  }
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = monthNames[date.getMonth()];
+  const day = date.getDate();
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${month} ${day} at ${timeStr}`;
 }
 
-const DRAWER_WIDTH = 300;
+const DRAWER_WIDTH = 290;
 
 export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   isOpen,
@@ -99,22 +121,42 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [hoveredSpotlightId, setHoveredSpotlightId] = useState<string | null>(null);
+  const [userName, setUserName] = useState('Om Patil');
+  const [userInitials, setUserInitials] = useState('OP');
 
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const spotlightFadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Load user profile name & initials
+  useEffect(() => {
+    ConsentService.getLatestConsent()
+      .then((consent) => {
+        if (consent?.fullName) {
+          setUserName(consent.fullName);
+          const parts = consent.fullName.trim().split(/\s+/);
+          const initials = parts
+            .map((p) => p[0])
+            .join('')
+            .substring(0, 2)
+            .toUpperCase();
+          setUserInitials(initials || 'OP');
+        }
+      })
+      .catch(() => {});
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: 0,
-          duration: 260,
+          duration: 240,
           useNativeDriver: true,
         }),
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 260,
+          duration: 240,
           useNativeDriver: true,
         }),
       ]).start();
@@ -125,12 +167,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: -DRAWER_WIDTH,
-          duration: 200,
+          duration: 180,
           useNativeDriver: true,
         }),
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 200,
+          duration: 180,
           useNativeDriver: true,
         }),
       ]).start();
@@ -159,12 +201,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -DRAWER_WIDTH,
-        duration: 200,
+        duration: 180,
         useNativeDriver: true,
       }),
       Animated.timing(fadeAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 180,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -172,7 +214,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     });
   };
 
-  // Filter sessions based on spotlight search input
   const filteredSessions = sessions.filter((s) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -182,58 +223,13 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     );
   });
 
-  const handleDownloadSession = async (session: ChatSession) => {
-    try {
-      const repo = new ChatRepository();
-      const messages = await repo.getMessagesForSession(session.id);
-      if (!messages || messages.length === 0) {
-        Alert.alert('Empty Chat', 'No messages found to download.');
-        return;
-      }
-
-      const formattedDate = new Date(session.createdAt || Date.now()).toLocaleDateString();
-      const markdown = [
-        `# ${session.title}`,
-        `Date: ${formattedDate}`,
-        `Model: ${session.modelId || 'Ultron AI'}`,
-        `Messages: ${messages.length}`,
-        `\n---\n`,
-        ...messages.map((m: any) => {
-          const speaker = m.role === 'user' ? 'User' : 'Ultron';
-          return `### ${speaker}\n${m.content}\n`;
-        }),
-      ].join('\n');
-
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof document !== 'undefined') {
-        const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `${session.title.replace(/[^a-z0-9_-]/gi, '_')}.md`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      } else {
-        Alert.alert(
-          'Chat Exported',
-          `"${session.title}" (${messages.length} messages) ready to export.`,
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (err: any) {
-      Alert.alert('Download Error', err?.message || 'Failed to download chat transcript.');
-    }
-  };
-
-  // Split sessions into "Last 7 days" and "Older"
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const recentSessions = filteredSessions.filter((s) => (s.updatedAt || s.createdAt) >= sevenDaysAgo);
   const olderSessions = filteredSessions.filter((s) => (s.updatedAt || s.createdAt) < sevenDaysAgo);
 
   return (
     <View style={styles.overlay} pointerEvents={isOpen ? 'auto' : 'none'}>
-      {/* Animated Backdrop */}
+      {/* Backdrop */}
       <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
         <TouchableOpacity
           style={styles.backdropTouch}
@@ -242,7 +238,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         />
       </Animated.View>
 
-      {/* Animated Sliding Drawer Container (#1A1A1A Background) */}
+      {/* Sliding Drawer Container (#111113 Background) */}
       <Animated.View
         style={[
           styles.drawerContainer,
@@ -252,7 +248,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         ]}
       >
         <SafeAreaView style={styles.drawerInner}>
-          {/* Top Brand Header with Ultron Logo, Ultron Name & Top-Right Cross Button */}
+          {/* Top Brand Header */}
           <View style={styles.drawerHeader}>
             <View style={styles.topBrandBar}>
               <View style={styles.brandRow}>
@@ -261,52 +257,49 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   style={styles.brandLogo}
                   resizeMode="contain"
                 />
-                <Text style={styles.brandTitle}>
-                  Ultron <Text style={styles.betaText}>BETA v1</Text>
-                </Text>
+                <Text style={styles.brandTitle}>Ultron</Text>
+                <View style={styles.betaPill}>
+                  <Text style={styles.betaText}>BETA</Text>
+                </View>
               </View>
 
-              {/* Top-Right Header Actions: Search Button (left) + Close Cross Button (right) */}
-              <View style={styles.topRightActions}>
-                <TouchableOpacity
-                  style={styles.searchToggleBtn}
-                  onPress={() => setIsSpotlightOpen(true)}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Search conversations"
-                >
-                  <SearchIcon size={18} color="#a1a1aa" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.closeCrossBtn}
-                  onPress={handleClose}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Close sidebar"
-                >
-                  <CloseIcon size={18} color="#a1a1aa" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Actions Row: Full-width New Chat Button */}
-            <View style={styles.actionRow}>
               <TouchableOpacity
-                style={styles.newChatBtn}
-                onPress={() => {
-                  onNewChat();
-                  handleClose();
-                }}
-                activeOpacity={0.8}
+                style={styles.collapseSidebarBtn}
+                onPress={handleClose}
+                activeOpacity={0.7}
+                accessibilityLabel="Collapse sidebar"
               >
-                <PlusIcon size={16} color="#000000" />
-                <Text style={styles.newChatText}>New Chat</Text>
+                <SidebarToggleIcon size={17} color="#ffffff" />
               </TouchableOpacity>
             </View>
+
+            {/* New Chat Pill */}
+            <TouchableOpacity
+              style={styles.newChatPill}
+              onPress={() => {
+                onNewChat();
+                handleClose();
+              }}
+              activeOpacity={0.8}
+            >
+              <PencilIcon size={16} color="#ffffff" />
+              <Text style={styles.newChatPillText}>New chat</Text>
+            </TouchableOpacity>
+
+            {/* Search Chats Row */}
+            <TouchableOpacity
+              style={styles.searchChatsRow}
+              onPress={() => setIsSpotlightOpen(true)}
+              activeOpacity={0.7}
+            >
+              <SearchIcon size={16} color="#ffffff" />
+              <Text style={styles.searchChatsText}>Search chats</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Recent Conversations List with Hover Effects */}
+          {/* Recent Conversations List */}
           <ScrollView style={styles.sessionsList} showsVerticalScrollIndicator={false}>
-            <Text style={styles.sectionHeader}>Recent Conversations</Text>
+            <Text style={styles.recentSectionTitle}>Recent</Text>
             {sessions.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>No saved chats yet.</Text>
@@ -315,8 +308,8 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               sessions.map((item: ChatSession) => {
                 const isActive = item.id === activeSessionId;
                 const isHovered = item.id === hoveredSessionId;
-                const showActions = isHovered || isActive;
                 const formattedTitle = formatConversationTitle(item.title);
+                const formattedDate = formatSessionDate(item.updatedAt || item.createdAt);
                 const hoverHandlers =
                   Platform.OS === 'web'
                     ? ({
@@ -329,7 +322,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     key={item.id}
                     style={[
                       styles.sessionItem,
-                      isHovered && styles.sessionItemHovered,
+                      (isActive || isHovered) && styles.sessionItemActive,
                     ]}
                     onPress={() => {
                       onSelectSession(item.id);
@@ -337,28 +330,19 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     }}
                     onLongPress={() => onDeleteSession(item.id)}
                     delayLongPress={450}
-                    activeOpacity={0.85}
+                    activeOpacity={0.8}
                     {...hoverHandlers}
                   >
                     <View style={styles.sessionContent}>
-                      <Text
-                        style={[
-                          styles.sessionTitle,
-                          (isActive || isHovered) && styles.sessionTitleActive,
-                        ]}
-                        numberOfLines={1}
-                      >
+                      <Text style={styles.sessionTitle} numberOfLines={1}>
                         {formattedTitle}
                       </Text>
-                      {item.lastMessagePreview ? (
-                        <Text style={styles.sessionPreview} numberOfLines={1}>
-                          {item.lastMessagePreview}
-                        </Text>
-                      ) : null}
+                      <Text style={styles.sessionDate} numberOfLines={1}>
+                        {formattedDate}
+                      </Text>
                     </View>
 
-                    {/* Delete action button shown on hover */}
-                    {showActions && (
+                    {(isHovered || isActive) && (
                       <TouchableOpacity
                         style={styles.deleteActionBtn}
                         onPress={(e: any) => {
@@ -368,7 +352,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                         activeOpacity={0.7}
                         accessibilityLabel="Delete chat"
                       >
-                        <TrashIcon size={14} color="#ef4444" />
+                        <TrashIcon size={13} color="#ef4444" />
                       </TouchableOpacity>
                     )}
                   </TouchableOpacity>
@@ -377,40 +361,51 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             )}
           </ScrollView>
 
-          {/* Bottom Footer with Desktop Sync & Settings Button */}
+          {/* Bottom Footer with Desktop Sync & User Profile */}
           <View style={styles.drawerFooter}>
+            {/* Desktop Sync Row */}
             <TouchableOpacity
-              style={styles.footerActionBtn}
+              style={styles.desktopSyncBtn}
               onPress={() => {
                 onOpenSync();
                 handleClose();
               }}
               activeOpacity={0.7}
             >
-              <LaptopIcon size={22} color="#ffffff" />
-              <Text style={styles.footerActionTitle}>Desktop Sync</Text>
+              <LaptopIcon size={18} color="#ffffff" />
+              <Text style={styles.desktopSyncBtnText}>Desktop Sync</Text>
             </TouchableOpacity>
 
-            {onOpenSettings && (
-              <TouchableOpacity
-                style={[styles.footerActionBtn, styles.settingsBtn]}
-                onPress={() => {
-                  onOpenSettings();
-                  handleClose();
-                }}
-                activeOpacity={0.7}
-              >
-                <SettingsIcon size={22} color="#ffffff" />
-                <Text style={styles.footerActionTitle}>Settings</Text>
-              </TouchableOpacity>
-            )}
+            {/* User Profile Bar */}
+            <View style={styles.userProfileBar}>
+              <View style={styles.userProfileLeft}>
+                <View style={styles.userAvatarBadge}>
+                  <Text style={styles.userAvatarInitials}>{userInitials}</Text>
+                </View>
+                <Text style={styles.userNameText} numberOfLines={1}>
+                  {userName}
+                </Text>
+              </View>
+
+              {onOpenSettings && (
+                <TouchableOpacity
+                  style={styles.settingsGearBtn}
+                  onPress={() => {
+                    onOpenSettings();
+                    handleClose();
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Settings"
+                >
+                  <SettingsIcon size={19} color="#ffffff" />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </SafeAreaView>
       </Animated.View>
 
-      {/* ========================================================================= */}
-      {/* SPOTLIGHT SEARCH MODAL (Matching Reference Screenshot 1:1 for Mobile)     */}
-      {/* ========================================================================= */}
+      {/* Spotlight Search Modal */}
       <Modal
         visible={isSpotlightOpen}
         transparent
@@ -427,7 +422,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             style={styles.spotlightCard}
             onPress={() => {}}
           >
-            {/* Top Search Input Row */}
             <View style={styles.spotlightInputRow}>
               <SearchIcon size={18} color="#a1a1aa" />
               <TextInput
@@ -450,7 +444,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* "New Chat" Action Button Bar */}
             <TouchableOpacity
               style={styles.spotlightNewChatRow}
               onPress={() => {
@@ -464,9 +457,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               <Text style={styles.spotlightNewChatText}>New chat</Text>
             </TouchableOpacity>
 
-            {/* Grouped Results List: Last 7 days & Older */}
             <ScrollView style={styles.spotlightResultsScroll} showsVerticalScrollIndicator={false}>
-              {/* Section 1: Last 7 Days */}
               {recentSessions.length > 0 && (
                 <View style={styles.spotlightSectionBlock}>
                   <Text style={styles.spotlightSectionTitle}>Last 7 days</Text>
@@ -514,7 +505,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 </View>
               )}
 
-              {/* Section 2: Older */}
               {olderSessions.length > 0 && (
                 <View style={styles.spotlightSectionBlock}>
                   <Text style={styles.spotlightSectionTitle}>Older</Text>
@@ -601,7 +591,7 @@ const styles = StyleSheet.create({
     width: DRAWER_WIDTH,
     maxWidth: '85%',
     height: '100%',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#0e0f12',
     borderRightWidth: 1,
     borderRightColor: 'rgba(255, 255, 255, 0.08)',
     shadowColor: '#000',
@@ -617,17 +607,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   drawerHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 10,
   },
   topBrandBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    marginBottom: 16,
   },
   brandRow: {
     flexDirection: 'row',
@@ -640,68 +628,68 @@ const styles = StyleSheet.create({
   },
   brandTitle: {
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
+  },
+  betaPill: {
+    backgroundColor: 'rgba(59, 130, 246, 0.18)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
   },
   betaText: {
     color: '#3b82f6',
-    fontSize: 11.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
-  topRightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  closeCrossBtn: {
+  collapseSidebarBtn: {
     width: 32,
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
-    borderWidth: 0,
   },
-  searchToggleBtn: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-  },
-  actionRow: {
+  newChatPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
-  },
-  newChatBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#ffffff',
+    gap: 10,
+    backgroundColor: '#1c1d22',
     borderRadius: 9999,
-    paddingVertical: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    marginBottom: 8,
   },
-  newChatText: {
-    color: '#000000',
-    fontSize: 13.5,
-    fontWeight: '700',
+  newChatPillText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  searchChatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  searchChatsText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '500',
   },
   sessionsList: {
     flex: 1,
-    paddingHorizontal: 12,
-    paddingTop: 14,
+    paddingHorizontal: 10,
+    paddingTop: 8,
   },
-  sectionHeader: {
-    color: '#71717a',
-    fontSize: 11,
+  recentSectionTitle: {
+    color: '#94a3b8',
+    fontSize: 12,
     fontWeight: '600',
     marginBottom: 8,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
   },
   emptyState: {
     paddingVertical: 32,
@@ -716,42 +704,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: 'transparent',
-    borderRadius: 12,
+    borderRadius: 10,
     marginBottom: 2,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
   },
   sessionItemActive: {
-    backgroundColor: 'transparent',
-  },
-  sessionItemHovered: {
-    backgroundColor: '#1c1c1e',
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   sessionContent: {
     flex: 1,
-    paddingVertical: 2,
-    marginRight: 8,
+    marginRight: 6,
   },
   sessionTitle: {
-    color: '#d4d4d8',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  sessionTitleActive: {
     color: '#ffffff',
+    fontSize: 14,
     fontWeight: '600',
   },
-  sessionPreview: {
+  sessionDate: {
     color: '#71717a',
     fontSize: 11.5,
     marginTop: 2,
   },
   deleteActionBtn: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
@@ -759,30 +736,65 @@ const styles = StyleSheet.create({
   },
   drawerFooter: {
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-    gap: 6,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 10,
   },
-  footerActionBtn: {
+  desktopSyncBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#212124',
-    borderRadius: 9999,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 10,
+    backgroundColor: '#1c1d22',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
-  settingsBtn: {
-    backgroundColor: 'transparent',
-    borderColor: 'transparent',
-  },
-  footerActionTitle: {
+  desktopSyncBtnText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  userProfileBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  userProfileLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  userAvatarBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#3f3f46',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAvatarInitials: {
+    color: '#ffffff',
+    fontSize: 12,
     fontWeight: '700',
+  },
+  userNameText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  settingsGearBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
 
   /* Spotlight Search Modal Styles */
@@ -858,22 +870,23 @@ const styles = StyleSheet.create({
   },
   spotlightResultItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: 'transparent',
-    marginBottom: 3,
+    marginBottom: 4,
   },
   spotlightResultItemHovered: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#27272a',
   },
   spotlightItemIconBox: {
-    width: 26,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
-    marginRight: 10,
+    marginRight: 12,
   },
   spotlightItemTextCol: {
     flex: 1,
@@ -882,27 +895,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
   },
   spotlightItemTitle: {
-    flex: 1,
     color: '#ffffff',
-    fontSize: 13.5,
+    fontSize: 14,
     fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
   },
   spotlightItemDate: {
     color: '#71717a',
     fontSize: 11,
-    fontWeight: '500',
   },
   spotlightItemPreview: {
     color: '#a1a1aa',
-    fontSize: 11.5,
+    fontSize: 12,
     marginTop: 2,
-    lineHeight: 16,
   },
   spotlightEmptyBox: {
-    paddingVertical: 28,
+    paddingVertical: 32,
     alignItems: 'center',
   },
   spotlightEmptyText: {

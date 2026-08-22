@@ -1462,14 +1462,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
-          {renderFullPageHeader('Data & Sync')}
+          {renderFullPageHeader('Desktop Sync')}
           <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
-            {/* 1. Workstation Connection & Pairing Card */}
+            {/* 1. Device Connection & Pairing Card */}
             <View style={styles.pageCardGroup}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <LaptopIcon size={18} color="#ffffff" />
-                  <Text style={styles.sectionCardTitle}>Workstation Connection</Text>
+                  <Text style={styles.sectionCardTitle}>Device Connection</Text>
                 </View>
                 <View style={[
                   styles.syncStatusPill,
@@ -1505,7 +1505,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               >
                 <WifiIcon size={16} color="#000000" />
                 <Text style={styles.connectWorkstationBtnText}>
-                  {status.isConnected ? 'Switch / Connect Another PC' : 'Connect / Pair Device'}
+                  {status.isConnected ? 'Switch / Connect Another Device' : 'Connect / Pair Device'}
                 </Text>
               </TouchableOpacity>
             </View>
