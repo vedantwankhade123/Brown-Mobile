@@ -269,31 +269,32 @@ export const SyncIllustration: React.FC<SyncIllustrationProps> = ({
         </G>
 
         {/* 5. Center Sync Badge */}
-        <G transform="translate(160, 60)">
+        <G>
           {/* Ring */}
           <Circle
-            cx="0"
-            cy="0"
-            r="18"
+            cx={160}
+            cy={60}
+            r={18}
             stroke="rgba(255, 255, 255, 0.12)"
             strokeWidth={1}
             fill="url(#mobile-sync-ring)"
           />
           {/* Dual Sync Arrows */}
           <AnimatedG
+            origin="160, 60"
             style={{
               transform: [{ rotate: syncSpin }],
             }}
           >
             <Path
-              d="M -8 -6 A 10 10 0 0 1 8 -3"
+              d="M 152 54 A 10 10 0 0 1 168 57"
               stroke="#ffffff"
               strokeWidth={1.5}
               strokeLinecap="round"
               fill="none"
             />
             <Path
-              d="M 5 -5 L 8 -3 L 6 0"
+              d="M 165 55 L 168 57 L 166 60"
               stroke="#ffffff"
               strokeWidth={1.5}
               strokeLinecap="round"
@@ -301,14 +302,14 @@ export const SyncIllustration: React.FC<SyncIllustrationProps> = ({
               fill="none"
             />
             <Path
-              d="M 8 6 A 10 10 0 0 1 -8 3"
+              d="M 168 66 A 10 10 0 0 1 152 63"
               stroke="#ffffff"
               strokeWidth={1.5}
               strokeLinecap="round"
               fill="none"
             />
             <Path
-              d="M -5 5 L -8 3 L -6 0"
+              d="M 155 65 L 152 63 L 154 60"
               stroke="#ffffff"
               strokeWidth={1.5}
               strokeLinecap="round"
