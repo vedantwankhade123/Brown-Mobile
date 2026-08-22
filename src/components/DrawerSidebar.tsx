@@ -121,6 +121,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [hoveredSpotlightId, setHoveredSpotlightId] = useState<string | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(null);
   const [userName, setUserName] = useState('Om Patil');
   const [userInitials, setUserInitials] = useState('OP');
 
@@ -328,7 +329,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                       onSelectSession(item.id);
                       handleClose();
                     }}
-                    onLongPress={() => onDeleteSession(item.id)}
+                    onLongPress={() => setSessionToDelete({ id: item.id, title: formattedTitle })}
                     delayLongPress={450}
                     activeOpacity={0.8}
                     {...hoverHandlers}
@@ -347,12 +348,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                         style={styles.deleteActionBtn}
                         onPress={(e: any) => {
                           e?.stopPropagation?.();
-                          onDeleteSession(item.id);
+                          setSessionToDelete({ id: item.id, title: formattedTitle });
                         }}
-                        activeOpacity={0.7}
+                        activeOpacity={0.6}
                         accessibilityLabel="Delete chat"
                       >
-                        <TrashIcon size={13} color="#ef4444" />
+                        <TrashIcon size={14} color="#ef4444" />
                       </TouchableOpacity>
                     )}
                   </TouchableOpacity>
@@ -561,6 +562,57 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* Delete Chat Confirmation Modal Dialog */}
+      <Modal
+        visible={!!sessionToDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionToDelete(null)}
+      >
+        <TouchableOpacity
+          style={styles.confirmModalOverlay}
+          activeOpacity={1}
+          onPress={() => setSessionToDelete(null)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.confirmModalCard}
+            onPress={() => {}}
+          >
+            <View style={styles.confirmModalHeader}>
+              <View style={styles.confirmModalIconBox}>
+                <TrashIcon size={18} color="#ef4444" />
+              </View>
+              <Text style={styles.confirmModalTitle}>Delete chat?</Text>
+            </View>
+            <Text style={styles.confirmModalMessage}>
+              Permanently delete "{sessionToDelete?.title}"? All messages in this conversation will be removed. This cannot be undone.
+            </Text>
+            <View style={styles.confirmModalActionsRow}>
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                onPress={() => setSessionToDelete(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.confirmCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmDeleteBtn}
+                onPress={() => {
+                  if (sessionToDelete) {
+                    onDeleteSession(sessionToDelete.id);
+                    setSessionToDelete(null);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.confirmDeleteBtnText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -727,12 +779,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   deleteActionBtn: {
-    width: 26,
-    height: 26,
+    width: 28,
+    height: 28,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    backgroundColor: 'transparent',
   },
   drawerFooter: {
     paddingHorizontal: 12,
@@ -919,5 +971,82 @@ const styles = StyleSheet.create({
   spotlightEmptyText: {
     color: '#71717a',
     fontSize: 13,
+  },
+  confirmModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    zIndex: 500,
+  },
+  confirmModalCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#212121',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  confirmModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  confirmModalIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmModalTitle: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  confirmModalMessage: {
+    color: '#a1a1aa',
+    fontSize: 13.5,
+    lineHeight: 19,
+    marginBottom: 20,
+  },
+  confirmModalActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+  },
+  confirmCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  confirmCancelBtnText: {
+    color: '#e4e4e7',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  confirmDeleteBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    backgroundColor: '#ef4444',
+  },
+  confirmDeleteBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
