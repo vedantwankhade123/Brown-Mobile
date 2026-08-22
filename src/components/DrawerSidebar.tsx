@@ -24,6 +24,7 @@ import {
   PencilIcon,
   SparklesIcon,
   DocumentIcon,
+  MoreVerticalIcon,
 } from './Icons';
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService } from '../services/storage/ConsentService';
@@ -35,6 +36,7 @@ interface DrawerSidebarProps {
   onSelectSession: (sessionId: string) => void;
   onNewChat: () => void;
   onDeleteSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onOpenSync: () => void;
   onOpenSettings?: () => void;
   onClose: () => void;
@@ -104,8 +106,6 @@ function formatSessionDate(timestamp?: number): string {
   return `${month} ${day} at ${timeStr}`;
 }
 
-const DRAWER_WIDTH = 290;
-
 export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   isOpen,
   sessions,
@@ -113,19 +113,24 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onRenameSession,
   onOpenSync,
   onOpenSettings,
   onClose,
 }) => {
+  const closedDrawerOffset = -10000;
   const [searchQuery, setSearchQuery] = useState('');
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [hoveredSpotlightId, setHoveredSpotlightId] = useState<string | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [sessionActionTarget, setSessionActionTarget] = useState<{ id: string; title: string } | null>(null);
+  const [sessionToRename, setSessionToRename] = useState<{ id: string; title: string } | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const [userName, setUserName] = useState('Om Patil');
   const [userInitials, setUserInitials] = useState('OP');
 
-  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
+  const slideAnim = useRef(new Animated.Value(closedDrawerOffset)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const spotlightFadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -167,7 +172,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       setHoveredSessionId(null);
       Animated.parallel([
         Animated.timing(slideAnim, {
-          toValue: -DRAWER_WIDTH,
+          toValue: closedDrawerOffset,
           duration: 180,
           useNativeDriver: true,
         }),
@@ -201,7 +206,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const handleClose = () => {
     Animated.parallel([
       Animated.timing(slideAnim, {
-        toValue: -DRAWER_WIDTH,
+        toValue: closedDrawerOffset,
         duration: 180,
         useNativeDriver: true,
       }),
@@ -283,7 +288,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               }}
               activeOpacity={0.8}
             >
-              <PencilIcon size={16} color="#ffffff" />
+              <PencilIcon size={18} color="#ffffff" />
               <Text style={styles.newChatPillText}>New chat</Text>
             </TouchableOpacity>
 
@@ -293,7 +298,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               onPress={() => setIsSpotlightOpen(true)}
               activeOpacity={0.7}
             >
-              <SearchIcon size={16} color="#ffffff" />
+              <SearchIcon size={18} color="#ffffff" />
               <Text style={styles.searchChatsText}>Search chats</Text>
             </TouchableOpacity>
           </View>
@@ -329,8 +334,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                       onSelectSession(item.id);
                       handleClose();
                     }}
-                    onLongPress={() => setSessionToDelete({ id: item.id, title: formattedTitle })}
-                    delayLongPress={450}
                     activeOpacity={0.8}
                     {...hoverHandlers}
                   >
@@ -343,19 +346,17 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                       </Text>
                     </View>
 
-                    {(isHovered || isActive) && (
-                      <TouchableOpacity
-                        style={styles.deleteActionBtn}
-                        onPress={(e: any) => {
-                          e?.stopPropagation?.();
-                          setSessionToDelete({ id: item.id, title: formattedTitle });
-                        }}
-                        activeOpacity={0.6}
-                        accessibilityLabel="Delete chat"
-                      >
-                        <TrashIcon size={14} color="#ef4444" />
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.sessionMoreBtn}
+                      onPress={(e: any) => {
+                        e?.stopPropagation?.();
+                        setSessionActionTarget({ id: item.id, title: formattedTitle });
+                      }}
+                      activeOpacity={0.65}
+                      accessibilityLabel={`Chat options for ${formattedTitle}`}
+                    >
+                      <MoreVerticalIcon size={20} color="#a1a1aa" />
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 );
               })
@@ -373,7 +374,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               }}
               activeOpacity={0.7}
             >
-              <LaptopIcon size={18} color="#ffffff" />
+              <LaptopIcon size={20} color="#ffffff" />
               <Text style={styles.desktopSyncBtnText}>Desktop Sync</Text>
             </TouchableOpacity>
 
@@ -398,13 +399,91 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   activeOpacity={0.7}
                   accessibilityLabel="Settings"
                 >
-                  <SettingsIcon size={19} color="#ffffff" />
+                  <SettingsIcon size={21} color="#ffffff" />
                 </TouchableOpacity>
               )}
             </View>
           </View>
         </SafeAreaView>
       </Animated.View>
+
+      <Modal
+        visible={!!sessionActionTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionActionTarget(null)}
+      >
+        <TouchableOpacity style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionActionTarget(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.sessionActionsCard} onPress={() => {}}>
+            <Text style={styles.sessionActionsTitle} numberOfLines={1}>{sessionActionTarget?.title}</Text>
+            <TouchableOpacity
+              style={styles.sessionActionRow}
+              onPress={() => {
+                if (!sessionActionTarget) return;
+                setRenameValue(sessionActionTarget.title);
+                setSessionToRename(sessionActionTarget);
+                setSessionActionTarget(null);
+              }}
+              activeOpacity={0.7}
+            >
+              <PencilIcon size={18} color="#ffffff" />
+              <Text style={styles.sessionActionText}>Rename chat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sessionActionRow}
+              onPress={() => {
+                if (sessionActionTarget) setSessionToDelete(sessionActionTarget);
+                setSessionActionTarget(null);
+              }}
+              activeOpacity={0.7}
+            >
+              <TrashIcon size={18} color="#ef4444" />
+              <Text style={styles.sessionActionDeleteText}>Delete chat</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={!!sessionToRename}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSessionToRename(null)}
+      >
+        <TouchableOpacity style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionToRename(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
+            <Text style={styles.confirmModalTitle}>Rename chat</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              placeholder="Chat name"
+              placeholderTextColor="#71717a"
+              autoFocus
+              maxLength={80}
+              selectTextOnFocus
+            />
+            <View style={styles.confirmModalActionsRow}>
+              <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setSessionToRename(null)} activeOpacity={0.7}>
+                <Text style={styles.confirmCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.renameSaveBtn, !renameValue.trim() && styles.renameSaveBtnDisabled]}
+                onPress={async () => {
+                  const nextTitle = renameValue.trim();
+                  if (!sessionToRename || !nextTitle) return;
+                  await onRenameSession(sessionToRename.id, nextTitle);
+                  setSessionToRename(null);
+                }}
+                disabled={!renameValue.trim()}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.renameSaveBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Spotlight Search Modal */}
       <Modal
@@ -640,12 +719,12 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   drawerContainer: {
-    width: DRAWER_WIDTH,
-    maxWidth: '85%',
+    width: '100%',
+    maxWidth: '100%',
     height: '100%',
-    backgroundColor: '#212121',
+    backgroundColor: '#000000',
     borderRightWidth: 1,
-    borderRightColor: 'rgba(255, 255, 255, 0.08)',
+    borderRightColor: '#1a1a1a',
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.5,
@@ -657,11 +736,13 @@ const styles = StyleSheet.create({
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
+    backgroundColor: '#000000',
   },
   drawerHeader: {
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 10,
+    backgroundColor: '#000000',
   },
   topBrandBar: {
     flexDirection: 'row',
@@ -707,7 +788,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#2b2b2b',
+    backgroundColor: '#141414',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 9999,
     paddingHorizontal: 16,
     paddingVertical: 11,
@@ -715,7 +798,7 @@ const styles = StyleSheet.create({
   },
   newChatPillText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
   },
   searchChatsRow: {
@@ -728,17 +811,18 @@ const styles = StyleSheet.create({
   },
   searchChatsText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
   },
   sessionsList: {
     flex: 1,
     paddingHorizontal: 10,
     paddingTop: 8,
+    backgroundColor: '#000000',
   },
   recentSectionTitle: {
     color: '#94a3b8',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     marginBottom: 8,
     paddingHorizontal: 8,
@@ -762,7 +846,9 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   sessionItemActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#141414',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sessionContent: {
     flex: 1,
@@ -770,18 +856,18 @@ const styles = StyleSheet.create({
   },
   sessionTitle: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
   },
   sessionDate: {
     color: '#71717a',
-    fontSize: 11.5,
+    fontSize: 12.5,
     marginTop: 2,
   },
-  deleteActionBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+  sessionMoreBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -790,22 +876,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 12,
+    backgroundColor: '#000000',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopColor: '#1a1a1a',
     gap: 10,
   },
   desktopSyncBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#2b2b2b',
+    backgroundColor: '#141414',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   desktopSyncBtnText: {
     color: '#ffffff',
-    fontSize: 13.5,
+    fontSize: 14.5,
     fontWeight: '600',
   },
   userProfileBar: {
@@ -837,7 +926,7 @@ const styles = StyleSheet.create({
   },
   userNameText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     flex: 1,
   },
@@ -983,7 +1072,7 @@ const styles = StyleSheet.create({
   confirmModalCard: {
     width: '100%',
     maxWidth: 340,
-    backgroundColor: '#212121',
+    backgroundColor: '#121212',
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
@@ -993,6 +1082,65 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 20,
     elevation: 20,
+  },
+  sessionActionsCard: {
+    width: '100%',
+    maxWidth: 300,
+    backgroundColor: '#121212',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    padding: 8,
+  },
+  sessionActionsTitle: {
+    color: '#a1a1aa',
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  sessionActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  sessionActionText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  sessionActionDeleteText: {
+    color: '#ef4444',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  renameInput: {
+    color: '#ffffff',
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 8,
+    fontSize: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 18,
+  },
+  renameSaveBtn: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  renameSaveBtnDisabled: {
+    opacity: 0.45,
+  },
+  renameSaveBtnText: {
+    color: '#111113',
+    fontSize: 14,
+    fontWeight: '700',
   },
   confirmModalHeader: {
     flexDirection: 'row',

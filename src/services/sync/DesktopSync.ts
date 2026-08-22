@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { DesktopInstance, PairingSession, ProfileConflict, SyncStatus, UltronRemoteProfile } from '../../types/sync';
 import { SecureStore } from '../storage/SecureStore';
 
@@ -6,6 +7,16 @@ const TOKEN_KEY = 'ultron_desktop_sync_token';
 const DESKTOP_KEY = 'ultron_desktop_sync_host';
 const AUTO_CONNECT_KEY = 'ultron_auto_connect_wifi';
 const LAST_IP_KEY = 'ultron_desktop_last_ip';
+const HISTORY_KEY = 'ultron_desktop_paired_history';
+
+export interface PairedDesktopHistoryItem {
+  id: string;
+  name: string;
+  ipAddress: string;
+  port: number;
+  platform?: string;
+  lastConnectedAt: number;
+}
 
 export class DesktopSyncService {
   private static instance: DesktopSyncService;
@@ -48,6 +59,10 @@ export class DesktopSyncService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  onStatusChange(listener: (status: SyncStatus) => void): () => void {
+    return this.subscribe(listener);
   }
 
   private notify(): void {
@@ -137,6 +152,10 @@ export class DesktopSyncService {
     }
   }
 
+  async scanNetwork(): Promise<DesktopInstance[]> {
+    return this.scanLocalNetwork();
+  }
+
   async scanLocalNetwork(): Promise<DesktopInstance[]> {
     const found: DesktopInstance[] = [];
     const seen = new Set<string>();
@@ -172,12 +191,25 @@ export class DesktopSyncService {
     return devices.find((d) => (d.syncId || d.id).toUpperCase() === needle) || devices[0] || null;
   }
 
+  private async getMobileDeviceName(): Promise<string> {
+    try {
+      const profile = await this.profileService().getLocalProfile();
+      if (profile && profile.displayName && profile.displayName.trim()) {
+        return `${profile.displayName.trim()} (Ultron Mobile)`;
+      }
+    } catch {}
+    const isIos = Platform.OS === 'ios';
+    return isIos ? 'iPhone (Ultron Mobile)' : 'Android (Ultron Mobile)';
+  }
+
   async requestPairing(desktop: DesktopInstance): Promise<PairingSession> {
+    const devName = await this.getMobileDeviceName();
+    const clientPlatform = Platform.OS === 'ios' ? 'ios' : 'android';
     try {
       const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceName: 'Ultron Mobile' }),
+        body: JSON.stringify({ deviceName: devName, platform: clientPlatform }),
       });
       const data = await res.json();
       if (data && data.requestId) {
@@ -198,6 +230,22 @@ export class DesktopSyncService {
     await SecureStore.setItem(TOKEN_KEY, token);
     await SecureStore.setItem(DESKTOP_KEY, JSON.stringify(desktop));
     await SecureStore.setItem(LAST_IP_KEY, desktop.ipAddress);
+    try {
+      const histRaw = await SecureStore.getItem(HISTORY_KEY);
+      let history: PairedDesktopHistoryItem[] = histRaw ? JSON.parse(histRaw) : [];
+      const id = desktop.id || desktop.syncId || desktop.ipAddress;
+      history = history.filter((h) => h.id !== id && h.ipAddress !== desktop.ipAddress);
+      history.unshift({
+        id,
+        name: desktop.name || 'Ultron Desktop',
+        ipAddress: desktop.ipAddress,
+        port: desktop.port,
+        platform: desktop.platform || (/mac|darwin|apple/i.test(desktop.name || '') ? 'ios' : 'windows'),
+        lastConnectedAt: Date.now(),
+      });
+      await SecureStore.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)));
+    } catch {}
+
     this.status.isConnected = true;
     this.status.activeDesktop = desktop;
     this.status.authToken = token;
@@ -209,6 +257,21 @@ export class DesktopSyncService {
     this.notify();
   }
 
+  async getPairedHistory(): Promise<PairedDesktopHistoryItem[]> {
+    try {
+      const histRaw = await SecureStore.getItem(HISTORY_KEY);
+      return histRaw ? JSON.parse(histRaw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async clearPairedHistory(): Promise<void> {
+    try {
+      await SecureStore.deleteItem(HISTORY_KEY);
+    } catch {}
+  }
+
   async pairWithDesktop(desktop: DesktopInstance, pin: string): Promise<boolean> {
     if (pin.length < 4) {
       throw new Error('Enter the 4-character code shown on your PC');
@@ -218,11 +281,13 @@ export class DesktopSyncService {
     this.notify();
 
     const requestId = this.pairing?.requestId;
+    const devName = await this.getMobileDeviceName();
+    const clientPlatform = Platform.OS === 'ios' ? 'ios' : 'android';
     try {
       const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId, code: pin.trim().toUpperCase(), deviceName: 'Ultron Mobile' }),
+        body: JSON.stringify({ requestId, code: pin.trim().toUpperCase(), deviceName: devName, platform: clientPlatform }),
       });
       const data = await res.json();
       if (data && data.ok && data.token) {
@@ -474,17 +539,34 @@ export class DesktopSyncService {
     if (!desktop || !token) {
       throw new Error('Pair with Ultron Desktop to use models from your PC');
     }
-    const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/ollama/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ model, messages }),
-    });
-    const data = await res.json();
+    let res: Response;
+    try {
+      res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/ollama/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ model, messages }),
+      });
+    } catch (err: any) {
+      throw new Error(`Could not connect to desktop (${desktop.ipAddress}): ${err?.message || 'Network error'}. Make sure Ultron Desktop is open.`);
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) {
+      let rawError = data?.error || `Desktop returned status ${res.status}`;
+      if (/allocate|buffer|cuda|out of memory|vram|projector cpu offload/i.test(rawError)) {
+        throw new Error(`PC Out of Memory: Your desktop ran out of GPU/RAM memory while loading "${model}". Try switching to a lighter model (like Llama 3.2 1B or 3B) or free up memory on your PC.`);
+      }
+      if (/not found|try pulling/i.test(rawError)) {
+        throw new Error(`Model "${model}" is not installed in Ollama on your PC.`);
+      }
+      throw new Error(rawError);
+    }
+
     const text = data?.message?.content || data?.response || '';
-    if (!text) throw new Error(data?.error || 'Desktop model returned an empty reply');
+    if (!text) throw new Error('Desktop model returned an empty reply');
     return text;
   }
 
@@ -507,17 +589,43 @@ export class DesktopSyncService {
     this.notify();
   }
 
+  async refreshStatus(): Promise<SyncStatus> {
+    if (this.status.activeDesktop && this.status.authToken) {
+      await this.tryAutoConnect();
+    } else {
+      const token = await SecureStore.getItem(TOKEN_KEY);
+      if (token) {
+        await this.restoreSession();
+      } else {
+        this.status.isConnected = false;
+        this.notify();
+      }
+    }
+    return this.getStatus();
+  }
+
   async disconnect(): Promise<void> {
+    const desktop = this.status.activeDesktop;
+    const token = this.status.authToken;
+    if (desktop && token) {
+      try {
+        fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/unpair`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }).catch(() => {});
+      } catch {}
+    }
     await SecureStore.deleteItem(TOKEN_KEY);
     await SecureStore.deleteItem(DESKTOP_KEY);
-    this.status = {
-      isConnected: false,
-      activeDesktop: undefined,
-      syncInProgress: false,
-      syncedThreadsCount: 0,
-      autoConnectEnabled: this.status.autoConnectEnabled,
-    };
-    this.pendingConflict = null;
+    this.status.isConnected = false;
+    this.status.activeDesktop = undefined;
+    this.status.authToken = undefined;
+    this.status.syncInProgress = false;
+    this.status.needsReauth = false;
+    this.status.reauthReason = undefined;
     this.notify();
   }
 }

@@ -35,9 +35,7 @@ import { DesktopSyncService } from '../services/sync/DesktopSync';
 import { getCachedGeminiModels, getGeminiApiKey, discoverGeminiModels } from '../services/inference/GeminiClient';
 import { AudioWaveform } from './AudioWaveform';
 import { HuggingFaceLogo } from './HuggingFaceLogo';
-
-const GEMINI_LOGO = require('../../Assets/gemini-logo.png');
-const OLLAMA_LOGO = require('../../Assets/ollama-logo.png');
+import { ModelBrandLogo } from './ModelBrandLogo';
 
 interface MessageInputProps {
   onSendMessage: (text: string) => void;
@@ -385,7 +383,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                     provider === 'gemini'
                       ? 'Cloud'
                       : provider === 'ollama'
-                        ? 'Desktop'
+                        ? 'Shared'
                         : 'On Device';
                   return (
                     <TouchableOpacity
@@ -408,20 +406,16 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                           } as any)
                         : {})}
                     >
-                      {provider === 'gemini' ? (
-                        <Image source={GEMINI_LOGO} style={styles.modelBrandLogo} resizeMode="contain" />
-                      ) : provider === 'ollama' ? (
-                        <Image source={OLLAMA_LOGO} style={[styles.modelBrandLogo, { tintColor: '#ffffff' }]} resizeMode="contain" />
-                      ) : (
-                        <HuggingFaceLogo size={18} />
-                      )}
+                      <View style={styles.modelBrandLogoBox}>
+                        <ModelBrandLogo modelName={m.name || m.id} provider={provider} size={22} />
+                      </View>
                       <View style={styles.dropdownItemLeft}>
                         <Text style={[styles.dropdownModelTitle, (isSelected || isHovered) && styles.dropdownModelTitleSelected]}>
                           {m.name}
                         </Text>
                         <Text style={styles.dropdownModelMeta} numberOfLines={1}>
                           {provider === 'ollama'
-                            ? `${m.sizeFormatted} • live from PC`
+                            ? `${m.sizeFormatted} • Shared from PC`
                             : provider === 'gemini'
                               ? 'Cloud • API key'
                               : `${m.parameters} • Hugging Face`}
@@ -631,7 +625,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 )}
 
                 <TouchableOpacity
-                  style={styles.actionIconBtn}
+                  style={styles.outlinedActionIconBtn}
                   onPress={() => {
                     setShowAttachMenu(!showAttachMenu);
                     setShowModelDropdown(false);
@@ -639,7 +633,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                   activeOpacity={0.7}
                   accessibilityLabel="Add tool or attachment"
                 >
-                  <PlusIcon size={20} color="#a1a1aa" />
+                  <PlusIcon size={23} color="#d4d4d8" />
                 </TouchableOpacity>
               </View>
 
@@ -647,7 +641,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               <View style={styles.rightActionsGroup}>
                 {/* Voice Mic Button */}
                 <TouchableOpacity
-                  style={[styles.actionIconBtn, isListening && styles.actionIconBtnListening]}
+                  style={[styles.outlinedActionIconBtn, isListening && styles.actionIconBtnListening]}
                   onPress={onVoicePress}
                   activeOpacity={0.7}
                   disabled={disabled}
@@ -655,7 +649,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 >
                   <MicIcon
                     size={20}
-                    color={isListening ? colors.error : '#a1a1aa'}
+                    color={isListening ? colors.error : '#d4d4d8'}
                   />
                 </TouchableOpacity>
 
@@ -671,15 +665,19 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.actionIconBtn, !hasText || disabled ? styles.sendBtnDisabled : null]}
+                    style={[
+                      styles.sendActionBtn,
+                      hasText && !disabled && styles.sendActionBtnActive,
+                      !hasText || disabled ? styles.sendBtnDisabled : null,
+                    ]}
                     onPress={handleSend}
                     disabled={!hasText || disabled}
                     activeOpacity={0.7}
                     accessibilityLabel="Send Message"
                   >
                     <ArrowUpIcon
-                      size={20}
-                      color={hasText && !disabled ? '#ffffff' : '#52525b'}
+                      size={21}
+                      color={hasText && !disabled ? '#111113' : '#71717a'}
                     />
                   </TouchableOpacity>
                 )}
@@ -728,7 +726,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 36,
     minHeight: 180,
-    maxHeight: 280,
+    maxHeight: 340,
     backgroundColor: '#161618',
     borderRadius: 18,
     borderWidth: 1,
@@ -837,7 +835,8 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   dropdownScroll: {
-    maxHeight: 200,
+    maxHeight: 230,
+    flexGrow: 0,
   },
   dropdownEmptyContainer: {
     alignItems: 'center',
@@ -866,8 +865,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 7,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 10,
     backgroundColor: 'transparent',
   },
@@ -878,19 +877,12 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 8,
   },
-  modelBrandLogo: {
-    width: 22,
-    height: 22,
+  modelBrandLogoBox: {
+    width: 32,
+    height: 32,
     marginRight: 10,
-    borderRadius: 6,
-    backgroundColor: '#ffffff',
-  },
-  modelBrandLogoFallback: {
-    width: 22,
-    height: 22,
-    marginRight: 10,
-    borderRadius: 6,
-    backgroundColor: '#333333',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -986,12 +978,12 @@ const styles = StyleSheet.create({
   },
   modelName: {
     color: '#a1a1aa',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '500',
   },
   inputCard: {
     backgroundColor: '#212124',
-    borderRadius: 16,
+    borderRadius: 26,
     paddingHorizontal: 18,
     paddingTop: 12,
     paddingBottom: 10,
@@ -1003,10 +995,10 @@ const styles = StyleSheet.create({
   },
   textInput: {
     color: '#ffffff',
-    fontSize: 15.5,
+    fontSize: 16.5,
     paddingVertical: 0,
     paddingHorizontal: 0,
-    lineHeight: 21,
+    lineHeight: 23,
     textAlignVertical: 'top',
   },
   bottomControlsRow: {
@@ -1029,9 +1021,31 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 0,
   },
-  actionIconBtnListening: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  outlinedActionIconBtn: {
+    width: 42,
+    height: 42,
     borderRadius: 9999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#242426',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  actionIconBtnListening: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(248, 113, 113, 0.55)',
+  },
+  sendActionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 9999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+  sendActionBtnActive: {
+    backgroundColor: '#f4f4f5',
   },
   sendBtnDisabled: {
     opacity: 0.5,

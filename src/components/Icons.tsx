@@ -23,6 +23,20 @@ export const MenuIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPr
   </Svg>
 );
 
+export const ChatIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPrimary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+  </Svg>
+);
+
+export const MoreVerticalIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPrimary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+    <Circle cx="12" cy="5" r="1" fill={color} />
+    <Circle cx="12" cy="12" r="1" fill={color} />
+    <Circle cx="12" cy="19" r="1" fill={color} />
+  </Svg>
+);
+
 export const SettingsIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPrimary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Circle cx="12" cy="12" r="3" />

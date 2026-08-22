@@ -1,11 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { ModelMetadata, ModelDownloadState } from '../types/model';
-import { colors } from '../theme/colors';
-import { typography, spacing, borderRadius } from '../theme/typography';
 import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon } from './Icons';
 import { HuggingFaceLogo } from './HuggingFaceLogo';
-import { StorageBudgetService } from '../services/modelManager/StorageBudget';
 
 const OLLAMA_LOGO = require('../../Assets/ollama-logo.png');
 const GEMINI_LOGO = require('../../Assets/gemini-logo.png');
@@ -67,71 +64,46 @@ export const ModelCard: React.FC<ModelCardProps> = ({
   const isDownloaded = downloadState.status === 'downloaded';
   const isDownloading = downloadState.status === 'downloading';
   const isPaused = downloadState.status === 'paused';
-  const ramMb = model.ramRequiredMb || model.recommendedRamMb;
   const features = getSupportedFeatures(model);
+  const capabilitySummary = features
+    .map((feature) => feature.replace(/^\S+\s+/, ''))
+    .slice(0, 2)
+    .join(' · ');
+  const contextLabel = `${Math.max(1, Math.round((model.contextLength || 4096) / 1024))}K context`;
 
   return (
     <View style={[styles.card, isActive && styles.activeCard]}>
-      {/* Top Header: Model Name & Clean Transparent Brand Logo */}
+      {/* Dense model header */}
       <View style={styles.topRow}>
         <View style={styles.titleArea}>
           <Text style={styles.modelName} numberOfLines={1}>
             {model.name}
           </Text>
+          <View style={styles.modelOriginRow}>
+            {model.source === 'online' || model.id.includes('ollama') ? (
+              <Image source={OLLAMA_LOGO} style={styles.originLogo} resizeMode="contain" />
+            ) : model.source === 'cloud' || model.id.includes('gemini') ? (
+              <Image source={GEMINI_LOGO} style={styles.originLogo} resizeMode="contain" />
+            ) : (
+              <HuggingFaceLogo size={15} />
+            )}
+            <Text style={styles.originText}>
+              {model.source === 'online' || model.id.includes('ollama')
+                ? 'Ollama'
+                : model.source === 'cloud' || model.id.includes('gemini')
+                  ? 'Google Gemini'
+                  : 'Hugging Face'}
+            </Text>
+          </View>
         </View>
-
-        {/* Clean Brand Logo Without Background */}
-        <View style={styles.brandBadge}>
-          {model.source === 'online' || model.id.includes('ollama') ? (
-            <View style={styles.brandRow}>
-              <Image source={OLLAMA_LOGO} style={{ width: 15, height: 15, tintColor: '#ffffff' }} resizeMode="contain" />
-              <Text style={styles.brandText}>Ollama</Text>
-            </View>
-          ) : model.source === 'cloud' || model.id.includes('gemini') ? (
-            <View style={styles.brandRow}>
-              <Image source={GEMINI_LOGO} style={{ width: 15, height: 15 }} resizeMode="contain" />
-              <Text style={styles.brandText}>Google Gemini</Text>
-            </View>
-          ) : (
-            <View style={styles.brandRow}>
-              <HuggingFaceLogo size={16} />
-              <Text style={styles.brandText}>Hugging Face</Text>
-            </View>
-          )}
-        </View>
+        <Text style={styles.contextText}>{contextLabel}</Text>
       </View>
 
-      {/* Weights & Parameters Info (Secondary Content in Blue Color) */}
-      <View style={styles.specsContainer}>
-        <View style={styles.specItem}>
-          <Text style={styles.specLabel}>Weights:</Text>
-          <Text style={styles.specValue}>{model.sizeFormatted} ({model.quantization || 'Q4_K_M'})</Text>
-        </View>
-
-        <View style={styles.specItem}>
-          <Text style={styles.specLabel}>Parameters:</Text>
-          <Text style={styles.specValue}>{model.parameters || '1.23B'}</Text>
-        </View>
-
-        <View style={styles.specItem}>
-          <Text style={styles.specLabel}>Requirements:</Text>
-          <Text style={styles.specValue}>
-            RAM ~{StorageBudgetService.formatBytes(ramMb * 1024 * 1024)} (Min {model.ramRequiredMb ? `${(model.ramRequiredMb / 1024).toFixed(1)} GB` : '2.0 GB'})
-          </Text>
-        </View>
+      <View style={styles.modelFactsRow}>
+        <Text style={styles.modelFact}>{model.parameters || '1B'} parameters</Text>
+        {capabilitySummary ? <Text style={styles.modelFact}>{capabilitySummary}</Text> : null}
       </View>
-
-      {/* Supports / Capabilities Tags (Blue Badges) */}
-      <View style={styles.featureTagsRow}>
-        <Text style={styles.supportsHeading}>Supports:</Text>
-        <View style={styles.tagsGroup}>
-          {features.map((feat) => (
-            <View key={feat} style={styles.featureBadge}>
-              <Text style={styles.featureBadgeText}>{feat}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      <Text style={styles.description} numberOfLines={2}>{model.description}</Text>
 
       {/* Download Progress Bar */}
       {(isDownloading || isPaused) && (
@@ -152,11 +124,10 @@ export const ModelCard: React.FC<ModelCardProps> = ({
         </View>
       )}
 
-      {/* Bottom Action Row: "Size: <size>" on Left + Compact Buttons on Right */}
+      {/* Compact metadata and actions */}
       <View style={styles.bottomRow}>
         <View style={styles.bottomSizeRow}>
-          <DownloadIcon size={14} color="#60a5fa" />
-          <Text style={styles.bottomSizeText}>Size: {model.sizeFormatted}</Text>
+          <Text style={styles.bottomSizeText}>{model.quantization || 'Q4_K_M'} · {model.sizeFormatted}</Text>
         </View>
 
         <View style={styles.actionsGroup}>
@@ -199,7 +170,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => onResume?.(model.id)}
               activeOpacity={0.7}
             >
-              <DownloadIcon size={13} color="#ffffff" />
+              <DownloadIcon size={16} color="#111113" />
               <Text style={styles.downloadBtnText}>Resume {downloadState.progress}%</Text>
             </TouchableOpacity>
           ) : (
@@ -208,8 +179,8 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => onDownload(model)}
               activeOpacity={0.7}
             >
-              <DownloadIcon size={13} color="#ffffff" />
-              <Text style={styles.downloadBtnText}>Get GGUF</Text>
+              <DownloadIcon size={16} color="#111113" />
+              <Text style={styles.downloadBtnText}>Download Model</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -220,22 +191,22 @@ export const ModelCard: React.FC<ModelCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#18181b',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
+    backgroundColor: '#101113',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   activeCard: {
-    borderColor: '#3b82f6',
-    backgroundColor: '#1c1c20',
+    borderColor: 'rgba(96, 165, 250, 0.7)',
+    backgroundColor: '#14161a',
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    marginBottom: 6,
   },
   titleArea: {
     flex: 1,
@@ -243,75 +214,48 @@ const styles = StyleSheet.create({
   },
   modelName: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     letterSpacing: -0.2,
   },
-  brandBadge: {
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    padding: 0,
-  },
-  brandRow: {
+  modelOriginRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'transparent',
+    gap: 4,
+    marginTop: 3,
   },
-  brandText: {
+  originLogo: {
+    width: 15,
+    height: 15,
+    tintColor: '#ffffff',
+  },
+  originText: {
+    color: '#8b8b92',
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  contextText: {
+    color: '#9ca3af',
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  modelFactsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+    marginBottom: 5,
+  },
+  modelFact: {
     color: '#a1a1aa',
     fontSize: 11.5,
     fontWeight: '600',
   },
-  specsContainer: {
-    gap: 4,
-    marginBottom: 8,
-  },
-  specItem: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 5,
-    flexWrap: 'wrap',
-  },
-  specLabel: {
-    color: '#60a5fa',
+  description: {
+    color: '#b3b3ba',
     fontSize: 12.5,
-    fontWeight: '700',
-  },
-  specValue: {
-    color: '#93c5fd',
-    fontSize: 12.5,
-    fontWeight: '500',
-    flexShrink: 1,
-  },
-  featureTagsRow: {
-    marginTop: 2,
+    lineHeight: 18,
     marginBottom: 10,
-    gap: 4,
-  },
-  supportsHeading: {
-    color: '#60a5fa',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  tagsGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-  },
-  featureBadge: {
-    backgroundColor: 'rgba(59, 130, 246, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.25)',
-  },
-  featureBadgeText: {
-    color: '#93c5fd',
-    fontSize: 11,
-    fontWeight: '600',
   },
   progressContainer: {
     marginVertical: 8,
@@ -333,7 +277,7 @@ const styles = StyleSheet.create({
   },
   progressText: {
     color: '#60a5fa',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
   },
   progressSpeed: {
@@ -344,7 +288,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 10,
+    paddingTop: 9,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
@@ -354,9 +298,9 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   bottomSizeText: {
-    color: '#60a5fa',
-    fontSize: 13,
-    fontWeight: '700',
+    color: '#9ca3af',
+    fontSize: 11,
+    fontWeight: '600',
   },
   actionsGroup: {
     flexDirection: 'row',
@@ -367,13 +311,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#2563eb',
-    paddingHorizontal: 13,
+    backgroundColor: '#f4f4f5',
+    paddingHorizontal: 11,
     paddingVertical: 7,
-    borderRadius: 9999,
+    borderRadius: 7,
   },
   downloadBtnText: {
-    color: '#ffffff',
+    color: '#111113',
     fontSize: 12.5,
     fontWeight: '700',
   },

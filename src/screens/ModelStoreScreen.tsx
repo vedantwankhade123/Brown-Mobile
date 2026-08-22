@@ -31,7 +31,7 @@ import { ModelMetadata, ModelDownloadState, MobileRamTier } from '../types/model
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
-import { SearchIcon, ChevronLeftIcon, CloseIcon, CpuIcon } from '../components/Icons';
+import { SearchIcon, ChevronLeftIcon, CloseIcon } from '../components/Icons';
 
 interface ModelStoreScreenProps {
   onBack: () => void;
@@ -73,7 +73,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
   const [customDir, setCustomDir] = useState('');
   const [defaultDir, setDefaultDir] = useState('/UltronAI/models/');
   const [useCustomDir, setUseCustomDir] = useState(false);
-  const [liveStatus, setLiveStatus] = useState('Loading mobile-safe library…');
 
   const downloader = ModelDownloader.getInstance();
   const engine = LlamaEngine.getInstance();
@@ -142,9 +141,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       setDefaultDir(StoragePaths.displayPath(modelsDir));
       setCustomDir(StoragePaths.displayPath(modelsDir));
       setCatalog(filterMobileSafeModels(MOBILE_GGUF_LIBRARY, stats.totalRamMb));
-      setLiveStatus(
-        `Built-in catalog filtered for ${(stats.totalRamMb / 1024).toFixed(1)} GB RAM. Models ≥14B stay hidden.`
-      );
       try {
         const page = await searchHuggingFaceGgufs({
           query: 'instruct gguf',
@@ -203,7 +199,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
   };
 
   const grouped = groupMobileModelsByTier(catalog);
-  const ramGb = deviceStats ? (deviceStats.totalRamMb / 1024).toFixed(1) : '—';
   const freeLabel = deviceStats ? StorageBudgetService.formatBytes(deviceStats.freeStorageBytes) : '—';
   const notEnough = pendingModel
     ? (deviceStats?.freeStorageBytes || 0) < pendingModel.sizeBytes + 50 * 1024 * 1024
@@ -273,38 +268,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       )}
 
       <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {/* Redesigned Sleek Device Safe Mode & Memory Profile */}
-        <View style={styles.hardwareCard}>
-          <View style={styles.hardwareHeaderRow}>
-            <View style={styles.hardwareTitleGroup}>
-              <CpuIcon size={16} color="#3b82f6" />
-              <Text style={styles.hardwareTitle}>Device Safe Mode</Text>
-            </View>
-            <View style={styles.safeModeBadge}>
-              <View style={styles.safeModeDot} />
-              <Text style={styles.safeModeBadgeText}>Active</Text>
-            </View>
-          </View>
-
-          <View style={styles.hardwareGrid}>
-            <View style={styles.hardwareMetricBox}>
-              <Text style={styles.metricLabel}>Total RAM</Text>
-              <Text style={styles.metricValue}>{ramGb} GB</Text>
-            </View>
-            <View style={styles.hardwareMetricBox}>
-              <Text style={styles.metricLabel}>Free Storage</Text>
-              <Text style={styles.metricValue}>{freeLabel}</Text>
-            </View>
-            <View style={styles.hardwareMetricBox}>
-              <Text style={styles.metricLabel}>CPU Core</Text>
-              <Text style={styles.metricValue} numberOfLines={1}>
-                {deviceStats?.cpuArchitecture || 'arm64'}
-              </Text>
-            </View>
-          </View>
-          <Text style={styles.liveStatus}>{liveStatus}</Text>
-        </View>
-
         {/* Live Hugging Face Search Results (Clean Logo + Title only) */}
         {searchQuery.trim().length > 0 || hfModels.length > 0 ? (
           <View style={styles.sectionBlock}>
@@ -509,84 +472,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
-  },
-  hardwareCard: {
-    backgroundColor: '#18181b',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  hardwareHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  hardwareTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  hardwareTitle: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  safeModeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 9999,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.3)',
-  },
-  safeModeDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#22c55e',
-  },
-  safeModeBadgeText: {
-    color: '#22c55e',
-    fontSize: 10.5,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  hardwareGrid: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  hardwareMetricBox: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  metricLabel: {
-    color: '#a1a1aa',
-    fontSize: 11,
-    fontWeight: '500',
-    marginBottom: 2,
-  },
-  metricValue: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  liveStatus: {
-    color: '#71717a',
-    fontSize: 11,
-    marginTop: 10,
-    lineHeight: 15,
   },
   loadMoreBtn: {
     backgroundColor: '#27272a',

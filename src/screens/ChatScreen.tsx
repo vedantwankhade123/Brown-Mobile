@@ -155,6 +155,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
   };
 
+  const handleRenameSession = async (sessionId: string, title: string) => {
+    const session = sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    await chatRepo.upsertSession({ ...session, title, updatedAt: Date.now() });
+    setSessions(await chatRepo.getAllSessions());
+  };
+
   const handleSendMessage = async (text: string) => {
     if (!currentSessionId || isGenerating) return;
     if (!activeModel) {
@@ -241,7 +248,15 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       );
     } catch (err: any) {
       setIsGenerating(false);
-      Alert.alert('Inference Error', err?.message || 'Failed to complete generation');
+      const friendlyMsg = err?.message || 'Failed to complete generation';
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsgId
+            ? { ...m, content: `⚠️ ${friendlyMsg}`, isStreaming: false }
+            : m
+        )
+      );
+      Alert.alert('Inference Notice', friendlyMsg);
     }
   };
 
@@ -365,6 +380,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onSelectSession={loadSession}
         onNewChat={createNewChat}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
         onOpenSync={onOpenDesktopSync}
         onOpenSettings={onOpenSettings}
         onClose={() => setIsSidebarOpen(false)}

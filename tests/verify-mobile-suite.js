@@ -35,6 +35,11 @@ function requireTs(filePath) {
         return require(resolved);
       }
     }
+    if (modName === 'react-native') {
+      return {
+        Platform: { OS: 'android', select: (obj) => obj.android || obj.default },
+      };
+    }
     return require(modName);
   }, m.exports, m, fullPath, path.dirname(fullPath));
   return m.exports;

@@ -14,11 +14,11 @@ import {
   KeyboardAvoidingView,
   Animated,
 } from 'react-native';
-import { DesktopSyncService } from '../services/sync/DesktopSync';
+import { DesktopSyncService, PairedDesktopHistoryItem } from '../services/sync/DesktopSync';
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon } from '../components/Icons';
+import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, AppleIcon, CheckIcon } from '../components/Icons';
 import { SyncIllustration } from '../components/SyncIllustration';
 
 const Easing = (Animated as any).Easing || {
@@ -38,43 +38,58 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
     isConnected: false,
     syncInProgress: false,
     syncedThreadsCount: 0,
+    activeDesktop: undefined,
+    needsReauth: false,
+    reauthReason: undefined,
+    lastSyncTimestamp: undefined,
   });
-  const [discoveredDevices, setDiscoveredDevices] = useState<DesktopInstance[]>([]);
+  const [devices, setDevices] = useState<DesktopInstance[]>([]);
+  const [pairedHistory, setPairedHistory] = useState<PairedDesktopHistoryItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<DesktopInstance | null>(null);
-  const [pinCode, setPinCode] = useState('');
   const [syncIdInput, setSyncIdInput] = useState('');
+  const [idFocused, setIdFocused] = useState(false);
+  const [pinCode, setPinCode] = useState('');
   const [awaitingCode, setAwaitingCode] = useState(false);
   const [profileConflict, setProfileConflict] = useState<ProfileConflict | null>(null);
-  const [idFocused, setIdFocused] = useState(false);
-  const pinInputRef = useRef<any>(null);
-  const scanSpin = useRef(new Animated.Value(0)).current;
-  const pageFade = useRef(new Animated.Value(0)).current;
-  const pageSlide = useRef(new Animated.Value(16)).current;
-  const wifiPulse = useRef(new Animated.Value(1)).current;
 
   const syncService = DesktopSyncService.getInstance();
+  const pinInputRef = useRef<any>(null);
+  const scanSpin = useRef(new Animated.Value(0)).current;
+
   const canConnect = syncIdInput.trim().replace(/[^A-Z0-9-]/gi, '').length >= 8;
-  const liveDevices = discoveredDevices.filter((d) => !d.isFallback);
-  const fallbackDevice = discoveredDevices.find((d) => d.isFallback);
+  const liveDevices = devices.filter((d) => !d.isFallback);
+  const fallbackDevice = devices.find((d) => d.isFallback);
+
+  const pageFade = useRef(new Animated.Value(0)).current;
+  const pageSlide = useRef(new Animated.Value(14)).current;
+  const wifiPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const unsub = syncService.subscribe(setSyncStatus);
-    handleScan();
     Animated.parallel([
-      Animated.timing(pageFade, { toValue: 1, duration: 280, useNativeDriver: true }),
-      Animated.timing(pageSlide, { toValue: 0, duration: 280, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(pageFade, { toValue: 1, duration: 240, useNativeDriver: true }),
+      Animated.timing(pageSlide, { toValue: 0, duration: 240, useNativeDriver: true }),
     ]).start();
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(wifiPulse, { toValue: 1.12, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(wifiPulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-    pulse.start();
+  }, []);
+
+  const loadHistory = async () => {
+    try {
+      const list = await syncService.getPairedHistory();
+      setPairedHistory(list);
+    } catch {}
+  };
+
+  useEffect(() => {
+    const unsub = syncService.subscribe((status) => {
+      setSyncStatus(status);
+      loadHistory();
+    });
+
+    handleScan();
+    loadHistory();
+
     return () => {
       unsub();
-      pulse.stop();
     };
   }, []);
 
@@ -96,16 +111,26 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
   }, [isScanning]);
 
   useEffect(() => {
-    if (awaitingCode) {
-      setTimeout(() => pinInputRef.current?.focus(), 250);
+    if (!syncStatus.isConnected) {
+      const pulseLoop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(wifiPulse, { toValue: 1.14, duration: 900, useNativeDriver: true }),
+          Animated.timing(wifiPulse, { toValue: 1.0, duration: 900, useNativeDriver: true }),
+        ])
+      );
+      pulseLoop.start();
+      return () => pulseLoop.stop();
     }
-  }, [awaitingCode]);
+  }, [syncStatus.isConnected]);
 
   const handleScan = async () => {
     setIsScanning(true);
-    const devices = await syncService.scanLocalNetwork();
-    setDiscoveredDevices(devices);
-    setIsScanning(false);
+    try {
+      const list = await syncService.scanLocalNetwork();
+      setDevices(list);
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const beginPairing = async (device: DesktopInstance) => {
@@ -114,19 +139,29 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
     setAwaitingCode(true);
     try {
       await syncService.requestPairing(device);
+      setTimeout(() => {
+        pinInputRef.current?.focus();
+      }, 100);
     } catch (err: any) {
-      Alert.alert('Pairing', err?.message || 'Could not reach the desktop. Keep Ultron open on the PC.');
+      Alert.alert('Pairing Request Failed', err?.message || 'Could not reach the desktop node');
+      setAwaitingCode(false);
+      setSelectedDevice(null);
     }
   };
 
   const handleConnectById = async () => {
-    const id = syncIdInput.trim();
+    const id = syncIdInput.trim().toUpperCase();
     if (!id) return;
-    const device = await syncService.connectBySyncId(id);
-    if (!device) {
-      Alert.alert('Not found', 'No Ultron Desktop with that Sync ID is on this Wi-Fi.');
-      return;
-    }
+    const device: DesktopInstance = {
+      id,
+      name: id,
+      ipAddress: '127.0.0.1',
+      port: 49200,
+      version: '1.0.0',
+      isPaired: false,
+      lastSeen: Date.now(),
+      syncId: id,
+    };
     await beginPairing(device);
   };
 
@@ -181,15 +216,15 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
   };
 
   const statusLabel = syncStatus.needsReauth
-    ? 'Confirm this network'
+    ? 'Disconnected'
     : syncStatus.isConnected
-      ? 'Paired with Windows'
-      : 'Not paired';
+      ? 'Paired with Desktop'
+      : 'Disconnected';
   const statusDetail = syncStatus.needsReauth
-    ? syncStatus.reauthReason || 'Enter the code shown on your PC to continue.'
+    ? syncStatus.reauthReason || 'Network changed — enter the code on your PC.'
     : syncStatus.isConnected
       ? syncStatus.activeDesktop?.name || 'Ultron Desktop'
-      : 'Keep Ultron open on your PC. Phone and computer must share the same Wi-Fi.';
+      : 'No desktop paired. Keep Ultron open on PC and tap refresh to scan.';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -210,60 +245,130 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
               {syncStatus.isConnected ? (
                 <CheckIcon size={22} color="#10B981" />
               ) : (
-                <WifiIcon size={22} color={syncStatus.needsReauth ? '#F59E0B' : '#ffffff'} />
+                <WifiIcon size={22} color={syncStatus.needsReauth ? '#F59E0B' : '#71717a'} />
               )}
             </Animated.View>
             <View style={{ flex: 1 }}>
               <Text style={styles.statusTitle}>{statusLabel}</Text>
               <Text style={styles.statusDetail}>{statusDetail}</Text>
             </View>
+            <TouchableOpacity
+              style={styles.statusRefreshBtn}
+              onPress={async () => {
+                await syncService.refreshStatus();
+                handleScan();
+              }}
+              disabled={isScanning}
+              activeOpacity={0.7}
+              accessibilityLabel="Refresh sync status"
+            >
+              <RefreshIcon size={16} color="#ffffff" />
+            </TouchableOpacity>
           </View>
 
-          {syncStatus.isConnected && (
-            <View style={styles.card}>
-              <Text style={styles.cardKicker}>WORKSTATION</Text>
-              <Text style={styles.cardTitle}>{syncStatus.activeDesktop?.name || 'Ultron Desktop'}</Text>
-              <Text style={styles.cardMeta}>
-                {(syncStatus.activeDesktop?.syncId || syncStatus.activeDesktop?.id) +
-                  '  ·  ' +
-                  (syncStatus.activeDesktop?.ipAddress || 'LAN')}
-              </Text>
-              <View style={styles.statRow}>
-                <View style={styles.statCell}>
-                  <Text style={styles.statLabel}>Last sync</Text>
-                  <Text style={styles.statValue}>
-                    {syncStatus.lastSyncTimestamp
-                      ? new Date(syncStatus.lastSyncTimestamp).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })
-                      : 'Just now'}
-                  </Text>
+          {syncStatus.isConnected && (() => {
+            const devName = syncStatus.activeDesktop?.name || 'Ultron Desktop';
+            const syncId = syncStatus.activeDesktop?.syncId || syncStatus.activeDesktop?.id || '';
+            const isAppleDesktop = /mac|darwin|apple/i.test(devName) || /mac|apple/i.test(syncId);
+
+            return (
+              <>
+                <View style={styles.card}>
+                <Text style={styles.cardKicker}>WORKSTATION</Text>
+
+                <View style={styles.workstationInfoRow}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={styles.cardTitle}>{devName}</Text>
+                    <Text style={styles.cardMeta}>
+                      {syncId ? `${syncId}  ·  ${syncStatus.activeDesktop?.ipAddress || 'LAN'}` : (syncStatus.activeDesktop?.ipAddress || 'LAN')}
+                    </Text>
+                  </View>
+                  <View style={styles.platformIconBox}>
+                    {isAppleDesktop ? (
+                      <AppleIcon size={32} color="#ffffff" />
+                    ) : (
+                      <WindowsIcon size={32} branded={true} />
+                    )}
+                  </View>
                 </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statCell}>
-                  <Text style={styles.statLabel}>Threads</Text>
-                  <Text style={styles.statValue}>{syncStatus.syncedThreadsCount}</Text>
+
+                <View style={styles.statRow}>
+                  <View style={styles.statCell}>
+                    <Text style={styles.statLabel}>Last sync</Text>
+                    <Text style={styles.statValue}>
+                      {syncStatus.lastSyncTimestamp
+                        ? new Date(syncStatus.lastSyncTimestamp).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : 'Just now'}
+                    </Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statCell}>
+                    <Text style={styles.statLabel}>Threads</Text>
+                    <Text style={styles.statValue}>{syncStatus.syncedThreadsCount}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.connectedActions}>
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handleSyncNow}
+                    disabled={syncStatus.syncInProgress}
+                    activeOpacity={0.8}
+                  >
+                    <RefreshIcon size={15} color="#000000" />
+                    <Text style={styles.primaryBtnText}>
+                      {syncStatus.syncInProgress ? 'Syncing…' : 'Sync now'}
+                    </Text>
+                  </TouchableOpacity>
+                    <TouchableOpacity style={styles.ghostBtn} onPress={handleDisconnect} activeOpacity={0.8}>
+                    <Text style={styles.ghostBtnDanger}>Unpair</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-              <View style={styles.connectedActions}>
-                <TouchableOpacity
-                  style={styles.primaryBtn}
-                  onPress={handleSyncNow}
-                  disabled={syncStatus.syncInProgress}
-                  activeOpacity={0.8}
-                >
-                  <RefreshIcon size={14} color="#000000" />
-                  <Text style={styles.primaryBtnText}>
-                    {syncStatus.syncInProgress ? 'Syncing…' : 'Sync now'}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.ghostBtn} onPress={handleDisconnect} activeOpacity={0.8}>
-                  <Text style={styles.ghostBtnDanger}>Unpair</Text>
-                </TouchableOpacity>
+
+              <View style={styles.card}>
+                <Text style={styles.cardKicker}>SHARED CAPABILITIES</Text>
+
+                <View style={styles.sharedCapabilityRow}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={styles.sharedCapabilityTitle}>Desktop Ollama LLMs</Text>
+                    <Text style={styles.sharedCapabilityDesc}>Heavyweight models running on PC GPU streamed to mobile</Text>
+                  </View>
+                  <View style={styles.sharedBadge}>
+                    <Text style={styles.sharedBadgeText}>Shared</Text>
+                  </View>
+                </View>
+
+                <View style={styles.sharedDivider} />
+
+                <View style={styles.sharedCapabilityRow}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={styles.sharedCapabilityTitle}>Gemini Cloud API Key</Text>
+                    <Text style={styles.sharedCapabilityDesc}>Synchronized cloud credentials inherited from desktop</Text>
+                  </View>
+                  <View style={styles.sharedBadge}>
+                    <Text style={styles.sharedBadgeText}>Shared</Text>
+                  </View>
+                </View>
+
+                <View style={styles.sharedDivider} />
+
+                <View style={styles.sharedCapabilityRow}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={styles.sharedCapabilityTitle}>Chat History & Notes</Text>
+                    <Text style={styles.sharedCapabilityDesc}>Cross-device conversation continuity with desktop approval</Text>
+                  </View>
+                  <View style={styles.sharedBadge}>
+                    <Text style={styles.sharedBadgeText}>Shared</Text>
+                  </View>
+                </View>
               </View>
-            </View>
-          )}
+              </>
+            );
+          })()}
 
           {!syncStatus.isConnected && awaitingCode && selectedDevice && (
             <View style={styles.card}>
@@ -389,7 +494,11 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                     onPress={() => beginPairing(device)}
                     activeOpacity={0.85}
                   >
-                    <WindowsIcon size={22} color="#ffffff" />
+                    {/mac|darwin|apple/i.test(device.name) || /mac|apple/i.test(device.syncId || '') ? (
+                      <AppleIcon size={22} color="#ffffff" />
+                    ) : (
+                      <WindowsIcon size={22} color="#ffffff" branded={true} />
+                    )}
                     <View style={styles.deviceInfo}>
                       <Text style={styles.deviceName}>{device.name}</Text>
                       <Text style={styles.deviceMeta}>
@@ -422,6 +531,67 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
               )}
             </>
           )}
+
+          {(() => {
+            const previousList = pairedHistory.filter(
+              (h) => !syncStatus.isConnected || (h.id !== syncStatus.activeDesktop?.id && h.ipAddress !== syncStatus.activeDesktop?.ipAddress)
+            );
+            if (previousList.length === 0) return null;
+
+            return (
+              <View style={styles.card}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={styles.cardKicker}>PREVIOUSLY CONNECTED</Text>
+                  <TouchableOpacity
+                    onPress={async () => {
+                      await syncService.clearPairedHistory();
+                      setPairedHistory([]);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={{ fontSize: 11, color: '#71717a', textDecorationLine: 'underline' }}>Clear History</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {previousList.map((item) => (
+                  <View key={item.id + item.ipAddress} style={styles.historyRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginRight: 8 }}>
+                      {item.platform === 'ios' ? (
+                        <AppleIcon size={20} color="#a1a1aa" />
+                      ) : (
+                        <WindowsIcon size={20} color="#a1a1aa" branded={true} />
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.historyName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.historyMeta}>
+                          {item.ipAddress} · {new Date(item.lastConnectedAt).toLocaleDateString()}
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.reconnectBtn}
+                      onPress={() => {
+                        const device: DesktopInstance = {
+                          id: item.id,
+                          name: item.name,
+                          ipAddress: item.ipAddress,
+                          port: item.port || 49200,
+                          version: '1.0.0',
+                          isPaired: true,
+                          lastSeen: Date.now(),
+                          syncId: item.id,
+                        };
+                        beginPairing(device);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.reconnectBtnText}>Connect</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            );
+          })()}
         </ScrollView>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -445,6 +615,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
             </TouchableOpacity>
             <TouchableOpacity style={styles.conflictPrimary} onPress={() => resolveConflict('merge')}>
               <Text style={styles.conflictPrimaryText}>Merge details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.conflictLaterBtn} onPress={() => setProfileConflict(null)}>
+              <Text style={styles.conflictLaterBtnText}>Later</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -485,6 +658,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  statusRefreshBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
   card: {
     backgroundColor: '#282828',
     borderRadius: 16,
@@ -498,6 +682,39 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1.1,
     marginBottom: 8,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  platformBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
+  },
+  platformBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  workstationInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  platformIconBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    paddingRight: 4,
   },
   cardTitle: {
     color: '#ffffff',
@@ -543,13 +760,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.28)',
   },
   primaryBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     backgroundColor: '#ffffff',
     borderRadius: 9999,
-    paddingVertical: 14,
+    paddingVertical: 13,
   },
   primaryBtnDisabled: {
     opacity: 0.28,
@@ -560,13 +778,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   ghostBtn: {
+    flex: 1,
     borderRadius: 9999,
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: '#111111',
+    borderColor: '#5a1c1e',
+    backgroundColor: '#241416',
   },
   ghostBtnText: {
     color: '#ffffff',
@@ -615,7 +835,8 @@ const styles = StyleSheet.create({
   },
   connectedActions: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'center',
+    gap: 12,
   },
   sectionHead: {
     flexDirection: 'row',
@@ -807,5 +1028,84 @@ const styles = StyleSheet.create({
   conflictPrimaryText: {
     color: '#000000',
     fontWeight: '800',
+  },
+  conflictLaterBtn: {
+    marginTop: 10,
+    borderRadius: 9999,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  conflictLaterBtnText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sharedCapabilityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  sharedCapabilityTitle: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sharedCapabilityDesc: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  sharedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  sharedBadgeText: {
+    color: '#60a5fa',
+    fontSize: 10.5,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  sharedDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  historyName: {
+    color: '#ffffff',
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  historyMeta: {
+    color: '#71717a',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  reconnectBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  reconnectBtnText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '600',
   },
 });

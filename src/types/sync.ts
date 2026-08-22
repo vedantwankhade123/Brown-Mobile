@@ -8,6 +8,7 @@ export interface DesktopInstance {
   lastSeen: number;
   syncId?: string;
   isFallback?: boolean;
+  platform?: string;
 }
 
 export interface UltronRemoteProfile {

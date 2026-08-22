@@ -108,10 +108,10 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                 accessibilityLabel={copied ? 'Copied' : 'Copy text'}
               >
                 <Animated.View style={[styles.iconLayer, copyIconStyle]}>
-                  <CopyIcon size={18} color="#9ca3af" />
+                  <CopyIcon size={20} color="#9ca3af" />
                 </Animated.View>
                 <Animated.View style={[styles.iconLayer, styles.iconOverlay, checkIconStyle]}>
-                  <CheckIcon size={18} color="#22c55e" />
+                  <CheckIcon size={20} color="#22c55e" />
                 </Animated.View>
               </TouchableOpacity>
             )}
@@ -123,9 +123,9 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                 accessibilityLabel={isSpeaking ? 'Pause speaking' : isPaused ? 'Resume speaking' : 'Listen'}
               >
                 {isSpeaking ? (
-                  <PauseIcon size={16} color="#ffffff" />
+                  <PauseIcon size={18} color="#ffffff" />
                 ) : (
-                  <SpeakerIcon size={18} color="#9ca3af" />
+                  <SpeakerIcon size={20} color="#9ca3af" />
                 )}
               </TouchableOpacity>
             )}
@@ -178,8 +178,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   actionIconBtn: {
-    width: 26,
-    height: 26,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',

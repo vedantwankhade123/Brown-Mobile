@@ -54,6 +54,7 @@ import {
   SyncArrowsIcon,
   SoftwareUpdateIcon,
   AboutUltronIcon,
+  ChatIcon,
 } from '../components/Icons';
 import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog';
 import { ModelDownloader } from '../services/modelManager/Downloader';
@@ -128,7 +129,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onOpenDesktopSync,
 }) => {
   const [profile, setProfile] = useState<ConsentRecord | null>(null);
-  const [currentView, setCurrentView] = useState<SettingsView>('main');
+  const [viewHistory, setViewHistory] = useState<SettingsView[]>(['main']);
+  const currentView = viewHistory[viewHistory.length - 1] || 'main';
   const [searchQuery, setSearchQuery] = useState('');
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
 
@@ -181,6 +183,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Software Updates State (Desktop Parity)
   const [updateStatus, setUpdateStatus] = useState<'up-to-date' | 'checking' | 'available'>('up-to-date');
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
+  const [desktopSyncStatus, setDesktopSyncStatus] = useState<{ isConnected: boolean; deviceName: string }>({
+    isConnected: false,
+    deviceName: '',
+  });
 
   const chatRepo = new ChatRepository();
 
@@ -211,9 +217,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
     const downloader = ModelDownloader.getInstance();
     downloader.whenReady().then(() => setModelsRevision((n) => n + 1));
-    return downloader.subscribe(() => {
+    const unsubDownloader = downloader.subscribe(() => {
       setModelsRevision((n) => n + 1);
     });
+
+    const sync = DesktopSyncService.getInstance();
+    const updateSyncState = (st: any) => {
+      setDesktopSyncStatus({
+        isConnected: !!st?.isConnected,
+        deviceName: st?.activeDesktop?.name || '',
+      });
+    };
+    updateSyncState(sync.getStatus());
+    const unsubSync = sync.subscribe(updateSyncState);
+
+    return () => {
+      unsubDownloader();
+      unsubSync();
+    };
   }, []);
 
   const loadStorageAndSyncPrefs = async () => {
@@ -420,21 +441,33 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
+  useEffect(() => {
+    const onHardwareBack = () => {
+      handleSmoothBack();
+      return true;
+    };
+    const backHandlerObj = (require('react-native') as any).BackHandler;
+    const backSub = backHandlerObj?.addEventListener ? backHandlerObj.addEventListener('hardwareBackPress', onHardwareBack) : null;
+    return () => {
+      if (backSub?.remove) backSub.remove();
+    };
+  }, [viewHistory]);
+
   const handleSmoothBack = () => {
-    if (currentView !== 'main') {
+    if (viewHistory.length > 1) {
       Animated.parallel([
         Animated.timing(screenSlideAnim, {
           toValue: 20,
-          duration: 160,
+          duration: 140,
           useNativeDriver: true,
         }),
         Animated.timing(screenFadeAnim, {
           toValue: 0,
-          duration: 160,
+          duration: 140,
           useNativeDriver: true,
         }),
       ]).start(() => {
-        setCurrentView('main');
+        setViewHistory((prev) => (prev.length > 1 ? prev.slice(0, -1) : ['main']));
       });
       return;
     }
@@ -442,12 +475,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     Animated.parallel([
       Animated.timing(screenSlideAnim, {
         toValue: 30,
-        duration: 160,
+        duration: 140,
         useNativeDriver: true,
       }),
       Animated.timing(screenFadeAnim, {
         toValue: 0,
-        duration: 160,
+        duration: 140,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -468,7 +501,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         useNativeDriver: true,
       }),
     ]).start(() => {
-      setCurrentView(view);
+      setViewHistory((prev) => (prev[prev.length - 1] === view ? prev : [...prev, view]));
     });
   };
 
@@ -629,6 +662,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       badge: undefined,
       items: [
         {
+          id: 'chat',
+          title: 'Chat',
+          iconType: 'chat',
+          iconColor: '#38bdf8',
+          detail: 'Return to chat',
+          action: () => onBack(),
+        },
+        {
           id: 'account',
           title: 'Account',
           iconType: 'user',
@@ -657,7 +698,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           title: 'Desktop Sync',
           iconType: 'sync',
           iconColor: '#38bdf8',
-          detail: 'Offline',
+          detail: desktopSyncStatus.isConnected
+            ? (desktopSyncStatus.deviceName
+                ? (desktopSyncStatus.deviceName.length > 18
+                    ? `${desktopSyncStatus.deviceName.slice(0, 18)}…`
+                    : desktopSyncStatus.deviceName)
+                : 'Connected')
+            : 'Disconnected',
           action: () => navigateToView('data_sync'),
         },
       ],
@@ -712,7 +759,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const renderItemIcon = (iconType: string, iconColor: string = '#ffffff') => {
     let iconEl = <CpuIcon size={19} color={iconColor} />;
-    if (iconType === 'user') iconEl = <UserIcon size={19} color={iconColor} />;
+    if (iconType === 'chat') iconEl = <ChatIcon size={19} color={iconColor} />;
+    else if (iconType === 'user') iconEl = <UserIcon size={19} color={iconColor} />;
     else if (iconType === 'cpu') iconEl = <CpuIcon size={19} color={iconColor} />;
     else if (iconType === 'location') iconEl = <MapPinIcon size={19} color={iconColor} />;
     else if (iconType === 'sync') iconEl = <SyncArrowsIcon size={19} color={iconColor} />;
@@ -767,7 +815,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
-          {renderFullPageHeader('Edit Profile', () => navigateToView('account'))}
+          {renderFullPageHeader('Edit Profile', handleSmoothBack)}
 
           {showDatePicker && (
             <TouchableOpacity
@@ -953,7 +1001,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               )}
 
               <View style={styles.fullPageActionRow}>
-                <TouchableOpacity style={styles.cancelFullBtn} onPress={() => navigateToView('account')} activeOpacity={0.8}>
+                <TouchableOpacity style={styles.cancelFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
                   <Text style={styles.cancelFullBtnText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.saveFullBtn} onPress={handleSaveProfile} activeOpacity={0.8}>
@@ -1247,6 +1295,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     <View style={styles.modelRowCardHeader}>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          {isDevice && <HuggingFaceLogo size={18} />}
                           <Text style={styles.modelRowCardTitle}>{m.name}</Text>
                           {isDevice && (
                             <View style={styles.weightsBadge}>

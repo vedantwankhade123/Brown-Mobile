@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -167,7 +168,8 @@ export default function App() {
     Outfit_800ExtraBold,
   });
 
-  const [currentScreen, setCurrentScreen] = useState<ScreenType>('chat');
+  const [screenStack, setScreenStack] = useState<ScreenType[]>(['chat']);
+  const currentScreen = screenStack[screenStack.length - 1] || 'chat';
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [chatKey, setChatKey] = useState<number>(0);
 
@@ -176,28 +178,40 @@ export default function App() {
     DesktopSyncService.getInstance().tryAutoConnect().catch(() => {});
   }, []);
 
+  const navigateTo = (screen: ScreenType) => {
+    setScreenStack((prev) => [...prev, screen]);
+  };
+
+  const navigateBack = () => {
+    setScreenStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : ['chat']));
+  };
+
+  const resetToScreen = (screen: ScreenType) => {
+    setScreenStack([screen]);
+  };
+
   const checkOnboardingStatus = async () => {
     try {
       const completed = await AsyncStorage.getItem('@ultron_onboarding_completed');
       if (completed !== 'true') {
-        setCurrentScreen('onboarding');
+        resetToScreen('onboarding');
       } else {
-        setCurrentScreen('chat');
+        resetToScreen('chat');
       }
     } catch {
-      setCurrentScreen('chat');
+      resetToScreen('chat');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleOnboardingComplete = () => {
-    setCurrentScreen('chat');
+    resetToScreen('chat');
     setChatKey((prev) => prev + 1);
   };
 
   const handleModelActivated = (model: ModelMetadata) => {
-    setCurrentScreen('chat');
+    resetToScreen('chat');
   };
 
   const handleClearHistory = () => {
@@ -205,14 +219,23 @@ export default function App() {
   };
 
   const handleRerunOnboarding = () => {
-    setCurrentScreen('onboarding');
+    navigateTo('onboarding');
   };
 
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.container, styles.loadingCenter]}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
-        <ActivityIndicator size="large" color="#ffffff" />
+        <View style={styles.splashContent}>
+          <Image
+            source={require('./Assets/ultron-logo.png')}
+            style={styles.splashLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.splashBrandTitle}>ULTRON</Text>
+          <Text style={styles.splashBrandSubtitle}>OFFLINE INTELLIGENCE</Text>
+          <ActivityIndicator size="small" color="#ffffff" style={{ marginTop: 28 }} />
+        </View>
       </SafeAreaView>
     );
   }
@@ -229,31 +252,31 @@ export default function App() {
         {currentScreen === 'chat' && (
           <ChatScreen
             key={chatKey}
-            onOpenModelStore={() => setCurrentScreen('modelStore')}
-            onOpenSettings={() => setCurrentScreen('settings')}
-            onOpenDesktopSync={() => setCurrentScreen('desktopSync')}
+            onOpenModelStore={() => navigateTo('modelStore')}
+            onOpenSettings={() => navigateTo('settings')}
+            onOpenDesktopSync={() => navigateTo('desktopSync')}
           />
         )}
 
         {currentScreen === 'modelStore' && (
           <ModelStoreScreen
-            onBack={() => setCurrentScreen('chat')}
+            onBack={navigateBack}
             onModelActivated={handleModelActivated}
           />
         )}
 
         {currentScreen === 'settings' && (
           <SettingsScreen
-            onBack={() => setCurrentScreen('chat')}
+            onBack={navigateBack}
             onClearHistory={handleClearHistory}
             onRerunOnboarding={handleRerunOnboarding}
-            onOpenModelStore={() => setCurrentScreen('modelStore')}
-            onOpenDesktopSync={() => setCurrentScreen('desktopSync')}
+            onOpenModelStore={() => navigateTo('modelStore')}
+            onOpenDesktopSync={() => navigateTo('desktopSync')}
           />
         )}
 
         {currentScreen === 'desktopSync' && (
-          <DesktopSyncScreen onBack={() => setCurrentScreen('chat')} />
+          <DesktopSyncScreen onBack={navigateBack} />
         )}
       </SafeAreaView>
     </ErrorBoundary>
@@ -270,6 +293,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#000000',
+  },
+  splashContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splashLogo: {
+    width: 88,
+    height: 88,
+    marginBottom: 14,
+  },
+  splashBrandTitle: {
+    color: '#ffffff',
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 4,
+    fontFamily: 'Outfit_800ExtraBold',
+  },
+  splashBrandSubtitle: {
+    color: '#71717a',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 2,
+    marginTop: 4,
+    fontFamily: 'Outfit_500Medium',
   },
   errorContainer: {
     flex: 1,

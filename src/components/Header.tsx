@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
             activeOpacity={0.7}
             accessibilityLabel="Open History"
           >
-            <MenuIcon size={20} color="#ffffff" />
+            <MenuIcon size={22} color="#ffffff" />
           </TouchableOpacity>
 
           <View style={styles.brandLeft}>
@@ -42,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
           activeOpacity={0.7}
           accessibilityLabel="Settings"
         >
-          <SettingsIcon size={20} color="#ffffff" />
+          <SettingsIcon size={22} color="#ffffff" />
         </TouchableOpacity>
       </View>
     </View>
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   },
   brandTitle: {
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: '700',
     letterSpacing: -0.3,
   },
