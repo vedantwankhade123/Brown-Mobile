@@ -17,7 +17,8 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Ultron requires speech recognition for voice AI conversations.",
         "NSMicrophoneUsageDescription": "Ultron requires microphone access to enable voice queries.",
-        "NSLocalNetworkUsageDescription": "Ultron requires local network access to synchronize with your desktop instance."
+        "NSLocalNetworkUsageDescription": "Ultron requires local network access to synchronize with your desktop instance.",
+        "NSLocationWhenInUseUsageDescription": "Ultron uses your exact location for accurate weather, time zone, and local assistant queries."
       }
     },
     "android": {
@@ -30,11 +31,19 @@
         "RECORD_AUDIO",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE"
+        "ACCESS_WIFI_STATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Ultron uses your exact location for accurate weather, time zone, and local assistant queries."
+        }
+      ]
     ]
   }
 }

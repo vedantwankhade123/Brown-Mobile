@@ -28,7 +28,6 @@ import {
   LaptopIcon,
   UserIcon,
   MicIcon,
-  CheckIcon,
   SparklesIcon,
   PencilIcon,
   HelpCircleIcon,
@@ -48,7 +47,6 @@ import {
   GithubIcon,
   WindowsIcon,
   AndroidIcon,
-  InfoIcon,
   MapPinIcon,
   SyncArrowsIcon,
   SoftwareUpdateIcon,
@@ -62,6 +60,8 @@ import { ToggleSwitch } from '../components/ToggleSwitch';
 import { StoragePaths } from '../services/storage/StoragePaths';
 import { ProfileService } from '../services/storage/ProfileService';
 import { DesktopSyncService } from '../services/sync/DesktopSync';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
 
 export type SettingsView =
   | 'main'
@@ -88,6 +88,8 @@ const MONTHS_LIST = [
 ];
 
 const MODEL_TAG_FILTERS = ['All', 'Cloud', 'Offline', 'Thinking', 'Vision', 'Code', 'Embedding'];
+
+const LOCATION_STORAGE_KEY = 'ultron.home_location';
 
 // Hoverable settings row with subtle bg highlight on hover
 const HoverableSettingsRow: React.FC<{
@@ -141,8 +143,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editBirthdate, setEditBirthdate] = useState('');
-  const [homeLocation, setHomeLocation] = useState('Mumbai, India');
-  const [locationStatusText, setLocationStatusText] = useState('✓ Location synced with local device GPS.');
+  const [homeLocation, setHomeLocation] = useState('');
+  const [locationStatusText, setLocationStatusText] = useState('');
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [autoDetectLocation, setAutoDetectLocation] = useState(true);
 
@@ -211,6 +213,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     loadConsentProfile();
     loadGeminiKey();
     loadStorageAndSyncPrefs();
+    AsyncStorage.getItem(LOCATION_STORAGE_KEY)
+      .then((savedLocation) => {
+        if (savedLocation) setHomeLocation(savedLocation);
+      })
+      .catch(() => {});
     if (autoDetectLocation) {
       performRealLocationDetection();
     }
@@ -322,70 +329,89 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // Real high-accuracy location detection service
+  // High-accuracy location detection: native GPS first, then network/IP, then system timezone
+  const reverseGeocodeLocation = async (latitude: number, longitude: number): Promise<string | null> => {
+    try {
+      // A. OpenStreetMap Nominatim reverse geocoder
+      const osmRes = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
+        { headers: { 'User-Agent': 'UltronMobile/1.0' } }
+      );
+      if (osmRes.ok) {
+        const geo = await osmRes.json();
+        const addr = geo.address || {};
+        const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || addr.state_district;
+        const state = addr.state || addr.region;
+        const country = addr.country || '';
+        if (city) {
+          return state && state !== city ? `${city}, ${state}${country ? `, ${country}` : ''}` : `${city}${country ? `, ${country}` : ''}`;
+        }
+      }
+    } catch {}
+
+    try {
+      // B. BigDataCloud client reverse geocode fallback
+      const bdcRes = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+      );
+      if (bdcRes.ok) {
+        const bdc = await bdcRes.json();
+        const city = bdc.city || bdc.locality || bdc.principalSubdivision;
+        const state = bdc.principalSubdivision;
+        const country = bdc.countryName || '';
+        if (city) {
+          return state && state !== city ? `${city}, ${state}${country ? `, ${country}` : ''}` : `${city}${country ? `, ${country}` : ''}`;
+        }
+      }
+    } catch {}
+
+    return null;
+  };
+
+  const saveHomeLocation = (loc: string, statusText: string) => {
+    setHomeLocation(loc);
+    setLocationStatusText(statusText);
+    AsyncStorage.setItem(LOCATION_STORAGE_KEY, loc).catch(() => {});
+  };
+
   const performRealLocationDetection = async () => {
     setIsDetectingLocation(true);
-    setLocationStatusText('Detecting real-time device location…');
+    setLocationStatusText('Detecting…');
 
-    // 1. Prioritize precise GPS / Device Geolocation first (highest accuracy)
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      const gpsSuccess = await new Promise<boolean>((resolve) => {
+    // 1. Native GPS via expo-location (highest accuracy on Android/iOS)
+    let coords: { latitude: number; longitude: number } | null = null;
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.granted) {
+        const pos = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+        ]);
+        if (pos) coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      }
+    } catch {}
+
+    // 2. Browser geolocation fallback (web builds)
+    if (!coords && typeof navigator !== 'undefined' && navigator.geolocation) {
+      coords = await new Promise<{ latitude: number; longitude: number } | null>((resolve) => {
         navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            try {
-              const { latitude, longitude } = position.coords;
-              
-              // A. Query OpenStreetMap Nominatim reverse geocoder
-              const osmRes = await fetch(
-                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
-                { headers: { 'User-Agent': 'UltronMobile/1.0' } }
-              );
-              if (osmRes.ok) {
-                const geo = await osmRes.json();
-                const addr = geo.address || {};
-                const city = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || addr.district || addr.state_district || addr.county;
-                const state = addr.state || addr.region;
-                const country = addr.country || 'India';
-                if (city) {
-                  const loc = state && state !== city ? `${city}, ${state}, ${country}` : `${city}, ${country}`;
-                  setHomeLocation(loc);
-                  setLocationStatusText(`✓ Located (GPS): ${loc}`);
-                  setIsDetectingLocation(false);
-                  resolve(true);
-                  return;
-                }
-              }
-
-              // B. Fallback to BigDataCloud client reverse geocode
-              const bdcRes = await fetch(
-                `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-              );
-              if (bdcRes.ok) {
-                const bdc = await bdcRes.json();
-                const city = bdc.city || bdc.locality || bdc.principalSubdivision;
-                const state = bdc.principalSubdivision;
-                const country = bdc.countryName || 'India';
-                if (city) {
-                  const loc = state && state !== city ? `${city}, ${state}, ${country}` : `${city}, ${country}`;
-                  setHomeLocation(loc);
-                  setLocationStatusText(`✓ Located (GPS): ${loc}`);
-                  setIsDetectingLocation(false);
-                  resolve(true);
-                  return;
-                }
-              }
-            } catch {}
-            resolve(false);
-          },
-          () => resolve(false),
-          { timeout: 7000, enableHighAccuracy: true, maximumAge: 10000 }
+          (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+          () => resolve(null),
+          { timeout: 8000, enableHighAccuracy: true, maximumAge: 5000 }
         );
       });
-
-      if (gpsSuccess) return;
     }
 
-    // 2. Fallback to multi-tier IP Geolocation services if GPS is unavailable
+    if (coords) {
+      const loc = await reverseGeocodeLocation(coords.latitude, coords.longitude);
+      if (loc) {
+        saveHomeLocation(loc, 'Exact GPS location');
+        setIsDetectingLocation(false);
+        return;
+      }
+    }
+
+    // 3. Approximate network/IP geolocation fallback (last resort before timezone)
     const ipServices = [
       'https://ipwho.is/',
       'https://ipapi.co/json/',
@@ -402,12 +428,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         if (res.ok) {
           const data = await res.json();
           const city = data.cityName || data.city || data.locality || data.region;
-          const country = data.countryName || data.country || data.country_name || 'India';
+          const country = data.countryName || data.country || data.country_name || '';
           const region = data.regionName || data.region || data.state;
           if (city) {
-            const loc = region && region !== city ? `${city}, ${region}, ${country}` : `${city}, ${country}`;
-            setHomeLocation(loc);
-            setLocationStatusText(`✓ Located (Network): ${loc}`);
+            const loc = region && region !== city ? `${city}, ${region}${country ? `, ${country}` : ''}` : `${city}${country ? `, ${country}` : ''}`;
+            saveHomeLocation(loc, 'Approximate (network)');
             setIsDetectingLocation(false);
             return;
           }
@@ -415,7 +440,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       } catch {}
     }
 
-    // 3. Fallback to system timezone
+    // 4. Fallback to system timezone
     fallbackTimezoneLocation();
   };
 
@@ -423,18 +448,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       if (tz.includes('Kolkata') || tz.includes('Calcutta') || tz.includes('India')) {
-        setHomeLocation('Mumbai, Maharashtra, India');
-        setLocationStatusText('✓ Located: Mumbai, Maharashtra, India');
+        saveHomeLocation('India', 'Approximate (system)');
       } else {
         const parts = tz.split('/');
         const city = parts[parts.length - 1].replace(/_/g, ' ');
-        const loc = `${city}`;
-        setHomeLocation(loc);
-        setLocationStatusText(`✓ Detected from system: ${loc}`);
+        saveHomeLocation(city, 'Approximate (system)');
       }
     } catch {
-      setHomeLocation('Mumbai, Maharashtra, India');
-      setLocationStatusText('✓ Default location: Mumbai, India');
+      saveHomeLocation('India', 'Approximate (system)');
     } finally {
       setIsDetectingLocation(false);
     }
@@ -1030,26 +1051,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Location Card with Info Tooltip Button and Auto-detect Toggle */}
+            {/* Location Card — minimal ChatGPT-style */}
             <View style={styles.locationCardGroup}>
               <View style={styles.locationHeaderRow}>
-                <View style={styles.locationTitleGroup}>
-                  <MapPinIcon size={18} color="#f87171" />
-                  <Text style={styles.locationSectionTitle}>Location</Text>
-                  <TouchableOpacity
-                    onPress={() =>
-                      Alert.alert(
-                        'Location Context',
-                        'Your location is used locally by Ultron AI for accurate real-time weather forecasts, time zone synchronization, and local assistant queries. It stays 100% private on your device.'
-                      )
-                    }
-                    activeOpacity={0.7}
-                    style={styles.locationInfoBtn}
-                    accessibilityLabel="About Location"
-                  >
-                    <InfoIcon size={15} color="#8e8e93" />
-                  </TouchableOpacity>
-                </View>
+                <Text style={styles.locationSectionTitle}>Location</Text>
                 <View style={styles.autoLocationToggleRow}>
                   <Text style={styles.autoLocationToggleLabel}>Auto-detect</Text>
                   <ToggleSwitch
@@ -1062,38 +1067,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={styles.locationInputRow}>
-                <View style={styles.locationInputBox}>
-                  <MapPinIcon size={16} color="#71717a" />
-                  <TextInput
-                    style={[styles.locationTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                    value={homeLocation}
-                    onChangeText={setHomeLocation}
-                    placeholder="e.g. Nagpur, Maharashtra, India"
-                    placeholderTextColor="#71717a"
-                  />
-                </View>
+              <View style={styles.locationInputBox}>
+                <TextInput
+                  style={[styles.locationTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                  value={homeLocation}
+                  onChangeText={(val: string) => {
+                    setHomeLocation(val);
+                    AsyncStorage.setItem(LOCATION_STORAGE_KEY, val).catch(() => {});
+                  }}
+                  placeholder="Enter your location"
+                  placeholderTextColor="#71717a"
+                />
+              </View>
+
+              <View style={styles.locationFooterRow}>
                 <TouchableOpacity
-                  style={[styles.detectLocationBtn, isDetectingLocation && { opacity: 0.7 }]}
+                  style={[styles.detectLocationBtn, isDetectingLocation && { opacity: 0.6 }]}
                   onPress={performRealLocationDetection}
                   activeOpacity={0.8}
                   disabled={isDetectingLocation}
                 >
-                  <MapPinIcon size={14} color="#ffffff" />
                   <Text style={styles.detectLocationBtnText}>
-                    {isDetectingLocation ? 'Locating…' : 'Detect'}
+                    {isDetectingLocation ? 'Detecting…' : 'Detect'}
                   </Text>
                 </TouchableOpacity>
-              </View>
-
-              {locationStatusText ? (
-                <View style={styles.locationStatusRow}>
-                  <CheckIcon size={13} color="#34d399" />
-                  <Text style={styles.locationStatusHintText}>
-                    {locationStatusText.replace(/^✓\s*/, '')}
+                {locationStatusText ? (
+                  <Text style={styles.locationStatusHintText} numberOfLines={1}>
+                    {locationStatusText}
                   </Text>
-                </View>
-              ) : null}
+                ) : null}
+              </View>
             </View>
 
             <Text style={styles.accountFooterNote}>
@@ -3123,7 +3126,7 @@ const styles = StyleSheet.create({
   },
   locationCardGroup: {
     backgroundColor: '#1c1c1e',
-    borderRadius: 22,
+    borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -3132,22 +3135,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
-  },
-  locationTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    marginBottom: 12,
   },
   locationSectionTitle: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  locationInfoBtn: {
-    padding: 4,
-    borderRadius: 9999,
+    fontSize: 15.5,
+    fontWeight: '600',
   },
   autoLocationToggleRow: {
     flexDirection: 'row',
@@ -3160,61 +3153,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  locationInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
   locationInputBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     backgroundColor: '#2c2c2e',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 44,
+    paddingHorizontal: 14,
+    height: 46,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   locationTextInput: {
     flex: 1,
     color: '#ffffff',
-    fontSize: 13.5,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '400',
     paddingVertical: 0,
   },
+  locationFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+  },
   detectLocationBtn: {
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    height: 44,
+    backgroundColor: '#0a84ff',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 3,
   },
   detectLocationBtnText: {
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
   },
-  locationStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 10,
-    paddingHorizontal: 2,
-  },
   locationStatusHintText: {
-    color: '#34d399',
+    flex: 1,
+    color: '#8e8e93',
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '400',
   },
   accountFooterNote: {
     color: '#71717a',
