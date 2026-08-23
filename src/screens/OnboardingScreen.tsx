@@ -938,7 +938,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>2. 100% On-Device Neural Execution</Text>
               <Text style={styles.docParagraph}>
-                All neural inferences, embeddings, token generation, and agent reasoning occur directly on your local hardware utilizing Apple Neural Engine (ANE) or Android NPU/GPU acceleration. Ultron does not rely on mandatory cloud APIs or remote subscription servers.
+                All neural inferences, embeddings, token generation, and agent reasoning occur directly on your local hardware utilizing Android NPU/GPU acceleration. Ultron does not rely on mandatory cloud APIs or remote subscription servers.
               </Text>
             </View>
 

@@ -222,7 +222,7 @@ export default function App() {
     navigateTo('onboarding');
   };
 
-  if (isLoading) {
+  if (isLoading || !fontsLoaded) {
     return (
       <SafeAreaView style={[styles.container, styles.loadingCenter]}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
@@ -308,7 +308,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     letterSpacing: 4,
-    fontFamily: 'Outfit_800ExtraBold',
   },
   splashBrandSubtitle: {
     color: '#71717a',
@@ -316,7 +315,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 2,
     marginTop: 4,
-    fontFamily: 'Outfit_500Medium',
   },
   errorContainer: {
     flex: 1,

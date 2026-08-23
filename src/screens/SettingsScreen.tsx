@@ -47,7 +47,6 @@ import {
   WifiIcon,
   GithubIcon,
   WindowsIcon,
-  AppleIcon,
   AndroidIcon,
   InfoIcon,
   MapPinIcon,
@@ -616,18 +615,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const ULTRON_DOWNLOAD_URL = 'https://ultron.dev/download';
 
-  // Platform-aware "Also Available On" links
+  // Platform-aware "Also Available On" links (Windows & Android only for now)
   const currentPlatform = Platform.OS; // 'android' | 'ios' | 'web' | 'windows' | 'macos'
   const allPlatforms = [
     { id: 'windows', label: 'Download for Windows', icon: 'windows', color: '#0078D4', branded: true, url: `${ULTRON_DOWNLOAD_URL}?platform=windows`, disabled: false },
-    { id: 'macos', label: 'Download for macOS', icon: 'apple', color: '#000000', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=macos`, disabled: true },
-    { id: 'ios', label: 'Download for iOS', icon: 'apple', color: '#007AFF', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=ios`, disabled: true },
     { id: 'android', label: 'Download for Android', icon: 'android', color: '#3DDC84', branded: false, url: `${ULTRON_DOWNLOAD_URL}?platform=android`, disabled: false },
   ];
   // Filter out the current platform
   const otherPlatforms = allPlatforms.filter((p) => {
     if (currentPlatform === 'android') return p.id !== 'android';
-    if (currentPlatform === 'ios') return p.id !== 'ios';
     if (currentPlatform === 'web') return true; // show all on web
     return p.id !== currentPlatform;
   });
@@ -635,7 +631,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const renderPlatformIcon = (platform: { icon: string; color: string; branded?: boolean }, size: number) => {
     switch (platform.icon) {
       case 'windows': return <WindowsIcon size={size} color={platform.color} branded={platform.branded} />;
-      case 'apple': return <AppleIcon size={size} color={platform.color} />;
       case 'android': return <Image source={require('../../Assets/android-logo.png')} style={{ width: size + 2, height: size + 2 }} resizeMode="contain" />;
       default: return <GlobeIcon size={size} color={platform.color} />;
     }
@@ -661,14 +656,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       title: 'General & Account',
       badge: undefined,
       items: [
-        {
-          id: 'chat',
-          title: 'Chat',
-          iconType: 'chat',
-          iconColor: '#38bdf8',
-          detail: 'Return to chat',
-          action: () => onBack(),
-        },
         {
           id: 'account',
           title: 'Account',
@@ -1934,32 +1921,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       ]}
     >
       <SafeAreaView style={styles.container}>
-        {/* Top Header with Smooth Back Action */}
-        <ScreenHeader
-          title="Settings"
-          onBack={handleSmoothBack}
-          right={
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                onPress={() => setIsSpotlightOpen(!isSpotlightOpen)}
-                activeOpacity={0.7}
-                accessibilityLabel="Spotlight Search"
-              >
-                <SearchIcon size={19} color="#e4e4e7" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                onPress={() => navigateToView('about')}
-                activeOpacity={0.7}
-                accessibilityLabel="About Ultron"
-              >
-                <HelpCircleIcon size={20} color="#e4e4e7" />
-              </TouchableOpacity>
-            </View>
-          }
-        />
-
         {/* Spotlight Search Overlay Bar */}
         {isSpotlightOpen && (
           <View style={styles.spotlightContainer}>
@@ -1991,6 +1952,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* Inline Title Row: back button left of the Settings title */}
+          <View style={styles.settingsTitleRow}>
+            <TouchableOpacity
+              style={styles.settingsBackBtn}
+              onPress={handleSmoothBack}
+              activeOpacity={0.7}
+              accessibilityLabel="Back to Chat"
+            >
+              <ChevronLeftIcon size={18} color="#e4e4e7" />
+            </TouchableOpacity>
+            <Text style={styles.settingsTitleText}>Settings</Text>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => setIsSpotlightOpen(!isSpotlightOpen)}
+              activeOpacity={0.7}
+              accessibilityLabel="Spotlight Search"
+            >
+              <SearchIcon size={19} color="#e4e4e7" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => navigateToView('about')}
+              activeOpacity={0.7}
+              accessibilityLabel="About Ultron"
+            >
+              <HelpCircleIcon size={20} color="#e4e4e7" />
+            </TouchableOpacity>
+          </View>
+
           {/* iOS-Style Profile Card */}
           <TouchableOpacity
             style={styles.iosProfileCard}
@@ -2044,7 +2035,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                             {item.id === 'models' && (
                               <View style={styles.modelsLogoStack}>
                                 <View style={styles.modelsStackedLogo1}>
-                                  <HuggingFaceLogo size={16} />
+                                  <HuggingFaceLogo size={15} />
                                 </View>
                                 <View style={styles.modelsStackedLogo2}>
                                   <Image
@@ -2080,16 +2071,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {otherPlatforms.map((platform) => (
                 <TouchableOpacity
                   key={platform.id}
-                  style={styles.platformButton}
-                  onPress={() => handleOpenDownloadLink(platform.url)}
+                  style={[styles.platformButton, platform.disabled && styles.platformButtonDisabled]}
+                  onPress={() => {
+                    if (platform.disabled) {
+                      Alert.alert('In Development', `${platform.label.replace('Download for ', '')} build is currently in development.`);
+                      return;
+                    }
+                    handleOpenDownloadLink(platform.url);
+                  }}
                   activeOpacity={0.8}
                 >
                   {renderPlatformIcon(platform, 18)}
-                  <Text style={styles.platformButtonText}>{platform.label}</Text>
+                  <Text style={[styles.platformButtonText, platform.disabled && styles.platformButtonTextDisabled]}>{platform.label}</Text>
                   <Text style={styles.platformButtonArrow}>↗</Text>
                 </TouchableOpacity>
               ))}
             </View>
+            <Text style={styles.bottomVersionLabel}>BETA V1.0.0</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -2135,6 +2133,30 @@ const styles = StyleSheet.create({
     padding: 4,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  settingsTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 4,
+  },
+  settingsBackBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsTitleText: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   fullscreenBackdrop: {
     position: 'absolute',
@@ -2268,7 +2290,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 13,
+    paddingVertical: 6,
     paddingHorizontal: 16,
   },
   cleanMenuLeft: {
@@ -2278,8 +2300,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cleanMenuIconBox: {
-    width: 26,
-    height: 26,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -2306,9 +2328,9 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   modelsStackedLogo1: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2317,9 +2339,9 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   modelsStackedLogo2: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2329,8 +2351,8 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   geminiStackedImage: {
-    width: 16,
-    height: 16,
+    width: 15,
+    height: 15,
   },
   cleanMenuDivider: {
     height: 1,
@@ -3426,5 +3448,20 @@ const styles = StyleSheet.create({
     color: '#71717a',
     fontSize: 13,
     fontWeight: '500',
+  },
+  platformButtonDisabled: {
+    backgroundColor: '#2c2c2e',
+    opacity: 0.65,
+  },
+  platformButtonTextDisabled: {
+    color: '#9ca3af',
+  },
+  bottomVersionLabel: {
+    marginTop: 16,
+    textAlign: 'center',
+    color: '#71717a',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.6,
   },
 });

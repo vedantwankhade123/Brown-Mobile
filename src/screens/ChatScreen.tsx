@@ -319,7 +319,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       {/* Header */}
       <Header
         onOpenSidebar={() => setIsSidebarOpen(true)}
-        onOpenSettings={onOpenSettings}
+        onOpenSettings={() => {
+          setIsSidebarOpen(false);
+          onOpenSettings();
+        }}
         isScrolled={isScrolled}
       />
 
@@ -382,7 +385,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
         onOpenSync={onOpenDesktopSync}
-        onOpenSettings={onOpenSettings}
+        onOpenSettings={() => {
+          setIsSidebarOpen(false);
+          onOpenSettings();
+        }}
         onClose={() => setIsSidebarOpen(false)}
       />
     </SafeAreaView>

@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <View style={styles.brandLeft}>
             <Text style={styles.brandTitle}>
-              Ultron <Text style={styles.betaText}>BETA v1</Text>
+              Ultron <Text style={styles.betaText}>BETA</Text>
             </Text>
           </View>
         </View>
@@ -42,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
           activeOpacity={0.7}
           accessibilityLabel="Settings"
         >
-          <SettingsIcon size={22} color="#ffffff" />
+          <SettingsIcon size={26} color="#ffffff" />
         </TouchableOpacity>
       </View>
     </View>
@@ -91,13 +91,13 @@ const styles = StyleSheet.create({
   },
   brandTitle: {
     color: '#ffffff',
-    fontSize: 19,
+    fontSize: 22,
     fontWeight: '700',
     letterSpacing: -0.3,
   },
   betaText: {
     color: '#3b82f6',
-    fontSize: 11.5,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -109,8 +109,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   settingsButton: {
-    width: 38,
-    height: 38,
+    width: 44,
+    height: 44,
     borderRadius: 9999,
     backgroundColor: 'transparent',
     alignItems: 'center',

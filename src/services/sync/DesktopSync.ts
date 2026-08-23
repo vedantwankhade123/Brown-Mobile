@@ -240,7 +240,7 @@ export class DesktopSyncService {
         name: desktop.name || 'Ultron Desktop',
         ipAddress: desktop.ipAddress,
         port: desktop.port,
-        platform: desktop.platform || (/mac|darwin|apple/i.test(desktop.name || '') ? 'ios' : 'windows'),
+        platform: desktop.platform || 'windows',
         lastConnectedAt: Date.now(),
       });
       await SecureStore.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)));

@@ -18,7 +18,7 @@ import { DesktopSyncService, PairedDesktopHistoryItem } from '../services/sync/D
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, AppleIcon, CheckIcon } from '../components/Icons';
+import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon } from '../components/Icons';
 import { SyncIllustration } from '../components/SyncIllustration';
 
 const Easing = (Animated as any).Easing || {
@@ -269,7 +269,6 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
           {syncStatus.isConnected && (() => {
             const devName = syncStatus.activeDesktop?.name || 'Ultron Desktop';
             const syncId = syncStatus.activeDesktop?.syncId || syncStatus.activeDesktop?.id || '';
-            const isAppleDesktop = /mac|darwin|apple/i.test(devName) || /mac|apple/i.test(syncId);
 
             return (
               <>
@@ -284,11 +283,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                     </Text>
                   </View>
                   <View style={styles.platformIconBox}>
-                    {isAppleDesktop ? (
-                      <AppleIcon size={32} color="#ffffff" />
-                    ) : (
-                      <WindowsIcon size={32} branded={true} />
-                    )}
+                    <WindowsIcon size={32} branded={true} />
                   </View>
                 </View>
 
@@ -494,11 +489,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                     onPress={() => beginPairing(device)}
                     activeOpacity={0.85}
                   >
-                    {/mac|darwin|apple/i.test(device.name) || /mac|apple/i.test(device.syncId || '') ? (
-                      <AppleIcon size={22} color="#ffffff" />
-                    ) : (
-                      <WindowsIcon size={22} color="#ffffff" branded={true} />
-                    )}
+                    <WindowsIcon size={22} color="#ffffff" branded={true} />
                     <View style={styles.deviceInfo}>
                       <Text style={styles.deviceName}>{device.name}</Text>
                       <Text style={styles.deviceMeta}>
@@ -556,11 +547,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                 {previousList.map((item) => (
                   <View key={item.id + item.ipAddress} style={styles.historyRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginRight: 8 }}>
-                      {item.platform === 'ios' ? (
-                        <AppleIcon size={20} color="#a1a1aa" />
-                      ) : (
-                        <WindowsIcon size={20} color="#a1a1aa" branded={true} />
-                      )}
+                      <WindowsIcon size={20} color="#a1a1aa" branded={true} />
                       <View style={{ flex: 1 }}>
                         <Text style={styles.historyName} numberOfLines={1}>{item.name}</Text>
                         <Text style={styles.historyMeta}>
