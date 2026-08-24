@@ -359,6 +359,7 @@ export function buildAvailableChatModels(options: {
   hasGeminiKey: boolean;
   ollamaTags?: Array<{ name: string; size?: number }>;
   geminiModels?: ModelMetadata[];
+  cloudModels?: ModelMetadata[];
   activeModel?: ModelMetadata | null;
   allowEmpty?: boolean;
 }): ModelMetadata[] {
@@ -376,6 +377,10 @@ export function buildAvailableChatModels(options: {
     );
   }
 
+  if (options.cloudModels && options.cloudModels.length) {
+    list.push(...options.cloudModels.filter((m) => m.source === 'cloud' && m.apiModel));
+  }
+
   for (const tag of options.ollamaTags || []) {
     if (!tag?.name) continue;
     list.push(mapLiveOllamaModel(tag));
@@ -388,6 +393,7 @@ export function buildAvailableChatModels(options: {
     (
       (active.provider === 'device' && downloaded.has(active.id)) ||
       (active.provider === 'gemini' && !!active.apiModel && !/gemini-3\.5/i.test(active.apiModel)) ||
+      (active.source === 'cloud' && !!active.apiModel) ||
       (active.provider === 'ollama' && (options.ollamaTags || []).some((t) => t.name === active.apiModel || t.name === active.name))
     )
   ) {

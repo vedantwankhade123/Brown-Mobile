@@ -3,6 +3,9 @@ import { ModelMetadata, InferenceSettings } from '../../types/model';
 import { formatPromptForModel } from './PromptTemplates';
 import { MockLlamaEngine } from './MockLlamaEngine';
 import { streamGeminiReply } from './GeminiClient';
+import { streamCloudReply, CloudProviderId } from './CloudProviders';
+
+const CLOUD_PROVIDER_IDS: CloudProviderId[] = ['openai', 'anthropic', 'deepseek', 'groq', 'custom'];
 
 export interface ILlamaService {
   loadModel(model: ModelMetadata, settings?: Partial<InferenceSettings>): Promise<boolean>;
@@ -107,6 +110,39 @@ export class LlamaEngine implements ILlamaService {
           apiModel: this.activeModel.apiModel || 'gemini-2.5-flash',
           prompt,
           history,
+          onToken: (token) => {
+            tokenCount += 1;
+            onToken(token);
+          },
+        });
+        const elapsedMs = Math.max(Date.now() - startTime, 1);
+        this.isGenerating = false;
+        onComplete(accumulated, {
+          tokensEvaluated: Math.round(prompt.length / 4),
+          tokensGenerated: tokenCount || accumulated.split(/\s+/).length,
+          evalDurationMs: 40,
+          generateDurationMs: elapsedMs,
+          tokensPerSecond: Number((((tokenCount || 1) / elapsedMs) * 1000).toFixed(1)),
+        });
+      } catch (err) {
+        this.isGenerating = false;
+        throw err;
+      }
+      return;
+    }
+
+    if (CLOUD_PROVIDER_IDS.includes(provider as CloudProviderId)) {
+      this.isGenerating = true;
+      const startTime = Date.now();
+      let accumulated = '';
+      let tokenCount = 0;
+      try {
+        accumulated = await streamCloudReply({
+          provider: provider as CloudProviderId,
+          apiModel: this.activeModel.apiModel || this.activeModel.filename,
+          prompt,
+          history,
+          systemPrompt: settings.systemPrompt,
           onToken: (token) => {
             tokenCount += 1;
             onToken(token);

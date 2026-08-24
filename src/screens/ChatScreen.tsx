@@ -20,6 +20,7 @@ import { ConsentService } from '../services/storage/ConsentService';
 import { ModelDownloader } from '../services/modelManager/Downloader';
 import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog';
 import { getCachedGeminiModels } from '../services/inference/GeminiClient';
+import { getConfiguredCloudModels } from '../services/inference/CloudProviders';
 import { SpeechToTextService } from '../services/voice/SpeechToText';
 import { TextToSpeechService } from '../services/voice/TextToSpeech';
 import { SoundService } from '../services/sound/SoundService';
@@ -94,6 +95,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       try {
         const gemini = await getCachedGeminiModels();
         nextModel = gemini[0] || null;
+      } catch {}
+    }
+    if (!nextModel) {
+      try {
+        const cloud = await getConfiguredCloudModels();
+        nextModel = cloud[0] || null;
       } catch {}
     }
     if (nextModel) {

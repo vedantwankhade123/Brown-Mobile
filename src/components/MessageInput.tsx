@@ -33,6 +33,7 @@ import { buildAvailableChatModels } from '../services/modelManager/ModelCatalog'
 import { ModelDownloader } from '../services/modelManager/Downloader';
 import { DesktopSyncService } from '../services/sync/DesktopSync';
 import { getCachedGeminiModels, getGeminiApiKey, discoverGeminiModels } from '../services/inference/GeminiClient';
+import { getConfiguredCloudModels } from '../services/inference/CloudProviders';
 import { AudioWaveform } from './AudioWaveform';
 import { HuggingFaceLogo } from './HuggingFaceLogo';
 import { ModelBrandLogo } from './ModelBrandLogo';
@@ -114,12 +115,17 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         ollamaTags = await sync.fetchOllamaModels();
       }
     } catch {}
+    let cloudModels: ModelMetadata[] = [];
+    try {
+      cloudModels = await getConfiguredCloudModels();
+    } catch {}
     setAvailableModels(
       buildAvailableChatModels({
         downloadedIds,
         hasGeminiKey,
         ollamaTags,
         geminiModels,
+        cloudModels,
         activeModel,
         allowEmpty: true,
       })
@@ -379,12 +385,12 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                   const isSelected = activeModel?.id === m.id;
                   const isHovered = hoveredModelId === m.id;
                   const provider = m.provider || (m.source === 'online' ? 'ollama' : 'device');
-                  const badgeLabel =
-                    provider === 'gemini'
-                      ? 'Cloud'
-                      : provider === 'ollama'
-                        ? 'Shared'
-                        : 'On Device';
+                  const isCloudProvider = provider === 'gemini' || m.source === 'cloud';
+                  const badgeLabel = isCloudProvider
+                    ? 'Cloud'
+                    : provider === 'ollama'
+                      ? 'Shared'
+                      : 'On Device';
                   return (
                     <TouchableOpacity
                       key={m.id}
@@ -416,19 +422,19 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         <Text style={styles.dropdownModelMeta} numberOfLines={1}>
                           {provider === 'ollama'
                             ? `${m.sizeFormatted} • Shared from PC`
-                            : provider === 'gemini'
+                            : isCloudProvider
                               ? 'Cloud • API key'
                               : `${m.parameters} • Hugging Face`}
                         </Text>
                         <View style={[
                           styles.modelTierBadge,
-                          provider === 'gemini' && styles.modelTierBadgeCloud,
+                          isCloudProvider && styles.modelTierBadgeCloud,
                           provider === 'ollama' && styles.modelTierBadgeOllama,
                           provider === 'device' && styles.modelTierBadgeOffline,
                         ]}>
                           <Text style={[
                             styles.modelTierBadgeText,
-                            provider === 'gemini' && { color: '#c4b5fd' },
+                            isCloudProvider && { color: '#c4b5fd' },
                             provider === 'ollama' && { color: '#93c5fd' },
                             provider === 'device' && { color: '#86efac' },
                           ]}>{badgeLabel}</Text>

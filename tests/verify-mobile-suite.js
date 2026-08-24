@@ -40,6 +40,14 @@ function requireTs(filePath) {
         Platform: { OS: 'android', select: (obj) => obj.android || obj.default },
       };
     }
+    if (modName === '@react-native-async-storage/async-storage') {
+      if (!global.__asyncStorageMap) global.__asyncStorageMap = new Map();
+      return {
+        getItem: async (k) => global.__asyncStorageMap.get(k) || null,
+        setItem: async (k, v) => { global.__asyncStorageMap.set(k, String(v)); },
+        removeItem: async (k) => { global.__asyncStorageMap.delete(k); },
+      };
+    }
     return require(modName);
   }, m.exports, m, fullPath, path.dirname(fullPath));
   return m.exports;
@@ -378,6 +386,89 @@ async function runTests() {
 
     await sync.disconnect();
     assert.strictEqual(sync.getStatus().isConnected, false);
+  });
+
+  // 6. Cloud Multi-Providers Verification (Desktop Parity)
+  console.log('\n[6/6] Testing Cloud Multi-Providers & Desktop Parity:');
+  const {
+    CLOUD_PROVIDERS,
+    CLOUD_PROVIDER_IDS,
+    detectProviderForModel,
+    cloudModelToMetadata,
+    saveProviderApiKey,
+    getProviderApiKey,
+    deleteProviderApiKey,
+    saveCustomEndpointUrl,
+    getCustomEndpointUrl,
+    clearCustomEndpointUrl,
+  } = requireTs('../src/services/inference/CloudProviders.ts');
+
+  test('Cloud providers catalog includes OpenAI, Claude, DeepSeek, Groq, and Custom', () => {
+    assert(CLOUD_PROVIDER_IDS.includes('openai'));
+    assert(CLOUD_PROVIDER_IDS.includes('anthropic'));
+    assert(CLOUD_PROVIDER_IDS.includes('deepseek'));
+    assert(CLOUD_PROVIDER_IDS.includes('groq'));
+    assert(CLOUD_PROVIDER_IDS.includes('custom'));
+
+    assert.strictEqual(CLOUD_PROVIDERS.openai.name, 'OpenAI');
+    assert.strictEqual(CLOUD_PROVIDERS.anthropic.name, 'Anthropic Claude');
+    assert.strictEqual(CLOUD_PROVIDERS.deepseek.name, 'DeepSeek API');
+    assert.strictEqual(CLOUD_PROVIDERS.groq.name, 'Groq Cloud');
+    assert.strictEqual(CLOUD_PROVIDERS.custom.name, 'Custom Models (LM Studio / vLLM / OpenRouter)');
+
+    // Ensure models are defined for each provider
+    assert(CLOUD_PROVIDERS.openai.models.some((m) => m.id === 'gpt-5' || m.id === 'gpt-4o'));
+    assert(CLOUD_PROVIDERS.anthropic.models.some((m) => m.id.includes('claude-3-7') || m.id.includes('claude-3-5')));
+    assert(CLOUD_PROVIDERS.deepseek.models.some((m) => m.id === 'deepseek-reasoner' || m.id === 'deepseek-chat'));
+    assert(CLOUD_PROVIDERS.groq.models.some((m) => m.id.includes('llama-3.3-70b')));
+  });
+
+  test('detectProviderForModel accurately routes model IDs to their providers', () => {
+    assert.strictEqual(detectProviderForModel('gpt-5'), 'openai');
+    assert.strictEqual(detectProviderForModel('gpt-4o-mini'), 'openai');
+    assert.strictEqual(detectProviderForModel('o3-mini'), 'openai');
+    assert.strictEqual(detectProviderForModel('claude-3-7-sonnet-20250219'), 'anthropic');
+    assert.strictEqual(detectProviderForModel('claude-3-5-haiku-20241022'), 'anthropic');
+    assert.strictEqual(detectProviderForModel('deepseek-reasoner'), 'deepseek');
+    assert.strictEqual(detectProviderForModel('deepseek-chat'), 'deepseek');
+    assert.strictEqual(detectProviderForModel('llama-3.3-70b-versatile'), 'groq');
+    assert.strictEqual(detectProviderForModel('deepseek-r1-distill-llama-70b'), 'groq');
+    assert.strictEqual(detectProviderForModel('gemini-2.5-flash'), 'gemini');
+    assert.strictEqual(detectProviderForModel('custom-model'), 'custom');
+    assert.strictEqual(detectProviderForModel('http://localhost:1234/v1'), 'custom');
+    assert.strictEqual(detectProviderForModel('llama3.2:1b'), 'ollama');
+  });
+
+  test('cloudModelToMetadata maps cloud model definition to valid ModelMetadata', () => {
+    const meta = cloudModelToMetadata('openai', {
+      id: 'gpt-4o',
+      name: 'GPT-4o',
+      description: 'Multimodal omni model',
+      speed: 'Fast',
+    });
+    assert.strictEqual(meta.id, 'openai-cloud-gpt-4o');
+    assert.strictEqual(meta.name, 'GPT-4o');
+    assert.strictEqual(meta.provider, 'openai');
+    assert.strictEqual(meta.source, 'cloud');
+    assert.strictEqual(meta.apiModel, 'gpt-4o');
+    assert.strictEqual(meta.sizeFormatted, 'Cloud');
+    assert.strictEqual(meta.capabilities.chat, true);
+  });
+
+  await testAsync('Saves, retrieves, and deletes provider credentials in SecureStore', async () => {
+    await saveProviderApiKey('openai', 'sk-proj-test12345');
+    const key = await getProviderApiKey('openai');
+    assert.strictEqual(key, 'sk-proj-test12345');
+    await deleteProviderApiKey('openai');
+    const cleared = await getProviderApiKey('openai');
+    assert.strictEqual(cleared, '');
+
+    await saveCustomEndpointUrl('http://192.168.1.50:1234/v1');
+    const url = await getCustomEndpointUrl();
+    assert.strictEqual(url, 'http://192.168.1.50:1234/v1');
+    await clearCustomEndpointUrl();
+    const clearedUrl = await getCustomEndpointUrl();
+    assert.strictEqual(clearedUrl, '');
   });
 
   console.log('\n====================================================');

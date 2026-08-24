@@ -16,8 +16,24 @@ import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService, ConsentRecord } from '../services/storage/ConsentService';
 import { SoundService } from '../services/sound/SoundService';
 import { saveGeminiApiKey, getGeminiApiKey, discoverGeminiModels, getCachedGeminiModels } from '../services/inference/GeminiClient';
+import {
+  CLOUD_PROVIDERS,
+  CLOUD_PROVIDER_IDS,
+  CloudProviderId,
+  getProviderApiKey,
+  saveProviderApiKey,
+  deleteProviderApiKey,
+  getCustomEndpointUrl,
+  saveCustomEndpointUrl,
+  clearCustomEndpointUrl,
+  getProviderModels,
+  getConfiguredCloudModels,
+  testProviderConnection,
+} from '../services/inference/CloudProviders';
+import { LlamaEngine } from '../services/inference/LlamaEngine';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
+import { ModelBrandLogo } from '../components/ModelBrandLogo';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   SearchIcon,
@@ -165,6 +181,44 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [liveGeminiModels, setLiveGeminiModels] = useState<ModelMetadata[]>([]);
   const [modelsRevision, setModelsRevision] = useState(0);
 
+  // Cloud Providers State (OpenAI, Claude, DeepSeek, Groq, Custom)
+  const [cloudKeys, setCloudKeys] = useState<Record<CloudProviderId, string>>({
+    openai: '',
+    anthropic: '',
+    deepseek: '',
+    groq: '',
+    custom: '',
+  });
+  const [showCloudKeyInput, setShowCloudKeyInput] = useState<Record<CloudProviderId, boolean>>({
+    openai: false,
+    anthropic: false,
+    deepseek: false,
+    groq: false,
+    custom: false,
+  });
+  const [cloudConnected, setCloudConnected] = useState<Record<CloudProviderId, boolean>>({
+    openai: false,
+    anthropic: false,
+    deepseek: false,
+    groq: false,
+    custom: false,
+  });
+  const [cloudDiscovering, setCloudDiscovering] = useState<Record<CloudProviderId, boolean>>({
+    openai: false,
+    anthropic: false,
+    deepseek: false,
+    groq: false,
+    custom: false,
+  });
+  const [liveCloudModels, setLiveCloudModels] = useState<Record<CloudProviderId, ModelMetadata[]>>({
+    openai: [],
+    anthropic: [],
+    deepseek: [],
+    groq: [],
+    custom: [],
+  });
+  const [customEndpointUrlInput, setCustomEndpointUrlInput] = useState('http://localhost:1234/v1');
+
   // Agent Sounds & Speech States (Desktop Parity)
   const [autoSpeakTts, setAutoSpeakTts] = useState(true);
   const [speechRate, setSpeechRate] = useState(1.0);
@@ -212,7 +266,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   useEffect(() => {
     loadConsentProfile();
     loadGeminiKey();
+    loadAllCloudKeys();
     loadStorageAndSyncPrefs();
+    const active = LlamaEngine.getInstance().getActiveModel();
+    if (active) setSelectedModelId(active.id);
     AsyncStorage.getItem(LOCATION_STORAGE_KEY)
       .then((savedLocation) => {
         if (savedLocation) setHomeLocation(savedLocation);
@@ -288,6 +345,55 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     } catch {}
   };
 
+  const loadAllCloudKeys = async () => {
+    try {
+      const keysObj: Record<CloudProviderId, string> = {
+        openai: '',
+        anthropic: '',
+        deepseek: '',
+        groq: '',
+        custom: '',
+      };
+      const connObj: Record<CloudProviderId, boolean> = {
+        openai: false,
+        anthropic: false,
+        deepseek: false,
+        groq: false,
+        custom: false,
+      };
+      const modelsObj: Record<CloudProviderId, ModelMetadata[]> = {
+        openai: [],
+        anthropic: [],
+        deepseek: [],
+        groq: [],
+        custom: [],
+      };
+
+      for (const pId of CLOUD_PROVIDER_IDS) {
+        if (pId === 'custom') {
+          const url = await getCustomEndpointUrl();
+          const key = await getProviderApiKey('custom');
+          keysObj.custom = key;
+          setCustomEndpointUrlInput(url || CLOUD_PROVIDERS.custom.defaultUrl || 'http://localhost:1234/v1');
+          connObj.custom = Boolean(url);
+          if (url) {
+            modelsObj.custom = await getProviderModels('custom');
+          }
+        } else {
+          const key = await getProviderApiKey(pId);
+          keysObj[pId] = key;
+          connObj[pId] = Boolean(key);
+          if (key) {
+            modelsObj[pId] = await getProviderModels(pId);
+          }
+        }
+      }
+      setCloudKeys(keysObj);
+      setCloudConnected(connObj);
+      setLiveCloudModels(modelsObj);
+    } catch {}
+  };
+
   const saveGeminiKey = async () => {
     const key = geminiApiKey.trim();
     if (!key) {
@@ -314,6 +420,94 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     } finally {
       setGeminiDiscovering(false);
     }
+  };
+
+  const disconnectGemini = () => {
+    Alert.alert('Disconnect Google Gemini', 'Remove the Gemini API key from this device?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Disconnect',
+        style: 'destructive',
+        onPress: async () => {
+          await saveGeminiApiKey('');
+          setGeminiApiKey('');
+          setIsGeminiConnected(false);
+          setLiveGeminiModels([]);
+          setShowGeminiKeyInput(false);
+          setModelsRevision((n) => n + 1);
+        },
+      },
+    ]);
+  };
+
+  const saveCloudProviderKey = async (providerId: CloudProviderId) => {
+    const key = (cloudKeys[providerId] || '').trim();
+    const customUrl = customEndpointUrlInput.trim();
+
+    if (providerId === 'custom' && !customUrl) {
+      Alert.alert('URL required', 'Enter a custom server URL (e.g. http://localhost:1234/v1).');
+      return;
+    }
+    if (providerId !== 'custom' && !key) {
+      Alert.alert('API key required', `Paste an API key for ${CLOUD_PROVIDERS[providerId].name}.`);
+      return;
+    }
+
+    try {
+      setCloudDiscovering((prev) => ({ ...prev, [providerId]: true }));
+      await testProviderConnection(providerId, key, customUrl);
+
+      if (providerId === 'custom') {
+        await saveCustomEndpointUrl(customUrl);
+        if (key) await saveProviderApiKey('custom', key);
+      } else {
+        await saveProviderApiKey(providerId, key);
+      }
+
+      const models = await getProviderModels(providerId);
+      setLiveCloudModels((prev) => ({ ...prev, [providerId]: models }));
+      setCloudConnected((prev) => ({ ...prev, [providerId]: true }));
+      setShowCloudKeyInput((prev) => ({ ...prev, [providerId]: false }));
+      setModelsRevision((n) => n + 1);
+
+      Alert.alert(
+        `${CLOUD_PROVIDERS[providerId].name} Connected`,
+        `${models.length} model${models.length === 1 ? '' : 's'} available.`
+      );
+    } catch (err: any) {
+      setCloudConnected((prev) => ({ ...prev, [providerId]: false }));
+      Alert.alert('Connection Failed', err?.message || 'Could not connect. Check credentials and URL.');
+    } finally {
+      setCloudDiscovering((prev) => ({ ...prev, [providerId]: false }));
+    }
+  };
+
+  const disconnectCloudProvider = (providerId: CloudProviderId) => {
+    Alert.alert(
+      `Disconnect ${CLOUD_PROVIDERS[providerId].name}`,
+      'Remove credentials and reset connection?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            if (providerId === 'custom') {
+              await clearCustomEndpointUrl();
+              await deleteProviderApiKey('custom');
+              setCustomEndpointUrlInput(CLOUD_PROVIDERS.custom.defaultUrl || 'http://localhost:1234/v1');
+            } else {
+              await deleteProviderApiKey(providerId);
+            }
+            setCloudKeys((prev) => ({ ...prev, [providerId]: '' }));
+            setCloudConnected((prev) => ({ ...prev, [providerId]: false }));
+            setLiveCloudModels((prev) => ({ ...prev, [providerId]: [] }));
+            setShowCloudKeyInput((prev) => ({ ...prev, [providerId]: false }));
+            setModelsRevision((n) => n + 1);
+          },
+        },
+      ]
+    );
   };
 
   const parseDateToCalendar = (dateStr?: string) => {
@@ -789,17 +983,54 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     () => ModelDownloader.getInstance().getDownloadedIds(),
     [modelsRevision]
   );
-  const installedCatalog = getInstalledDeviceModels(downloadedIds);
-  const filteredModels = installedCatalog.filter((m) => {
+  const installedDeviceCatalog = getInstalledDeviceModels(downloadedIds);
+
+  const configuredCloudCatalog = useMemo(() => {
+    const list: ModelMetadata[] = [];
+    if (isGeminiConnected && liveGeminiModels.length > 0) {
+      list.push(...liveGeminiModels);
+    }
+    for (const pId of CLOUD_PROVIDER_IDS) {
+      if (cloudConnected[pId] && liveCloudModels[pId]?.length > 0) {
+        list.push(...liveCloudModels[pId]);
+      }
+    }
+    return list;
+  }, [isGeminiConnected, liveGeminiModels, cloudConnected, liveCloudModels, modelsRevision]);
+
+  const allAvailableModelsList = useMemo(() => {
+    return [...installedDeviceCatalog, ...configuredCloudCatalog];
+  }, [installedDeviceCatalog, configuredCloudCatalog]);
+
+  const filteredModels = allAvailableModelsList.filter((m) => {
     if (activeModelFilter === 'All') return true;
-    if (activeModelFilter === 'Cloud') return false;
+    if (activeModelFilter === 'Cloud') return m.source === 'cloud' || m.provider === 'gemini' || CLOUD_PROVIDER_IDS.includes(m.provider as any);
     if (activeModelFilter === 'Offline') return m.provider === 'device';
-    if (activeModelFilter === 'Thinking') return m.tags.includes('Deep Reasoning') || m.tags.includes('Reasoning Specialist');
+    if (activeModelFilter === 'Thinking') {
+      return (
+        m.tags?.some((t) => /reasoning|thinking/i.test(t)) ||
+        (m.description || '').toLowerCase().includes('reasoning') ||
+        m.id.includes('reasoner') ||
+        m.id.includes('r1') ||
+        m.id.includes('o1') ||
+        m.id.includes('o3')
+      );
+    }
     if (activeModelFilter === 'Vision') return m.capabilities?.images === true;
-    if (activeModelFilter === 'Code') return m.tags.includes('Code Specialist');
-    if (activeModelFilter === 'Embedding') return m.tags.includes('Embedding');
+    if (activeModelFilter === 'Code') return m.tags?.some((t) => /code/i.test(t)) || m.capabilities?.code === true;
+    if (activeModelFilter === 'Embedding') return m.tags?.some((t) => /embedding/i.test(t));
     return true;
   });
+
+  const handleSelectModelFromSettings = async (model: ModelMetadata) => {
+    try {
+      setSelectedModelId(model.id);
+      await LlamaEngine.getInstance().loadModel(model);
+      Alert.alert('Model Activated', `${model.name} is now your active model.`);
+    } catch (err: any) {
+      Alert.alert('Activation Error', err?.message || 'Could not activate model.');
+    }
+  };
 
   const yearsList = [];
   for (let y = 2026; y >= 1930; y--) {
@@ -1124,27 +1355,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.connectorCard}>
               <View style={styles.connectorHeaderRow}>
                 <View style={styles.connectorTitleGroup}>
-                  <Image
-                    source={require('../../Assets/gemini-logo.png')}
-                    style={styles.connectorLogoImg}
-                    resizeMode="contain"
-                  />
+                  <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 4, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image
+                      source={require('../../Assets/gemini-logo.png')}
+                      style={{ width: 26, height: 26 }}
+                      resizeMode="contain"
+                    />
+                  </View>
                   <View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Text style={styles.connectorName}>Google Gemini</Text>
                       <View style={[styles.statusBadge, isGeminiConnected && styles.statusBadgeConnected]}>
                         <Text style={[styles.statusBadgeText, isGeminiConnected && styles.statusBadgeTextConnected]}>
-                          {isGeminiConnected ? 'Connected' : 'Not connected'}
+                          {isGeminiConnected ? 'Connected' : 'Not configured'}
                         </Text>
                       </View>
                     </View>
                     <Text style={styles.connectorEndpoint}>Endpoint: https://generativelanguage.googleapis.com</Text>
                   </View>
                 </View>
+                {isGeminiConnected && (
+                  <TouchableOpacity onPress={disconnectGemini} activeOpacity={0.7} style={{ padding: 4 }}>
+                    <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <Text style={styles.connectorDesc}>
-                Uses only chat models this API key can actually call. Get a key at{' '}
+                Multimodal reasoning and fast generation. Get a free API key at{' '}
                 <Text style={{ color: '#60a5fa', textDecorationLine: 'underline' }}>aistudio.google.com</Text>.
               </Text>
 
@@ -1205,11 +1443,489 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               )}
             </View>
 
-            {/* Connector Card 2: Hugging Face */}
+            {/* Connector Card 2: OpenAI */}
             <View style={styles.connectorCard}>
               <View style={styles.connectorHeaderRow}>
                 <View style={styles.connectorTitleGroup}>
-                  <HuggingFaceLogo size={28} />
+                  <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 4, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image
+                      source={require('../../Assets/openai-black-logo.png')}
+                      style={{ width: 26, height: 26 }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.connectorName}>OpenAI</Text>
+                      <View style={[styles.statusBadge, cloudConnected.openai && styles.statusBadgeConnected]}>
+                        <Text style={[styles.statusBadgeText, cloudConnected.openai && styles.statusBadgeTextConnected]}>
+                          {cloudConnected.openai ? 'Connected' : 'Not configured'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.connectorEndpoint}>Endpoint: https://api.openai.com/v1</Text>
+                  </View>
+                </View>
+                {cloudConnected.openai && (
+                  <TouchableOpacity onPress={() => disconnectCloudProvider('openai')} activeOpacity={0.7} style={{ padding: 4 }}>
+                    <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <Text style={styles.connectorDesc}>
+                Flagship GPT-5, GPT-4o, and o3-mini reasoning models. Get an API key at{' '}
+                <Text style={{ color: '#10a37f', textDecorationLine: 'underline' }}>platform.openai.com</Text>.
+              </Text>
+
+              {!showCloudKeyInput.openai ? (
+                <TouchableOpacity
+                  style={styles.addKeyBtn}
+                  onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, openai: true }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addKeyBtnText}>{cloudConnected.openai ? 'Update Key' : '+ Add Key'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.geminiKeyForm}>
+                  <TextInput
+                    style={[styles.geminiKeyInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                    value={cloudKeys.openai}
+                    onChangeText={(val: string) => setCloudKeys((prev) => ({ ...prev, openai: val }))}
+                    placeholder="Paste OpenAI API Key (sk-proj-...)"
+                    placeholderTextColor="#71717a"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.geminiKeyActions}>
+                    <TouchableOpacity
+                      style={styles.cancelKeyBtn}
+                      onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, openai: false }))}
+                      activeOpacity={0.7}
+                      disabled={cloudDiscovering.openai}
+                    >
+                      <Text style={styles.cancelKeyBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveKeyBtn, cloudDiscovering.openai && { opacity: 0.6 }]}
+                      onPress={() => saveCloudProviderKey('openai')}
+                      activeOpacity={0.8}
+                      disabled={cloudDiscovering.openai}
+                    >
+                      <Text style={styles.saveKeyBtnText}>
+                        {cloudDiscovering.openai ? 'Checking models…' : 'Save Key'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {cloudConnected.openai && (liveCloudModels.openai?.length > 0 || CLOUD_PROVIDERS.openai.models.length > 0) && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {(liveCloudModels.openai.length ? liveCloudModels.openai : CLOUD_PROVIDERS.openai.models).slice(0, 5).map((m: any) => (
+                    <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={styles.connectorDesc}>{m.name || m.id}</Text>
+                      <View style={styles.offlineTypePill}>
+                        <Text style={styles.offlineTypePillText}>{m.speed || 'GPT'}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Connector Card 3: Anthropic Claude */}
+            <View style={styles.connectorCard}>
+              <View style={styles.connectorHeaderRow}>
+                <View style={styles.connectorTitleGroup}>
+                  <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 4, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image
+                      source={require('../../Assets/claude-logo.png')}
+                      style={{ width: 26, height: 26 }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.connectorName}>Anthropic Claude</Text>
+                      <View style={[styles.statusBadge, cloudConnected.anthropic && styles.statusBadgeConnected]}>
+                        <Text style={[styles.statusBadgeText, cloudConnected.anthropic && styles.statusBadgeTextConnected]}>
+                          {cloudConnected.anthropic ? 'Connected' : 'Not configured'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.connectorEndpoint}>Endpoint: https://api.anthropic.com/v1</Text>
+                  </View>
+                </View>
+                {cloudConnected.anthropic && (
+                  <TouchableOpacity onPress={() => disconnectCloudProvider('anthropic')} activeOpacity={0.7} style={{ padding: 4 }}>
+                    <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <Text style={styles.connectorDesc}>
+                Premier hybrid reasoning and coding models (Claude 3.7 & 3.5 Sonnet). Get a key at{' '}
+                <Text style={{ color: '#d97706', textDecorationLine: 'underline' }}>console.anthropic.com</Text>.
+              </Text>
+
+              {!showCloudKeyInput.anthropic ? (
+                <TouchableOpacity
+                  style={styles.addKeyBtn}
+                  onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, anthropic: true }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addKeyBtnText}>{cloudConnected.anthropic ? 'Update Key' : '+ Add Key'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.geminiKeyForm}>
+                  <TextInput
+                    style={[styles.geminiKeyInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                    value={cloudKeys.anthropic}
+                    onChangeText={(val: string) => setCloudKeys((prev) => ({ ...prev, anthropic: val }))}
+                    placeholder="Paste Anthropic API Key (sk-ant-...)"
+                    placeholderTextColor="#71717a"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.geminiKeyActions}>
+                    <TouchableOpacity
+                      style={styles.cancelKeyBtn}
+                      onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, anthropic: false }))}
+                      activeOpacity={0.7}
+                      disabled={cloudDiscovering.anthropic}
+                    >
+                      <Text style={styles.cancelKeyBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveKeyBtn, cloudDiscovering.anthropic && { opacity: 0.6 }]}
+                      onPress={() => saveCloudProviderKey('anthropic')}
+                      activeOpacity={0.8}
+                      disabled={cloudDiscovering.anthropic}
+                    >
+                      <Text style={styles.saveKeyBtnText}>
+                        {cloudDiscovering.anthropic ? 'Checking models…' : 'Save Key'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {cloudConnected.anthropic && (liveCloudModels.anthropic?.length > 0 || CLOUD_PROVIDERS.anthropic.models.length > 0) && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {(liveCloudModels.anthropic.length ? liveCloudModels.anthropic : CLOUD_PROVIDERS.anthropic.models).map((m: any) => (
+                    <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={styles.connectorDesc}>{m.name || m.id}</Text>
+                      <View style={styles.offlineTypePill}>
+                        <Text style={styles.offlineTypePillText}>{m.speed || 'CLAUDE'}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Connector Card 4: DeepSeek API */}
+            <View style={styles.connectorCard}>
+              <View style={styles.connectorHeaderRow}>
+                <View style={styles.connectorTitleGroup}>
+                  <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 4, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image
+                      source={require('../../Assets/deepseek-blue-logo.png')}
+                      style={{ width: 26, height: 26 }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.connectorName}>DeepSeek API</Text>
+                      <View style={[styles.statusBadge, cloudConnected.deepseek && styles.statusBadgeConnected]}>
+                        <Text style={[styles.statusBadgeText, cloudConnected.deepseek && styles.statusBadgeTextConnected]}>
+                          {cloudConnected.deepseek ? 'Connected' : 'Not configured'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.connectorEndpoint}>Endpoint: https://api.deepseek.com</Text>
+                  </View>
+                </View>
+                {cloudConnected.deepseek && (
+                  <TouchableOpacity onPress={() => disconnectCloudProvider('deepseek')} activeOpacity={0.7} style={{ padding: 4 }}>
+                    <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <Text style={styles.connectorDesc}>
+                Full chain-of-thought frontier reasoning R1 & V3 models. Get a key at{' '}
+                <Text style={{ color: '#3b82f6', textDecorationLine: 'underline' }}>platform.deepseek.com</Text>.
+              </Text>
+
+              {!showCloudKeyInput.deepseek ? (
+                <TouchableOpacity
+                  style={styles.addKeyBtn}
+                  onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, deepseek: true }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addKeyBtnText}>{cloudConnected.deepseek ? 'Update Key' : '+ Add Key'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.geminiKeyForm}>
+                  <TextInput
+                    style={[styles.geminiKeyInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                    value={cloudKeys.deepseek}
+                    onChangeText={(val: string) => setCloudKeys((prev) => ({ ...prev, deepseek: val }))}
+                    placeholder="Paste DeepSeek API Key (sk-...)"
+                    placeholderTextColor="#71717a"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.geminiKeyActions}>
+                    <TouchableOpacity
+                      style={styles.cancelKeyBtn}
+                      onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, deepseek: false }))}
+                      activeOpacity={0.7}
+                      disabled={cloudDiscovering.deepseek}
+                    >
+                      <Text style={styles.cancelKeyBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveKeyBtn, cloudDiscovering.deepseek && { opacity: 0.6 }]}
+                      onPress={() => saveCloudProviderKey('deepseek')}
+                      activeOpacity={0.8}
+                      disabled={cloudDiscovering.deepseek}
+                    >
+                      <Text style={styles.saveKeyBtnText}>
+                        {cloudDiscovering.deepseek ? 'Checking models…' : 'Save Key'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {cloudConnected.deepseek && (liveCloudModels.deepseek?.length > 0 || CLOUD_PROVIDERS.deepseek.models.length > 0) && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {(liveCloudModels.deepseek.length ? liveCloudModels.deepseek : CLOUD_PROVIDERS.deepseek.models).map((m: any) => (
+                    <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={styles.connectorDesc}>{m.name || m.id}</Text>
+                      <View style={styles.offlineTypePill}>
+                        <Text style={styles.offlineTypePillText}>{m.speed || 'REASONING'}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Connector Card 5: Groq Cloud */}
+            <View style={styles.connectorCard}>
+              <View style={styles.connectorHeaderRow}>
+                <View style={styles.connectorTitleGroup}>
+                  <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 4, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Image
+                      source={require('../../Assets/groq-black-logo.png')}
+                      style={{ width: 26, height: 26 }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.connectorName}>Groq Cloud</Text>
+                      <View style={[styles.statusBadge, cloudConnected.groq && styles.statusBadgeConnected]}>
+                        <Text style={[styles.statusBadgeText, cloudConnected.groq && styles.statusBadgeTextConnected]}>
+                          {cloudConnected.groq ? 'Connected' : 'Not configured'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.connectorEndpoint}>Endpoint: https://api.groq.com/openai/v1</Text>
+                  </View>
+                </View>
+                {cloudConnected.groq && (
+                  <TouchableOpacity onPress={() => disconnectCloudProvider('groq')} activeOpacity={0.7} style={{ padding: 4 }}>
+                    <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <Text style={styles.connectorDesc}>
+                Ultra-fast 300+ tok/sec LPU inference for Llama 3.3 70B & DeepSeek-R1 Distill. Get a free key at{' '}
+                <Text style={{ color: '#f97316', textDecorationLine: 'underline' }}>console.groq.com</Text>.
+              </Text>
+
+              {!showCloudKeyInput.groq ? (
+                <TouchableOpacity
+                  style={styles.addKeyBtn}
+                  onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, groq: true }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addKeyBtnText}>{cloudConnected.groq ? 'Update Key' : '+ Add Key'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.geminiKeyForm}>
+                  <TextInput
+                    style={[styles.geminiKeyInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                    value={cloudKeys.groq}
+                    onChangeText={(val: string) => setCloudKeys((prev) => ({ ...prev, groq: val }))}
+                    placeholder="Paste Groq API Key (gsk_...)"
+                    placeholderTextColor="#71717a"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.geminiKeyActions}>
+                    <TouchableOpacity
+                      style={styles.cancelKeyBtn}
+                      onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, groq: false }))}
+                      activeOpacity={0.7}
+                      disabled={cloudDiscovering.groq}
+                    >
+                      <Text style={styles.cancelKeyBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveKeyBtn, cloudDiscovering.groq && { opacity: 0.6 }]}
+                      onPress={() => saveCloudProviderKey('groq')}
+                      activeOpacity={0.8}
+                      disabled={cloudDiscovering.groq}
+                    >
+                      <Text style={styles.saveKeyBtnText}>
+                        {cloudDiscovering.groq ? 'Checking models…' : 'Save Key'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {cloudConnected.groq && (liveCloudModels.groq?.length > 0 || CLOUD_PROVIDERS.groq.models.length > 0) && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {(liveCloudModels.groq.length ? liveCloudModels.groq : CLOUD_PROVIDERS.groq.models).map((m: any) => (
+                    <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={styles.connectorDesc}>{m.name || m.id}</Text>
+                      <View style={styles.offlineTypePill}>
+                        <Text style={styles.offlineTypePillText}>{m.speed || '300+ tok/s'}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Connector Card 6: Custom Models (LM Studio / vLLM / OpenRouter / xAI) */}
+            <View style={styles.connectorCard}>
+              <View style={styles.connectorHeaderRow}>
+                <View style={styles.connectorTitleGroup}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 3, borderWidth: 1.5, borderColor: '#1A1A1A', zIndex: 3 }]}>
+                      <Image source={require('../../Assets/vllm-color.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    </View>
+                    <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 3, marginLeft: -14, borderWidth: 1.5, borderColor: '#1A1A1A', zIndex: 2 }]}>
+                      <Image source={require('../../Assets/openrouter-black-logo.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    </View>
+                    <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 3, marginLeft: -14, borderWidth: 1.5, borderColor: '#1A1A1A', zIndex: 1 }]}>
+                      <Image source={require('../../Assets/lm-studio.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+                    </View>
+                  </View>
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.connectorName}>Custom Models</Text>
+                      <View style={[styles.statusBadge, cloudConnected.custom && styles.statusBadgeConnected]}>
+                        <Text style={[styles.statusBadgeText, cloudConnected.custom && styles.statusBadgeTextConnected]}>
+                          {cloudConnected.custom ? 'Connected' : 'Not configured'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.connectorEndpoint}>
+                      {customEndpointUrlInput ? `Endpoint: ${customEndpointUrlInput}` : 'LM Studio / vLLM / OpenRouter / xAI'}
+                    </Text>
+                  </View>
+                </View>
+                {cloudConnected.custom && (
+                  <TouchableOpacity onPress={() => disconnectCloudProvider('custom')} activeOpacity={0.7} style={{ padding: 4 }}>
+                    <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <Text style={styles.connectorDesc}>
+                Connect to any custom OpenAI-compatible server or proxy (LM Studio, vLLM, OpenRouter, xAI Grok).
+              </Text>
+
+              {!showCloudKeyInput.custom ? (
+                <TouchableOpacity
+                  style={styles.addKeyBtn}
+                  onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, custom: true }))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.addKeyBtnText}>{cloudConnected.custom ? 'Update Server' : '+ Configure Server'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.geminiKeyForm}>
+                  <Text style={[styles.connectorDesc, { color: '#ffffff', marginBottom: 4 }]}>Server URL</Text>
+                  <TextInput
+                    style={[styles.geminiKeyInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}, { marginBottom: 8 }]}
+                    value={customEndpointUrlInput}
+                    onChangeText={(val: string) => setCustomEndpointUrlInput(val)}
+                    placeholder="http://localhost:1234/v1 or https://openrouter.ai/api/v1"
+                    placeholderTextColor="#71717a"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <Text style={[styles.connectorDesc, { color: '#ffffff', marginBottom: 4 }]}>API Key (Optional)</Text>
+                  <TextInput
+                    style={[styles.geminiKeyInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                    value={cloudKeys.custom}
+                    onChangeText={(val: string) => setCloudKeys((prev) => ({ ...prev, custom: val }))}
+                    placeholder="Optional Authorization Bearer token"
+                    placeholderTextColor="#71717a"
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <View style={styles.geminiKeyActions}>
+                    <TouchableOpacity
+                      style={styles.cancelKeyBtn}
+                      onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, custom: false }))}
+                      activeOpacity={0.7}
+                      disabled={cloudDiscovering.custom}
+                    >
+                      <Text style={styles.cancelKeyBtnText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.saveKeyBtn, cloudDiscovering.custom && { opacity: 0.6 }]}
+                      onPress={() => saveCloudProviderKey('custom')}
+                      activeOpacity={0.8}
+                      disabled={cloudDiscovering.custom}
+                    >
+                      <Text style={styles.saveKeyBtnText}>
+                        {cloudDiscovering.custom ? 'Checking…' : 'Save & Test'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {cloudConnected.custom && (liveCloudModels.custom?.length > 0 || CLOUD_PROVIDERS.custom.models.length > 0) && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {(liveCloudModels.custom.length ? liveCloudModels.custom : CLOUD_PROVIDERS.custom.models).map((m: any) => (
+                    <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={styles.connectorDesc}>{m.name || m.id}</Text>
+                      <View style={styles.offlineTypePill}>
+                        <Text style={styles.offlineTypePillText}>CUSTOM</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            {/* Connector Card 7: Hugging Face */}
+            <View style={styles.connectorCard}>
+              <View style={styles.connectorHeaderRow}>
+                <View style={styles.connectorTitleGroup}>
+                  <View style={[styles.connectorLogoImg, { backgroundColor: '#ffffff', padding: 3, alignItems: 'center', justifyContent: 'center' }]}>
+                    <HuggingFaceLogo size={24} />
+                  </View>
                   <View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Text style={styles.connectorName}>Hugging Face</Text>
@@ -1229,9 +1945,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
             </View>
 
-            {/* Section 2: Installed Models Header with Fully Rounded + Add Models */}
+            {/* Section 2: Installed & Configured Models Header with Fully Rounded + Add Models */}
             <View style={styles.installedModelsHeaderRow}>
-              <Text style={styles.desktopSectionHeading}>Installed Models</Text>
+              <Text style={styles.desktopSectionHeading}>Installed & Configured Models</Text>
               <TouchableOpacity
                 style={styles.addModelsTriggerBtn}
                 onPress={() => {
@@ -1275,24 +1991,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.modelsFullList}>
               {filteredModels.length === 0 ? (
                 <Text style={styles.connectorDesc}>
-                  No GGUF files on this phone yet. Tap + Add Models to download an open-source weight.
+                  No models match this filter. Add API keys in Connectors above or download GGUFs in Model Store.
                 </Text>
               ) : filteredModels.map((m) => {
-                const isSelected = selectedModelId === m.id;
+                const isSelected = selectedModelId === m.id || (m.apiModel && selectedModelId === m.apiModel);
                 const isDevice = m.provider === 'device';
                 return (
                   <View key={m.id} style={[styles.desktopModelRowCard, isSelected && styles.desktopModelRowCardActive]}>
                     <View style={styles.modelRowCardHeader}>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          {isDevice && <HuggingFaceLogo size={18} />}
+                          <ModelBrandLogo modelName={m.name} provider={m.provider} size={20} />
                           <Text style={styles.modelRowCardTitle}>{m.name}</Text>
-                          {isDevice && (
-                            <View style={styles.weightsBadge}>
-                              <Text style={styles.weightsBadgeText}>WEIGHTS</Text>
-                            </View>
-                          )}
-                          <Text style={styles.modelSizePill}>{m.sizeFormatted}</Text>
+                          <View style={[styles.weightsBadge, !isDevice && { borderColor: 'rgba(96, 165, 250, 0.35)', backgroundColor: 'rgba(96, 165, 250, 0.12)' }]}>
+                            <Text style={[styles.weightsBadgeText, !isDevice && { color: '#93c5fd' }]}>
+                              {isDevice ? 'WEIGHTS' : (m.provider || 'CLOUD').toUpperCase()}
+                            </Text>
+                          </View>
+                          <Text style={styles.modelSizePill}>{m.sizeFormatted || 'Cloud'}</Text>
                         </View>
                         <Text style={styles.modelRowCardDesc}>{m.description}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
@@ -1310,7 +2026,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       <View style={styles.modelRowCardActions}>
                         <TouchableOpacity
                           style={[styles.modelSelectActionBtn, isSelected && styles.modelSelectActionBtnActive]}
-                          onPress={() => setSelectedModelId(m.id)}
+                          onPress={() => handleSelectModelFromSettings(m)}
                           activeOpacity={0.7}
                         >
                           <Text style={[styles.modelSelectActionBtnText, isSelected && styles.modelSelectActionBtnTextActive]}>
@@ -1859,8 +2575,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
               </View>
 
-              {/* External Links (Fully Rounded with GitHub Logo) */}
-              <View style={styles.aboutLinksContainer}>
+              {/* External Links (Fully Rounded with GitHub Logo & Instagram) */}
+              <View style={[styles.aboutLinksContainer, { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }]}>
                 <TouchableOpacity
                   style={styles.aboutLinkBtn}
                   onPress={() => {
@@ -1875,6 +2591,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <GithubIcon size={16} color="#000000" />
                   <Text style={styles.aboutLinkBtnText}>GitHub</Text>
                   <Text style={styles.platformButtonArrow}>↗</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.aboutLinkBtn, { backgroundColor: '#e1306c' }]}
+                  onPress={() => {
+                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                      window.open('https://www.instagram.com/ultron_offline', '_blank');
+                    } else {
+                      Alert.alert('Instagram', 'https://www.instagram.com/ultron_offline');
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.aboutLinkBtnText, { color: '#ffffff' }]}>Instagram: @ultron_offline</Text>
+                  <Text style={[styles.platformButtonArrow, { color: '#ffffff' }]}>↗</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.aboutLinkBtn, { backgroundColor: '#1e293b' }]}
+                  onPress={() => {
+                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                      window.open('mailto:vedantwankhade47@gmail.com', '_blank');
+                    } else {
+                      Alert.alert('Email Developer', 'vedantwankhade47@gmail.com');
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.aboutLinkBtnText, { color: '#f8fafc' }]}>Email: vedantwankhade47@gmail.com</Text>
+                  <Text style={[styles.platformButtonArrow, { color: '#f8fafc' }]}>↗</Text>
                 </TouchableOpacity>
               </View>
 

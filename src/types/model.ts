@@ -29,7 +29,7 @@ export interface ModelMetadata {
   contextLength: number;
   tags: string[];
   source?: 'offline' | 'online' | 'cloud';
-  provider?: 'device' | 'ollama' | 'gemini';
+  provider?: 'device' | 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'deepseek' | 'groq' | 'custom';
   apiModel?: string;
   capabilities?: ModelCapabilities;
   parameterBillion?: number;
