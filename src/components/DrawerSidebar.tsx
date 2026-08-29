@@ -256,14 +256,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         <SafeAreaView style={styles.drawerInner}>
           {/* Top Brand Header */}
           <View style={styles.drawerHeader}>
-            <View style={styles.topBrandBar}>
               <View style={styles.brandRow}>
                 <Image
-                  source={require('../../Assets/ultron-logo.png')}
+                  source={require('../../Assets/brown-logo.png')}
                   style={styles.brandLogo}
                   resizeMode="contain"
                 />
-                <Text style={styles.brandTitle}>Ultron</Text>
                 <View style={styles.betaPill}>
                   <Text style={styles.betaText}>BETA</Text>
                 </View>
@@ -756,8 +754,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   brandLogo: {
-    width: 22,
-    height: 22,
+    width: 85,
+    height: 24,
+    resizeMode: 'contain',
   },
   brandTitle: {
     color: '#ffffff',

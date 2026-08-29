@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <View style={styles.brandLeft}>
             <Text style={styles.brandTitle}>
-              Ultron <Text style={styles.betaText}>BETA</Text>
+              Brown <Text style={styles.betaText}>BETA</Text>
             </Text>
           </View>
         </View>

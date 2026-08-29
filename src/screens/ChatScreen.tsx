@@ -215,7 +215,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           topP: 0.9,
           contextSize: 2048,
           threads: 4,
-          systemPrompt: 'You are Ultron Mobile, a fast, offline privacy-first AI companion.',
+          systemPrompt: 'You are Brown Mobile, a fast, offline privacy-first AI companion.',
           useHardwareAcceleration: true,
         },
         (token) => {
@@ -337,12 +337,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       {messages.length === 0 ? (
         <View style={styles.emptyWelcomeContainer}>
           <Image
-            source={require('../../Assets/ultron-logo.png')}
+            source={require('../../Assets/brown-logo.png')}
             style={styles.emptyWelcomeLogo}
             resizeMode="contain"
           />
           <Text style={styles.emptyWelcomeTitle}>{getGreetingText()}</Text>
-          <Text style={styles.emptyWelcomeSubtitle}>How can Ultron assist you today?</Text>
+          <Text style={styles.emptyWelcomeSubtitle}>How can Brown assist you today?</Text>
         </View>
       ) : (
         <FlatList
@@ -416,10 +416,10 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   emptyWelcomeLogo: {
-    width: 68,
-    height: 68,
-    marginBottom: 20,
-    tintColor: '#ffffff',
+    width: 140,
+    height: 42,
+    marginBottom: 16,
+    resizeMode: 'contain',
   },
   emptyWelcomeTitle: {
     color: '#ffffff',

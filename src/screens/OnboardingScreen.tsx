@@ -297,8 +297,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {/* Step 0: Welcome */}
           {currentStep === 0 && (
             <View style={styles.onboardWelcome}>
-              <Text style={styles.onboardingTitle}>Welcome to Ultron AI</Text>
-              <Text style={styles.onboardingTagline}>The Autonomous AI Agent for Windows</Text>
+              <Text style={styles.onboardingTitle}>Welcome to Brown AI</Text>
+              <Text style={styles.onboardingTagline}>The Autonomous AI Agent for Windows &amp; Mobile</Text>
               <View style={styles.onboardBtnStack}>
                 <TouchableOpacity
                   style={styles.btnOnboardPrimary}
@@ -687,7 +687,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                               <Text style={styles.badgePillText}>Localhost:11434</Text>
                             </View>
                             <View style={styles.ollamaBadgePill}>
-                              <Text style={styles.badgePillText}>Ultron Core Active</Text>
+                              <Text style={styles.badgePillText}>Brown Core Active</Text>
                             </View>
                           </View>
                         </View>
@@ -699,7 +699,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                 {/* Step 5: Ready */}
                 {currentStep === 5 && (
                   <View style={styles.onboardReadyStep}>
-                    <Text style={styles.onboardReadyTitle}>Ultron is ready</Text>
+                    <Text style={styles.onboardReadyTitle}>Brown is ready</Text>
                     <Text style={styles.onboardReadySubtitle}>
                       Your profile is set and your local AI engine is online.
                     </Text>
@@ -792,7 +792,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         {currentStep >= 1 && currentStep <= 3 ? (
           <View style={styles.legalFooterContainer}>
             <Text style={styles.legalFooterText} numberOfLines={1}>
-              By continuing, you agree to Ultron's{' '}
+              By continuing, you agree to Brown's{' '}
               <Text style={styles.legalLink} onPress={() => setShowTermsModal(true)}>Terms of Service</Text>
               {' and '}
               <Text style={styles.legalLink} onPress={() => setShowPrivacyModal(true)}>Privacy Policy</Text>.
@@ -810,7 +810,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         )}
       </ScrollView>
 
-      {/* 1. "Why is Ultron asking for this?" Modal Popover — Matched to reference UI */}
+      {/* 1. "Why is Brown asking for this?" Modal Popover — Matched to reference UI */}
       <Modal
         visible={showWhyModal}
         transparent={true}
@@ -826,7 +826,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           <View style={styles.modalCard}>
             {/* Top Heading */}
             <Text style={styles.modalMainHeading}>
-              Why does Ultron ask for this?
+              Why does Brown ask for this?
             </Text>
             <Text style={styles.modalSubheading}>
               100% on-device local profile calibration
@@ -925,20 +925,20 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             contentContainerStyle={styles.fullPageContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.fullPageDocTitle}>Ultron AI Platform Terms</Text>
+            <Text style={styles.fullPageDocTitle}>Brown AI Platform Terms</Text>
             <Text style={styles.fullPageDocDate}>Effective Date: August 2026 • Version 1.0 (Offline Edition)</Text>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>1. Acceptance of Terms</Text>
               <Text style={styles.docParagraph}>
-                By installing, configuring, or running Ultron Mobile, you acknowledge and agree to these Terms of Service. Ultron is an autonomous on-device AI system distributed under open source and local execution principles.
+                By installing, configuring, or running Brown Mobile, you acknowledge and agree to these Terms of Service. Brown is an autonomous on-device AI system distributed under open source and local execution principles.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>2. 100% On-Device Neural Execution</Text>
               <Text style={styles.docParagraph}>
-                All neural inferences, embeddings, token generation, and agent reasoning occur directly on your local hardware utilizing Android NPU/GPU acceleration. Ultron does not rely on mandatory cloud APIs or remote subscription servers.
+                All neural inferences, embeddings, token generation, and agent reasoning occur directly on your local hardware utilizing Android NPU/GPU acceleration. Brown does not rely on mandatory cloud APIs or remote subscription servers.
               </Text>
             </View>
 
@@ -952,21 +952,21 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>{'4. Local Agent Operations & Autonomy'}</Text>
               <Text style={styles.docParagraph}>
-                Ultron functions as your autonomous companion. While Ultron operates with strict safety guardrails, you maintain full supervision over all local actions, tool executions, and file operations performed on your device.
+                Brown functions as your autonomous companion. While Brown operates with strict safety guardrails, you maintain full supervision over all local actions, tool executions, and file operations performed on your device.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>5. Desktop LAN Wi-Fi Sync</Text>
               <Text style={styles.docParagraph}>
-                Optional synchronization with your Desktop Ultron node occurs strictly over your private local area network (LAN) utilizing end-to-end PIN encryption. No data is transmitted across public relay servers.
+                Optional synchronization with your Desktop Brown node occurs strictly over your private local area network (LAN) utilizing end-to-end PIN encryption. No data is transmitted across public relay servers.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>{'6. Disclaimers & Limitation of Liability'}</Text>
               <Text style={styles.docParagraph}>
-                Ultron is provided "as is" without warranty of any kind. Outputs produced by local language models are generated non-deterministically; you are responsible for evaluating accuracy before relying on generated content.
+                Brown is provided "as is" without warranty of any kind. Outputs produced by local language models are generated non-deterministically; you are responsible for evaluating accuracy before relying on generated content.
               </Text>
             </View>
 
@@ -996,7 +996,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             contentContainerStyle={styles.fullPageContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.fullPageDocTitle}>Ultron Offline Privacy Policy</Text>
+            <Text style={styles.fullPageDocTitle}>Brown Offline Privacy Policy</Text>
             <Text style={styles.fullPageDocDate}>Zero-Telemetry Commitment • Updated August 2026</Text>
 
             <View style={styles.docHighlightCard}>
@@ -1004,7 +1004,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.docHighlightTitle}>Zero-Telemetry Guarantee</Text>
                 <Text style={styles.docHighlightSubtitle}>
-                  Ultron is built from the ground up as a 100% privacy-first, offline-capable assistant. Your prompts, chats, files, and voice recordings never touch external cloud servers.
+                  Brown is built from the ground up as a 100% privacy-first, offline-capable assistant. Your prompts, chats, files, and voice recordings never touch external cloud servers.
                 </Text>
               </View>
             </View>
@@ -1012,7 +1012,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>{'1. 100% Offline & Private Local Execution'}</Text>
               <Text style={styles.docParagraph}>
-                Ultron runs local neural weights directly on your device CPU/NPU hardware. There are zero tracking pixels, zero telemetry beacons, and zero diagnostic logging transmitted to any centralized servers.
+                Brown runs local neural weights directly on your device CPU/NPU hardware. There are zero tracking pixels, zero telemetry beacons, and zero diagnostic logging transmitted to any centralized servers.
               </Text>
             </View>
 
@@ -1040,7 +1040,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>5. Local Peer-to-Peer Wi-Fi Synchronization</Text>
               <Text style={styles.docParagraph}>
-                When syncing chats between your mobile device and Desktop Ultron, communication occurs strictly across your local Wi-Fi subnet with end-to-end cryptographic PIN verification. No external relay or cloud servers ever mediate the transfer.
+                When syncing chats between your mobile device and Desktop Brown, communication occurs strictly across your local Wi-Fi subnet with end-to-end cryptographic PIN verification. No external relay or cloud servers ever mediate the transfer.
               </Text>
             </View>
 

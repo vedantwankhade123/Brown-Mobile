@@ -136,7 +136,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         <SafeAreaView style={styles.errorContainer}>
           <StatusBar barStyle="light-content" backgroundColor="#000000" />
           <View style={styles.errorCard}>
-            <Text style={styles.errorTitle}>Ultron Mobile Recovery</Text>
+            <Text style={styles.errorTitle}>Brown Mobile Recovery</Text>
             <Text style={styles.errorSubtitle}>
               An unexpected rendering issue occurred. Your local data remains safe.
             </Text>
@@ -228,13 +228,12 @@ export default function App() {
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
         <View style={styles.splashContent}>
           <Image
-            source={require('./Assets/ultron-logo.png')}
+            source={require('./Assets/brown-logo.png')}
             style={styles.splashLogo}
             resizeMode="contain"
           />
-          <Text style={styles.splashBrandTitle}>ULTRON</Text>
           <Text style={styles.splashBrandSubtitle}>OFFLINE INTELLIGENCE</Text>
-          <ActivityIndicator size="small" color="#ffffff" style={{ marginTop: 28 }} />
+          <ActivityIndicator size="small" color="#ffffff" style={{ marginTop: 20 }} />
         </View>
       </SafeAreaView>
     );
@@ -299,9 +298,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   splashLogo: {
-    width: 88,
-    height: 88,
-    marginBottom: 14,
+    width: 160,
+    height: 48,
+    marginBottom: 8,
   },
   splashBrandTitle: {
     color: '#ffffff',

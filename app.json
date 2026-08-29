@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Ultron AI",
-    "slug": "ultron-mobile",
+    "name": "Brown AI",
+    "slug": "brown-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./Assets/icon.png",
@@ -13,12 +13,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ultron.mobile",
+      "bundleIdentifier": "com.brown.mobile",
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Ultron requires speech recognition for voice AI conversations.",
-        "NSMicrophoneUsageDescription": "Ultron requires microphone access to enable voice queries.",
-        "NSLocalNetworkUsageDescription": "Ultron requires local network access to synchronize with your desktop instance.",
-        "NSLocationWhenInUseUsageDescription": "Ultron uses your exact location for accurate weather, time zone, and local assistant queries."
+        "NSSpeechRecognitionUsageDescription": "Brown requires speech recognition for voice AI conversations.",
+        "NSMicrophoneUsageDescription": "Brown requires microphone access to enable voice queries.",
+        "NSLocalNetworkUsageDescription": "Brown requires local network access to synchronize with your desktop instance.",
+        "NSLocationWhenInUseUsageDescription": "Brown uses your exact location for accurate weather, time zone, and local assistant queries."
       }
     },
     "android": {
@@ -26,7 +26,7 @@
         "foregroundImage": "./Assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.ultron.mobile",
+      "package": "com.brown.mobile",
       "permissions": [
         "RECORD_AUDIO",
         "INTERNET",
@@ -41,7 +41,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Ultron uses your exact location for accurate weather, time zone, and local assistant queries."
+          "locationWhenInUsePermission": "Brown uses your exact location for accurate weather, time zone, and local assistant queries."
         }
       ]
     ]

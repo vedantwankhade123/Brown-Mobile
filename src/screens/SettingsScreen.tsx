@@ -811,7 +811,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const handleExportData = () => {
     Alert.alert(
       'Export Backup',
-      'Encrypted JSON backup file generated successfully in local device storage: /Documents/Ultron_Backup.json',
+      'Encrypted JSON backup file generated successfully in local device storage: /Documents/Brown_Backup.json',
       [{ text: 'OK' }]
     );
   };
@@ -820,7 +820,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setUpdateStatus('checking');
     setTimeout(() => {
       setUpdateStatus('up-to-date');
-      Alert.alert('Software Update', 'Ultron Mobile BETA v1 is up to date.');
+      Alert.alert('Software Update', 'Brown Mobile BETA v1 is up to date.');
     }, 1200);
   };
 
@@ -857,7 +857,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         window.open(url, '_blank');
       } else {
         // For native platforms, use Alert as fallback
-        Alert.alert('Download Ultron', url);
+        Alert.alert('Download Brown', url);
       }
     } catch {
       Alert.alert('Unable to open link', url);
@@ -949,7 +949,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       items: [
         {
           id: 'about',
-          title: 'About Ultron',
+          title: 'About Brown',
           iconType: 'about',
           iconColor: '#e4e4e7',
           detail: 'BETA v1',
@@ -2483,9 +2483,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.updateStatusTitle}>
-                    {updateStatus === 'checking' ? 'Checking for updates...' : 'Ultron is up to date'}
+                    {updateStatus === 'checking' ? 'Checking for updates...' : 'Brown is up to date'}
                   </Text>
-                  <Text style={styles.updateStatusSubtitle}>Current Version: v1.0.13 Mobile</Text>
+                  <Text style={styles.updateStatusSubtitle}>Current Version: v1.0.14 Mobile</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.checkUpdatesActionBtn}
@@ -2542,7 +2542,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
                 <View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.aboutAppTitle}>Ultron</Text>
+                    <Text style={styles.aboutAppTitle}>Brown</Text>
                     <View style={styles.aboutVersionBadge}>
                       <Text style={styles.aboutVersionBadgeText}>BETA v1</Text>
                     </View>
@@ -2551,12 +2551,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
               </View>
 
-              <Text style={styles.aboutSectionTitle}>About Ultron</Text>
+              <Text style={styles.aboutSectionTitle}>About Brown</Text>
               <Text style={styles.aboutParagraph}>
-                Ultron is an advanced, sovereign conversational AI companion built to run directly on smartphone hardware. All SLM neural model inference, prompt executions, and chat histories operate locally inside a 100% private on-device sandbox. No personal data, chat context, or telemetry is ever transmitted to remote servers.
+                Brown is an advanced, sovereign conversational AI companion built to run directly on smartphone hardware. All SLM neural model inference, prompt executions, and chat histories operate locally inside a 100% private on-device sandbox. No personal data, chat context, or telemetry is ever transmitted to remote servers.
               </Text>
               <Text style={[styles.aboutParagraph, { marginTop: 8 }]}>
-                Powered by quantized GGUF neural models with optional fallback to Google Gemini cloud intelligence when requested, Ultron delivers fast, autonomous capability while keeping you in complete sovereign control.
+                Powered by quantized GGUF neural models with optional fallback to Google Gemini cloud intelligence when requested, Brown delivers fast, autonomous capability while keeping you in complete sovereign control.
               </Text>
 
               {/* Specs Grid (Desktop Parity) */}
@@ -2612,14 +2612,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   style={[styles.aboutLinkBtn, { backgroundColor: '#1e293b' }]}
                   onPress={() => {
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                      window.open('mailto:vedantwankhade47@gmail.com', '_blank');
+                      window.open('mailto:contact@usebrown.online', '_blank');
                     } else {
-                      Alert.alert('Email Developer', 'vedantwankhade47@gmail.com');
+                      Alert.alert('Email Developer', 'contact@usebrown.online');
                     }
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={[styles.aboutLinkBtnText, { color: '#f8fafc' }]}>Email: vedantwankhade47@gmail.com</Text>
+                  <Text style={[styles.aboutLinkBtnText, { color: '#f8fafc' }]}>Email: contact@usebrown.online</Text>
                   <Text style={[styles.platformButtonArrow, { color: '#f8fafc' }]}>↗</Text>
                 </TouchableOpacity>
               </View>
@@ -2725,7 +2725,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               style={styles.headerIconBtn}
               onPress={() => navigateToView('about')}
               activeOpacity={0.7}
-              accessibilityLabel="About Ultron"
+              accessibilityLabel="About Brown"
             >
               <HelpCircleIcon size={20} color="#e4e4e7" />
             </TouchableOpacity>

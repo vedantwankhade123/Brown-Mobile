@@ -53,7 +53,7 @@ interface MessageInputProps {
 }
 
 const PLACEHOLDER_PROMPTS = [
-  'Ask Ultron (100% Offline)...',
+  'Ask Brown (100% Offline)...',
   'Summarize a PDF or document...',
   'Brainstorm ideas or code...',
   'Draft a private email or message...',

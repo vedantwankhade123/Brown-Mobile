@@ -205,7 +205,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
   };
 
   const handleDisconnect = () => {
-    Alert.alert('Disconnect Desktop', 'Unpair from the desktop Ultron node?', [
+    Alert.alert('Disconnect Desktop', 'Unpair from the desktop Brown node?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Disconnect',
@@ -223,8 +223,8 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
   const statusDetail = syncStatus.needsReauth
     ? syncStatus.reauthReason || 'Network changed — enter the code on your PC.'
     : syncStatus.isConnected
-      ? syncStatus.activeDesktop?.name || 'Ultron Desktop'
-      : 'No desktop paired. Keep Ultron open on PC and tap refresh to scan.';
+      ? syncStatus.activeDesktop?.name || 'Brown Desktop'
+      : 'No desktop paired. Keep Brown open on PC and tap refresh to scan.';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -422,7 +422,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>Connect to PC</Text>
                 <Text style={styles.cardBody}>
-                  Type the Sync ID from Ultron on Windows. It looks like ULTRON-WIN-7842.
+                  Type the Sync ID from Brown on Windows. It looks like BROWN-WIN-7842.
                 </Text>
                 <Text style={styles.fieldLabel}>Sync ID</Text>
                 <TextInput
@@ -431,7 +431,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                   onChangeText={(v: string) => setSyncIdInput(v.toUpperCase())}
                   onFocus={() => setIdFocused(true)}
                   onBlur={() => setIdFocused(false)}
-                  placeholder="ULTRON-WIN-····"
+                  placeholder="BROWN-WIN-····"
                   placeholderTextColor="#52525b"
                   autoCapitalize="characters"
                   autoCorrect={false}
@@ -476,7 +476,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
               {isScanning ? (
                 <View style={styles.scanCard}>
                   <ActivityIndicator color="#ffffff" />
-                  <Text style={styles.scanCopy}>Searching this network for Ultron Desktop…</Text>
+                  <Text style={styles.scanCopy}>Searching this network for Brown Desktop…</Text>
                 </View>
               ) : liveDevices.length > 0 ? (
                 liveDevices.map((device) => (
@@ -507,7 +507,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                   <SyncIllustration width={260} height={105} />
                   <Text style={styles.emptyTitle}>No Windows PC found</Text>
                   <Text style={styles.emptyBody}>
-                    Open Ultron on your computer, stay on this Wi-Fi, then scan again.
+                    Open Brown on your computer, stay on this Wi-Fi, then scan again.
                   </Text>
                   {fallbackDevice && (
                     <TouchableOpacity
