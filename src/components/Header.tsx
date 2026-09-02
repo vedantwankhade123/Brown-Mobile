@@ -29,9 +29,12 @@ export const Header: React.FC<HeaderProps> = ({
           </TouchableOpacity>
 
           <View style={styles.brandLeft}>
-            <Text style={styles.brandTitle}>
-              Brown <Text style={styles.betaText}>BETA</Text>
-            </Text>
+            <Image
+              source={require('../../Assets/brown-white-wordmark.png')}
+              style={styles.brandLogo}
+              resizeMode="contain"
+            />
+            <Text style={styles.betaText}>BETA</Text>
           </View>
         </View>
 
@@ -86,19 +89,19 @@ const styles = StyleSheet.create({
   brandLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 4,
+    gap: 6,
+    paddingLeft: 2,
     paddingRight: 6,
   },
-  brandTitle: {
-    color: '#ffffff',
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+  brandLogo: {
+    width: 68,
+    height: 19,
+    resizeMode: 'contain',
   },
   betaText: {
     color: '#3b82f6',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
   iconButton: {

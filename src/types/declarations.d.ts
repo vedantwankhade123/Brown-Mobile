@@ -85,6 +85,19 @@ declare module 'expo-speech' {
   export function stop(): void;
 }
 
+declare module 'expo-av' {
+  export const Audio: {
+    setAudioModeAsync(mode: any): Promise<void>;
+    Sound: {
+      createAsync(
+        source: any,
+        initialStatus?: any,
+        onPlaybackStatusUpdate?: (status: any) => void
+      ): Promise<{ sound: any; status: any }>;
+    };
+  };
+}
+
 declare module '@react-native-voice/voice' {
   const Voice: {
     default: any;

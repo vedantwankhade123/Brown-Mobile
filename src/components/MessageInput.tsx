@@ -18,6 +18,7 @@ import {
   MicIcon,
   ArrowUpIcon,
   StopIcon,
+  PauseIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   PlusIcon,
@@ -27,6 +28,9 @@ import {
   AudioFileIcon,
   LaptopIcon,
   CpuIcon,
+  SearchIcon,
+  SlidersIcon,
+  CloseIcon,
 } from './Icons';
 import { ModelMetadata } from '../types/model';
 import { buildAvailableChatModels } from '../services/modelManager/ModelCatalog';
@@ -81,6 +85,29 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
   const [hoveredModelId, setHoveredModelId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelMetadata[]>([]);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+
+  useEffect(() => {
+    let timer: any = null;
+    if (isListening) {
+      setRecordingSeconds(0);
+      timer = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setRecordingSeconds(0);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [isListening]);
+
+  const formatTimer = (secs: number) => {
+    const mins = Math.floor(secs / 60);
+    const remaining = secs % 60;
+    return `${mins}:${remaining < 10 ? '0' : ''}${remaining}`;
+  };
 
   // Smooth Animations for Popups
   const modelAnim = useRef(new Animated.Value(0)).current;
@@ -160,6 +187,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       }).start();
     } else {
       setHoveredModelId(null);
+      setModelSearchQuery('');
       Animated.timing(modelAnim, {
         toValue: 0,
         duration: 140,
@@ -314,6 +342,65 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const canAttachImg = activeModel?.capabilities ? activeModel.capabilities.images : false;
   const canAttachAudio = activeModel?.capabilities ? activeModel.capabilities.voice : true;
 
+  const filteredModels = availableModels.filter((m) => {
+    if (!modelSearchQuery.trim()) return true;
+    return (m.name || m.id).toLowerCase().includes(modelSearchQuery.trim().toLowerCase());
+  });
+
+  const offlineModels = filteredModels.filter((m) => {
+    const prov = (m.provider || m.source || '').toLowerCase();
+    return prov !== 'gemini' && prov !== 'cloud' && m.source !== 'cloud';
+  });
+
+  const cloudModels = filteredModels.filter((m) => {
+    const prov = (m.provider || m.source || '').toLowerCase();
+    return prov === 'gemini' || prov === 'cloud' || m.source === 'cloud';
+  });
+
+  const renderModelItem = (m: ModelMetadata) => {
+    const isSelected = activeModel?.id === m.id || activeModel?.name === m.name;
+    const isHovered = hoveredModelId === m.id;
+
+    return (
+      <TouchableOpacity
+        key={m.id}
+        style={[
+          styles.dropdownItem,
+          (isSelected || isHovered) && styles.dropdownItemSelected,
+        ]}
+        onPress={() => {
+          if (onSelectModel) {
+            onSelectModel(m);
+          }
+          setShowModelDropdown(false);
+        }}
+        activeOpacity={0.7}
+        {...(Platform.OS === 'web'
+          ? ({
+              onMouseEnter: () => setHoveredModelId(m.id),
+              onMouseLeave: () => setHoveredModelId(null),
+            } as any)
+          : {})}
+      >
+        <View style={styles.dropdownItemLeft}>
+          <Image
+            source={require('../../Assets/ollama-white-logo.png')}
+            style={styles.dropdownModelIcon}
+            resizeMode="contain"
+          />
+          <Text
+            style={[styles.dropdownModelTitle, isSelected && styles.dropdownModelTitleSelected]}
+            numberOfLines={1}
+          >
+            {m.name}
+          </Text>
+        </View>
+
+        {isSelected && <CheckIcon size={14} color="#ffffff" />}
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -334,134 +421,109 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             />
           )}
 
-          {(isListening || isSpeaking) && (
+          {!isListening && isSpeaking && (
             <View style={styles.voiceDock}>
               <AudioWaveform isActive={true} barCount={12} />
               <Text style={styles.voiceDockLabel}>
-                {isListening ? 'Listening… speak now' : 'Speaking… tap pause on the message to stop'}
+                Speaking… tap pause on the message to stop
               </Text>
             </View>
           )}
 
             <View style={[styles.modelPickerWrap, { zIndex: showModelDropdown ? 500 : 1 }]}>
               {showModelDropdown && (
-            <Animated.View
-              style={[
-                styles.modelDropdownCard,
-                {
-                  opacity: modelAnim,
-                  transform: [
+                <Animated.View
+                  style={[
+                    styles.modelDropdownCard,
                     {
-                      translateY: modelAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [8, 0],
-                      }),
+                      opacity: modelAnim,
+                      transform: [
+                        {
+                          translateY: modelAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [8, 0],
+                          }),
+                        },
+                      ],
                     },
-                  ],
-                },
-              ]}
-            >
-              <View style={styles.dropdownHeader}>
-                <Text style={styles.dropdownHeaderText}>Available models</Text>
-              </View>
-              <ScrollView
-                style={styles.dropdownScroll}
-                contentContainerStyle={styles.dropdownList}
-                nestedScrollEnabled
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator
-              >
-                {availableModels.length === 0 ? (
-                  <View style={styles.dropdownEmptyContainer}>
-                    <View style={styles.dropdownEmptyIconBox}>
-                      <CpuIcon size={24} color="#a1a1aa" />
-                    </View>
-                    <Text style={styles.dropdownEmptyText}>
-                      No models installed yet. Open the Model Store to download one.
-                    </Text>
-                  </View>
-                ) : (
-                  availableModels.map((m) => {
-                  const isSelected = activeModel?.id === m.id;
-                  const isHovered = hoveredModelId === m.id;
-                  const provider = m.provider || (m.source === 'online' ? 'ollama' : 'device');
-                  const isCloudProvider = provider === 'gemini' || m.source === 'cloud';
-                  const badgeLabel = isCloudProvider
-                    ? 'Cloud'
-                    : provider === 'ollama'
-                      ? 'Shared'
-                      : 'On Device';
-                  return (
-                    <TouchableOpacity
-                      key={m.id}
+                  ]}
+                >
+                  {/* Search Models Input */}
+                  <View style={styles.modelDropdownSearchContainer}>
+                    <SearchIcon size={14} color="rgba(255, 255, 255, 0.45)" />
+                    <TextInput
                       style={[
-                        styles.dropdownItem,
-                        (isSelected || isHovered) && styles.dropdownItemSelected,
+                        styles.modelDropdownSearchInput,
+                        Platform.OS === 'web'
+                          ? ({
+                              outline: 'none',
+                              outlineStyle: 'none',
+                              boxShadow: 'none',
+                              border: 'none',
+                            } as any)
+                          : {},
                       ]}
+                      value={modelSearchQuery}
+                      onChangeText={setModelSearchQuery}
+                      placeholder="Search models"
+                      placeholderTextColor="rgba(255, 255, 255, 0.4)"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {modelSearchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setModelSearchQuery('')}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <CloseIcon size={12} color="#71717a" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  <ScrollView
+                    style={styles.dropdownScroll}
+                    contentContainerStyle={styles.dropdownList}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {filteredModels.length === 0 ? (
+                      <View style={styles.dropdownEmptyContainer}>
+                        <Text style={styles.dropdownEmptyText}>
+                          {modelSearchQuery.trim()
+                            ? 'No matching models found.'
+                            : 'No models installed yet.'}
+                        </Text>
+                      </View>
+                    ) : (
+                      <>
+                        {offlineModels.length > 0 && (
+                          <Text style={styles.modelSectionTitle}>Offline Models</Text>
+                        )}
+                        {offlineModels.map((m) => renderModelItem(m))}
+
+                        {cloudModels.length > 0 && (
+                          <Text style={styles.modelSectionTitle}>Cloud Models</Text>
+                        )}
+                        {cloudModels.map((m) => renderModelItem(m))}
+                      </>
+                    )}
+                  </ScrollView>
+
+                  {onOpenModelStore && (
+                    <TouchableOpacity
+                      style={styles.dropdownFooterBtn}
                       onPress={() => {
-                        if (onSelectModel) {
-                          onSelectModel(m);
-                        }
                         setShowModelDropdown(false);
+                        onOpenModelStore();
                       }}
                       activeOpacity={0.7}
-                      {...(Platform.OS === 'web'
-                        ? ({
-                            onMouseEnter: () => setHoveredModelId(m.id),
-                            onMouseLeave: () => setHoveredModelId(null),
-                          } as any)
-                        : {})}
                     >
-                      <View style={styles.modelBrandLogoBox}>
-                        <ModelBrandLogo modelName={m.name || m.id} provider={provider} size={22} />
-                      </View>
-                      <View style={styles.dropdownItemLeft}>
-                        <Text style={[styles.dropdownModelTitle, (isSelected || isHovered) && styles.dropdownModelTitleSelected]}>
-                          {m.name}
-                        </Text>
-                        <Text style={styles.dropdownModelMeta} numberOfLines={1}>
-                          {provider === 'ollama'
-                            ? `${m.sizeFormatted} • Shared from PC`
-                            : isCloudProvider
-                              ? 'Cloud • API key'
-                              : `${m.parameters} • Hugging Face`}
-                        </Text>
-                        <View style={[
-                          styles.modelTierBadge,
-                          isCloudProvider && styles.modelTierBadgeCloud,
-                          provider === 'ollama' && styles.modelTierBadgeOllama,
-                          provider === 'device' && styles.modelTierBadgeOffline,
-                        ]}>
-                          <Text style={[
-                            styles.modelTierBadgeText,
-                            isCloudProvider && { color: '#c4b5fd' },
-                            provider === 'ollama' && { color: '#93c5fd' },
-                            provider === 'device' && { color: '#86efac' },
-                          ]}>{badgeLabel}</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.modelItemRightGroup}>
-                        {isSelected && <CheckIcon size={16} color="#ffffff" />}
-                      </View>
+                      <SlidersIcon size={15} color="#ffffff" />
+                      <Text style={styles.dropdownFooterText}>Manage models</Text>
                     </TouchableOpacity>
-                  );
-                })
-                )}
-              </ScrollView>
-              {onOpenModelStore && (
-                <TouchableOpacity
-                  style={styles.dropdownFooterBtn}
-                  onPress={() => {
-                    setShowModelDropdown(false);
-                    onOpenModelStore();
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.dropdownFooterText}>Manage Models</Text>
-                </TouchableOpacity>
-              )}
-            </Animated.View>
+                  )}
+                </Animated.View>
               )}
 
               <TouchableOpacity
@@ -475,10 +537,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 activeOpacity={0.7}
                 accessibilityLabel="Select Model"
               >
+                <Image
+                  source={require('../../Assets/ollama-white-logo.png')}
+                  style={styles.modelPillIcon}
+                  resizeMode="contain"
+                />
                 <Text style={styles.modelName} numberOfLines={1}>
                   {activeModel?.name || 'Select a model'}
                 </Text>
-                <ChevronDownIcon size={12} color="#a1a1aa" />
+                <ChevronDownIcon size={12} color="#71717a" />
               </TouchableOpacity>
             </View>
 
@@ -643,21 +710,51 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Right Actions: Mic + Send/Stop */}
+              {/* Right Actions: Mic / Voice Recording Pill + Send/Stop */}
               <View style={styles.rightActionsGroup}>
-                {/* Voice Mic Button */}
-                <TouchableOpacity
-                  style={[styles.outlinedActionIconBtn, isListening && styles.actionIconBtnListening]}
-                  onPress={onVoicePress}
-                  activeOpacity={0.7}
-                  disabled={disabled}
-                  accessibilityLabel="Voice Mode"
-                >
-                  <MicIcon
-                    size={20}
-                    color={isListening ? colors.error : '#d4d4d8'}
-                  />
-                </TouchableOpacity>
+                {isListening ? (
+                  <View style={styles.voiceRecordingPill}>
+                    <TouchableOpacity
+                      style={styles.voicePillCircleBtn}
+                      onPress={onVoicePress}
+                      activeOpacity={0.8}
+                      accessibilityLabel="Stop recording"
+                    >
+                      <PauseIcon size={13} color="#ffffff" />
+                    </TouchableOpacity>
+
+                    <View style={styles.voiceVisualizerWrapper}>
+                      <AudioWaveform isActive={true} barCount={4} barColor="rgba(255, 255, 255, 0.7)" maxHeight={16} />
+                      <Text style={styles.voiceListeningText} numberOfLines={1}>
+                        Listening...
+                      </Text>
+                    </View>
+
+                    <View style={styles.voicePillRight}>
+                      <Text style={styles.voiceTimerText}>
+                        {formatTimer(recordingSeconds)}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.voicePillCancelBtn}
+                        onPress={onVoicePress}
+                        activeOpacity={0.7}
+                        accessibilityLabel="Cancel recording"
+                      >
+                        <CloseIcon size={12} color="#94a3b8" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.outlinedActionIconBtn}
+                    onPress={onVoicePress}
+                    activeOpacity={0.7}
+                    disabled={disabled}
+                    accessibilityLabel="Voice Mode"
+                  >
+                    <MicIcon size={20} color="#d4d4d8" />
+                  </TouchableOpacity>
+                )}
 
                 {/* Send (Top Arrow) / Stop Button */}
                 {isGenerating ? (
@@ -673,17 +770,17 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                   <TouchableOpacity
                     style={[
                       styles.sendActionBtn,
-                      hasText && !disabled && styles.sendActionBtnActive,
-                      !hasText || disabled ? styles.sendBtnDisabled : null,
+                      (hasText || isListening) && !disabled && styles.sendActionBtnActive,
+                      (!hasText && !isListening) || disabled ? styles.sendBtnDisabled : null,
                     ]}
                     onPress={handleSend}
-                    disabled={!hasText || disabled}
+                    disabled={(!hasText && !isListening) || disabled}
                     activeOpacity={0.7}
                     accessibilityLabel="Send Message"
                   >
                     <ArrowUpIcon
                       size={21}
-                      color={hasText && !disabled ? '#111113' : '#71717a'}
+                      color={(hasText || isListening) && !disabled ? '#111113' : '#71717a'}
                     />
                   </TouchableOpacity>
                 )}
@@ -728,20 +825,18 @@ const styles = StyleSheet.create({
   },
   modelDropdownCard: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 36,
-    minHeight: 180,
-    maxHeight: 340,
-    backgroundColor: '#161618',
+    bottom: 38,
+    width: 280,
+    maxWidth: '96%',
+    backgroundColor: '#131316',
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 10,
+    padding: 8,
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.7,
-    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.85,
+    shadowRadius: 24,
     elevation: 24,
     zIndex: 50,
   },
@@ -823,49 +918,53 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  dropdownHeader: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    marginBottom: 6,
+  modelDropdownSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 36,
+    borderRadius: 9999,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 10,
+    marginBottom: 4,
   },
-  dropdownHeaderText: {
-    color: '#a1a1aa',
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+  modelDropdownSearchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 12.5,
+    fontWeight: '400',
+    marginLeft: 7,
+    paddingVertical: 0,
+    height: '100%',
   },
   dropdownList: {
     gap: 2,
-    paddingBottom: 4,
+    paddingBottom: 2,
   },
   dropdownScroll: {
-    maxHeight: 230,
+    maxHeight: 220,
     flexGrow: 0,
+  },
+  modelSectionTitle: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: '#71717a',
+    letterSpacing: 0.2,
   },
   dropdownEmptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 22,
+    paddingVertical: 20,
     paddingHorizontal: 16,
-    minHeight: 110,
-  },
-  dropdownEmptyIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
   },
   dropdownEmptyText: {
-    color: '#a1a1aa',
-    fontSize: 13,
-    lineHeight: 18,
+    color: '#71717a',
+    fontSize: 12.5,
     textAlign: 'center',
-    maxWidth: 240,
   },
   dropdownItem: {
     flexDirection: 'row',
@@ -875,43 +974,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
     backgroundColor: 'transparent',
+    minHeight: 36,
   },
   dropdownItemSelected: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   dropdownItemLeft: {
-    flex: 1,
-    marginRight: 8,
-  },
-  modelBrandLogoBox: {
-    width: 32,
-    height: 32,
-    marginRight: 10,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
   },
-  modelTierBadge: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 9999,
-  },
-  modelTierBadgeOllama: {
-    backgroundColor: 'rgba(59, 130, 246, 0.16)',
-  },
-  modelTierBadgeCloud: {
-    backgroundColor: 'rgba(167, 139, 250, 0.16)',
-  },
-  modelTierBadgeOffline: {
-    backgroundColor: 'rgba(16, 185, 129, 0.16)',
-  },
-  modelTierBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+  dropdownModelIcon: {
+    width: 15,
+    height: 15,
+    tintColor: '#ffffff',
+    flexShrink: 0,
   },
   voiceDock: {
     alignItems: 'center',
@@ -931,41 +1010,30 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   dropdownModelTitle: {
-    color: '#d4d4d8',
-    fontSize: 13.5,
+    color: '#f4f4f5',
+    fontSize: 13,
     fontWeight: '600',
+    flex: 1,
   },
   dropdownModelTitleSelected: {
     color: '#ffffff',
-    fontWeight: '700',
   },
-  dropdownModelMeta: {
-    color: '#71717a',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  modelItemRightGroup: {
+  dropdownFooterBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  modelStatusIconBadge: {
-    padding: 2,
-  },
-  dropdownFooterBtn: {
-    marginTop: 8,
-    paddingTop: 10,
+    marginTop: 4,
+    paddingTop: 8,
     paddingBottom: 4,
+    paddingHorizontal: 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: 8,
   },
   dropdownFooterText: {
-    color: '#3b82f6',
+    color: '#ffffff',
     fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
+    fontWeight: '500',
   },
   modelHeaderRow: {
     flexDirection: 'row',
@@ -976,16 +1044,24 @@ const styles = StyleSheet.create({
   modelPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 9999,
-    backgroundColor: 'transparent',
+    backgroundColor: '#1a1a1d',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modelPillIcon: {
+    width: 14,
+    height: 14,
+    tintColor: '#ffffff',
   },
   modelName: {
-    color: '#a1a1aa',
+    color: '#ffffff',
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
+    maxWidth: 180,
   },
   inputCard: {
     backgroundColor: '#212124',
@@ -1040,6 +1116,69 @@ const styles = StyleSheet.create({
   actionIconBtnListening: {
     backgroundColor: 'rgba(239, 68, 68, 0.12)',
     borderColor: 'rgba(248, 113, 113, 0.55)',
+  },
+  voiceRecordingPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    height: 38,
+    paddingLeft: 4,
+    paddingRight: 10,
+    paddingVertical: 3,
+    backgroundColor: '#0c2766',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.45)',
+    borderRadius: 9999,
+    maxWidth: 240,
+    shadowColor: '#1d4ed8',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  voicePillCircleBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#070b14',
+    borderWidth: 2,
+    borderColor: 'rgba(59, 130, 246, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  voiceVisualizerWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
+  },
+  voiceListeningText: {
+    color: '#ffffff',
+    fontSize: 12.5,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  voicePillRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flexShrink: 0,
+  },
+  voiceTimerText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  voicePillCancelBtn: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sendActionBtn: {
     width: 42,

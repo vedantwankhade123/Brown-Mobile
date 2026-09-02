@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,10 @@ import {
   Image,
   Modal,
   Platform,
+  Animated,
 } from 'react-native';
+import { Audio } from 'expo-av';
+import { Svg, Polygon, Line } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
@@ -24,9 +27,11 @@ import {
   CloudIcon,
   LaptopIcon,
   BackArrowIcon,
+  RightArrowIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronDownIcon,
+  SpeakerIcon,
 } from '../components/Icons';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { ConsentService } from '../services/storage/ConsentService';
@@ -34,6 +39,60 @@ import { ConsentService } from '../services/storage/ConsentService';
 interface OnboardingScreenProps {
   onComplete: () => void;
 }
+
+const Easing = (Animated as any).Easing || {
+  inOut: (fn: any) => fn,
+  out: (fn: any) => fn,
+  sin: (t: any) => t,
+  cubic: (t: any) => t,
+  ease: (t: any) => t,
+};
+
+const ONBOARD_VOICE_FILES: Record<number, number> = {
+  0: require('../../Assets/sounds/step-0-welcome.mp3'),
+  1: require('../../Assets/sounds/step-1-name.mp3'),
+  2: require('../../Assets/sounds/step-2-birthdate.mp3'),
+  3: require('../../Assets/sounds/step-3-email.mp3'),
+  4: require('../../Assets/sounds/step-4-requirements.mp3'),
+  5: require('../../Assets/sounds/step-5-ready.mp3'),
+};
+
+const VoiceWaveBars: React.FC = () => {
+  const bar1 = useRef(new Animated.Value(0.35)).current;
+  const bar2 = useRef(new Animated.Value(0.35)).current;
+  const bar3 = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const mk = (v: any, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(v, { toValue: 1, duration: 360, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(v, { toValue: 0.35, duration: 360, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ])
+      );
+    const loops = [mk(bar1, 0), mk(bar2, 120), mk(bar3, 240)];
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, [bar1, bar2, bar3]);
+
+  const bars = [bar1, bar2, bar3];
+  return (
+    <View style={styles.voiceWaveRow}>
+      {bars.map((b, i) => (
+        <Animated.View key={i} style={[styles.voiceWaveBar, { transform: [{ scaleY: b }] }]} />
+      ))}
+    </View>
+  );
+};
+
+const MutedSpeakerIcon: React.FC<{ size?: number; color?: string }> = ({ size = 15, color = '#a1a1aa' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <Line x1="23" y1="9" x2="17" y2="15" />
+    <Line x1="17" y1="9" x2="23" y2="15" />
+  </Svg>
+);
 
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState<number>(0);
@@ -46,6 +105,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const [error3, setError3] = useState<string>('');
 
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const [calendarView, setCalendarView] = useState<'days' | 'months' | 'years'>('days');
   const [selectedMonth, setSelectedMonth] = useState<number>(7); // August (0-indexed)
   const [selectedYear, setSelectedYear] = useState<number>(2005);
@@ -57,6 +117,81 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const [showWhyModal, setShowWhyModal] = useState<boolean>(false);
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
+
+  const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
+  const [voiceSpeaking, setVoiceSpeaking] = useState<boolean>(false);
+  const voiceSoundRef = useRef<any>(null);
+  const voiceTokenRef = useRef<number>(0);
+
+  const releaseVoice = () => {
+    voiceTokenRef.current += 1;
+    const sound = voiceSoundRef.current;
+    voiceSoundRef.current = null;
+    setVoiceSpeaking(false);
+    if (sound) {
+      Promise.resolve(sound.unloadAsync()).catch(() => {});
+    }
+  };
+
+  const speakStep = (step: number) => {
+    const source = ONBOARD_VOICE_FILES[step];
+    if (!source) return;
+    releaseVoice();
+    const token = voiceTokenRef.current;
+    Audio.setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+    Audio.Sound.createAsync(
+      source,
+      { shouldPlay: true },
+      (status: any) => {
+        if (status && status.didJustFinish) {
+          setVoiceSpeaking(false);
+          const sound = voiceSoundRef.current;
+          voiceSoundRef.current = null;
+          if (sound) {
+            Promise.resolve(sound.unloadAsync()).catch(() => {});
+          }
+        }
+      }
+    )
+      .then(({ sound }: any) => {
+        if (token !== voiceTokenRef.current) {
+          Promise.resolve(sound.unloadAsync()).catch(() => {});
+          return;
+        }
+        voiceSoundRef.current = sound;
+        setVoiceSpeaking(true);
+      })
+      .catch(() => {
+        if (token === voiceTokenRef.current) setVoiceSpeaking(false);
+      });
+  };
+
+  useEffect(() => {
+    if (!voiceMuted && currentStep in ONBOARD_VOICE_FILES) {
+      speakStep(currentStep);
+    }
+    return () => {
+      releaseVoice();
+    };
+  }, [currentStep]);
+
+  useEffect(() => {
+    return () => {
+      releaseVoice();
+    };
+  }, []);
+
+  const handleVoiceToggle = () => {
+    if (voiceSpeaking) {
+      setVoiceMuted(true);
+      releaseVoice();
+    } else if (voiceMuted) {
+      setVoiceMuted(false);
+      speakStep(currentStep);
+    } else {
+      speakStep(currentStep);
+    }
+  };
 
   useEffect(() => {
     // Pre-fill existing user info if available
@@ -71,6 +206,23 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       }
     });
   }, []);
+
+  // Smooth step transition animation (fade / dissolve)
+  const prevStepRef = useRef<number>(currentStep);
+  const stepFadeAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (prevStepRef.current === currentStep) return;
+    prevStepRef.current = currentStep;
+
+    stepFadeAnim.setValue(0);
+
+    Animated.timing(stepFadeAnim, {
+      toValue: 1,
+      duration: 240,
+      useNativeDriver: true,
+    }).start();
+  }, [currentStep]);
 
   const handleStart = () => {
     setCurrentStep(1);
@@ -141,6 +293,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   };
 
   const finishOnboarding = async () => {
+    releaseVoice();
     // 1. Permanently record and archive user's legal agreement on device
     const consent = await ConsentService.recordConsent({
       fullName,
@@ -266,6 +419,25 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Top-left Voice Guide narrator toggle */}
+      <View style={styles.voiceGuideBar}>
+        <TouchableOpacity
+          style={styles.voiceGuideBtn}
+          onPress={handleVoiceToggle}
+          activeOpacity={0.7}
+          accessibilityLabel={voiceSpeaking ? 'Mute voice guide' : voiceMuted ? 'Unmute voice guide' : 'Play voice guide'}
+        >
+          {voiceSpeaking ? (
+            <VoiceWaveBars />
+          ) : voiceMuted ? (
+            <MutedSpeakerIcon size={15} color="#a1a1aa" />
+          ) : (
+            <SpeakerIcon size={15} color="#a1a1aa" />
+          )}
+          <Text style={styles.voiceGuideLabel}>Voice Guide</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Top Skip Button for Personalization (Steps 1-4) */}
       {currentStep >= 1 && currentStep < 5 && (
         <View style={styles.onboardTopBar}>
@@ -287,18 +459,28 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       >
         {/* Main Centered Content Block */}
         <View style={styles.onboardingCenterBlock}>
-          {/* Logo Image */}
-          <Image
-            source={require('../../Assets/ultron-logo.png')}
-            style={styles.logoImg}
-            resizeMode="contain"
-          />
+          <Animated.View
+            style={[
+              styles.stepTransitionWrapper,
+              { opacity: stepFadeAnim },
+            ]}
+          >
+            {/* Logo Image */}
+            <Image
+              source={
+                currentStep === 0
+                  ? require('../../Assets/brown-b-white-logo.png')
+                  : require('../../Assets/brown-white-wordmark.png')
+              }
+              style={currentStep === 0 ? styles.getStartedLogoImg : styles.logoImg}
+              resizeMode="contain"
+            />
 
           {/* Step 0: Welcome */}
           {currentStep === 0 && (
             <View style={styles.onboardWelcome}>
               <Text style={styles.onboardingTitle}>Welcome to Brown AI</Text>
-              <Text style={styles.onboardingTagline}>The Autonomous AI Agent for Windows &amp; Mobile</Text>
+              <Text style={styles.onboardingTagline}>The Autonomous AI Agent for Mobiles</Text>
               <View style={styles.onboardBtnStack}>
                 <TouchableOpacity
                   style={styles.btnOnboardPrimary}
@@ -306,6 +488,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   activeOpacity={0.85}
                 >
                   <Text style={styles.btnOnboardPrimaryText}>Get Started</Text>
+                  <RightArrowIcon size={16} color="#000000" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -314,13 +497,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {/* Steps 1–5: Form Shell */}
           {currentStep > 0 && (
             <View style={styles.onboardFormShell}>
-              {currentStep < 4 && (
-                <Text style={styles.onboardStepHeading}>
-                  {currentStep === 1 && 'Your profile'}
-                  {currentStep === 2 && 'Date of birth'}
-                  {currentStep === 3 && 'Email'}
-                </Text>
-              )}
+              <Text style={styles.onboardStepHeading}>
+                {currentStep === 1 && 'Your Name'}
+                {currentStep === 2 && 'Your Date of Birth'}
+                {currentStep === 3 && 'Your Email'}
+                {currentStep === 4 && 'Quick Start'}
+              </Text>
 
               <View style={styles.onboardStepBody}>
                 {/* Step 1: Full Name */}
@@ -328,11 +510,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   <View style={styles.onboardStep}>
                     <View style={styles.onboardFormGroup}>
                       <View style={styles.onboardField}>
-                        <Text style={styles.fieldFloatingLabel}>Name</Text>
                         <TextInput
-                          style={styles.onboardInput}
+                          style={[styles.onboardInput, isInputFocused && styles.onboardInputFocused]}
                           value={fullName}
                           onChangeText={setFullName}
+                          onFocus={() => setIsInputFocused(true)}
+                          onBlur={() => setIsInputFocused(false)}
                           placeholder=""
                           placeholderTextColor={colors.textMuted}
                           autoFocus
@@ -348,11 +531,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   <View style={styles.onboardStep}>
                     <View style={styles.onboardFormGroup}>
                       <View style={styles.onboardField}>
-                        <Text style={styles.fieldFloatingLabel}>Date of birth</Text>
                         <TextInput
-                          style={[styles.onboardInput, { paddingRight: 44 }]}
+                          style={[styles.onboardInput, { paddingRight: 44 }, isInputFocused && styles.onboardInputFocused]}
                           value={birthdate}
                           onChangeText={handleBirthdateInput}
+                          onFocus={() => setIsInputFocused(true)}
+                          onBlur={() => setIsInputFocused(false)}
                           placeholder="DD/MM/YYYY"
                           placeholderTextColor="#52525b"
                           keyboardType="numeric"
@@ -569,11 +753,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   <View style={styles.onboardStep}>
                     <View style={styles.onboardFormGroup}>
                       <View style={styles.onboardField}>
-                        <Text style={styles.fieldFloatingLabel}>Email</Text>
                         <TextInput
-                          style={styles.onboardInput}
+                          style={[styles.onboardInput, isInputFocused && styles.onboardInputFocused]}
                           value={email}
                           onChangeText={setEmail}
+                          onFocus={() => setIsInputFocused(true)}
+                          onBlur={() => setIsInputFocused(false)}
                           placeholder=""
                           placeholderTextColor={colors.textMuted}
                           keyboardType="email-address"
@@ -761,6 +946,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                     activeOpacity={0.85}
                   >
                     <Text style={styles.btnOnboardPrimaryText}>Continue</Text>
+                    <RightArrowIcon size={16} color="#000000" />
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
@@ -769,6 +955,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                     activeOpacity={0.85}
                   >
                     <Text style={styles.btnOnboardPrimaryText}>Finish</Text>
+                    <RightArrowIcon size={16} color="#000000" />
                   </TouchableOpacity>
                 )}
 
@@ -778,14 +965,13 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   onPress={handleBack}
                   activeOpacity={0.7}
                 >
-                  <View style={styles.btnOnboardBackIcon}>
-                    <BackArrowIcon size={16} color="#ffffff" />
-                  </View>
+                  <BackArrowIcon size={16} color="#ffffff" />
                   <Text style={styles.btnOnboardBackText}>Back</Text>
                 </TouchableOpacity>
               </View>
             </View>
           )}
+          </Animated.View>
         </View>
 
         {/* Legal & Privacy Footer: Pinned at the very bottom in EXACTLY 2 lines */}
@@ -793,8 +979,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           <View style={styles.legalFooterContainer}>
             <Text style={styles.legalFooterText} numberOfLines={1}>
               By continuing, you agree to Brown's{' '}
-              <Text style={styles.legalLink} onPress={() => setShowTermsModal(true)}>Terms of Service</Text>
-              {' and '}
+              <Text style={styles.legalLink} onPress={() => setShowTermsModal(true)}>Terms</Text>
+              {' & '}
               <Text style={styles.legalLink} onPress={() => setShowPrivacyModal(true)}>Privacy Policy</Text>.
             </Text>
             <TouchableOpacity
@@ -1068,7 +1254,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#141414',
+    backgroundColor: '#000000',
   },
   onboardTopBar: {
     position: 'absolute',
@@ -1081,8 +1267,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 9999,
     backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#ffffff',
+    borderWidth: 0,
   },
   onboardSkipBtnText: {
     color: '#ffffff',
@@ -1104,15 +1289,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flex: 1,
   },
+  stepTransitionWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  getStartedLogoImg: {
+    width: 76,
+    height: 76,
+    marginBottom: 16,
+  },
   logoImg: {
-    width: 64,
-    height: 64,
+    width: 136,
+    height: 42,
     marginBottom: 14,
     tintColor: '#FFFFFF',
   },
   onboardWelcome: {
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 340,
     alignItems: 'center',
     textAlign: 'center',
   },
@@ -1128,10 +1323,10 @@ const styles = StyleSheet.create({
   onboardingTagline: {
     fontSize: 15,
     lineHeight: 20,
-    color: '#9ca3af',
+    color: '#FFFFFF',
     fontWeight: '400',
     textAlign: 'center',
-    marginBottom: 18,
+    marginBottom: 12,
   },
   onboardBtnStack: {
     width: '100%',
@@ -1158,41 +1353,68 @@ const styles = StyleSheet.create({
   },
   onboardFormGroup: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 340,
   },
   onboardField: {
     position: 'relative',
     width: '100%',
-    marginTop: 10,
-    marginBottom: 8,
+    marginTop: 6,
+    marginBottom: 4,
   },
-  fieldFloatingLabel: {
+  voiceGuideBar: {
     position: 'absolute',
-    top: -9,
-    left: 12,
-    backgroundColor: '#141414',
-    paddingHorizontal: 6,
-    fontSize: 12,
+    top: Platform.OS === 'ios' ? 12 : 16,
+    left: 18,
+    zIndex: 10,
+  },
+  voiceGuideBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderRadius: 9999,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+  },
+  voiceGuideLabel: {
+    color: '#ffffff',
+    fontSize: 13.5,
     fontWeight: '500',
-    color: '#a1a1aa',
-    zIndex: 1,
+  },
+  voiceWaveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    width: 15,
+    height: 15,
+    justifyContent: 'center',
+  },
+  voiceWaveBar: {
+    width: 2.5,
+    height: 13,
+    borderRadius: 1.5,
+    backgroundColor: '#60a5fa',
   },
   onboardInput: {
     width: '100%',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: '#141414',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 9999,
+    backgroundColor: '#000000',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.32)',
     color: '#f3f4f6',
     fontSize: 15,
   },
+  onboardInputFocused: {
+    borderColor: 'rgba(255, 255, 255, 0.75)',
+  },
   onboardDateToggleBtn: {
     position: 'absolute',
-    right: 12,
+    right: 11,
     top: '50%',
-    marginTop: -10,
+    marginTop: -13,
     padding: 4,
     zIndex: 2,
   },
@@ -1342,7 +1564,7 @@ const styles = StyleSheet.create({
   },
   onboardQuickLayout: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 340,
     gap: 14,
   },
   onboardQuickList: {
@@ -1351,10 +1573,10 @@ const styles = StyleSheet.create({
   onboardQuickItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 16,
+    gap: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: 'transparent',
     backgroundColor: '#282828',
@@ -1364,9 +1586,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.22)',
   },
   onboardQuickIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#333333',
@@ -1382,7 +1604,7 @@ const styles = StyleSheet.create({
   },
   onboardQuickDesc: {
     fontSize: 12.5,
-    color: '#a1a1aa',
+    color: '#FFFFFF',
     marginTop: 2,
   },
   onboardPreviewPanel: {
@@ -1430,7 +1652,7 @@ const styles = StyleSheet.create({
   ollamaStatusP: {
     fontSize: 12,
     lineHeight: 16,
-    color: '#a1a1aa',
+    color: '#FFFFFF',
   },
   ollamaReadyDetails: {
     marginTop: 6,
@@ -1485,7 +1707,7 @@ const styles = StyleSheet.create({
   onboardReadyStep: {
     alignItems: 'center',
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 340,
     gap: 16,
   },
   onboardReadyTitle: {
@@ -1499,7 +1721,7 @@ const styles = StyleSheet.create({
   onboardReadySubtitle: {
     fontSize: 13.5,
     lineHeight: 19,
-    color: '#9ca3af',
+    color: '#FFFFFF',
     textAlign: 'center',
   },
   onboardReadyCard: {
@@ -1528,7 +1750,7 @@ const styles = StyleSheet.create({
   },
   onboardReadyRowDesc: {
     fontSize: 12.5,
-    color: '#a1a1aa',
+    color: '#FFFFFF',
     marginTop: 2,
   },
   onboardReadyCheck: {
@@ -1555,46 +1777,41 @@ const styles = StyleSheet.create({
   },
   onboardFooterActions: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 340,
     alignItems: 'center',
-    gap: 8,
-    marginTop: 16,
+    gap: 6,
+    marginTop: 6,
   },
   btnOnboardPrimary: {
     width: '100%',
     backgroundColor: '#ffffff',
     borderRadius: 9999,
     paddingVertical: 12,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
   },
   btnOnboardPrimaryText: {
     color: '#000000',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
   },
   btnOnboardBack: {
     backgroundColor: 'transparent',
     borderWidth: 0,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     flexDirection: 'row',
-    gap: 8,
-  },
-  btnOnboardBackIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
   },
   btnOnboardBackText: {
     color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '400',
+    fontSize: 14,
+    fontWeight: '500',
   },
   legalFooterContainer: {
     width: '100%',
@@ -1607,14 +1824,16 @@ const styles = StyleSheet.create({
     height: 10,
   },
   legalFooterText: {
-    color: '#9ca3af',
-    fontSize: 11.5,
+    color: '#FFFFFF',
+    fontSize: 11,
     textAlign: 'center',
     fontWeight: '400',
   },
   legalLink: {
-    color: '#d4d4d8',
+    color: '#0072A5',
+    fontWeight: '500',
     textDecorationLine: 'underline',
+    textDecorationColor: '#0072A5',
   },
   whyBottomTriggerBtn: {
     marginTop: 4,
@@ -1624,10 +1843,11 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   whyBottomTriggerText: {
-    color: '#d4d4d8',
-    fontSize: 11.5,
-    fontWeight: '400',
+    color: '#0072A5',
+    fontSize: 11,
+    fontWeight: '500',
     textDecorationLine: 'underline',
+    textDecorationColor: '#0072A5',
     textAlign: 'center',
   },
   modalOverlay: {

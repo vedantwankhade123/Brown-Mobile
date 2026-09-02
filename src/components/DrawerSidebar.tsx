@@ -25,6 +25,7 @@ import {
   SparklesIcon,
   DocumentIcon,
   MoreVerticalIcon,
+  QrCodeIcon,
 } from './Icons';
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService } from '../services/storage/ConsentService';
@@ -37,7 +38,7 @@ interface DrawerSidebarProps {
   onNewChat: () => void;
   onDeleteSession: (sessionId: string) => void;
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
-  onOpenSync: () => void;
+  onOpenSync: (options?: { scan?: boolean }) => void;
   onOpenSettings?: () => void;
   onClose: () => void;
 }
@@ -256,9 +257,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         <SafeAreaView style={styles.drawerInner}>
           {/* Top Brand Header */}
           <View style={styles.drawerHeader}>
+            <View style={styles.topBrandBar}>
               <View style={styles.brandRow}>
                 <Image
-                  source={require('../../Assets/brown-logo.png')}
+                  source={require('../../Assets/brown-white-wordmark.png')}
                   style={styles.brandLogo}
                   resizeMode="contain"
                 />
@@ -273,32 +275,33 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 activeOpacity={0.7}
                 accessibilityLabel="Collapse sidebar"
               >
-                <SidebarToggleIcon size={17} color="#ffffff" />
+                <SidebarToggleIcon size={18} color="#ffffff" />
               </TouchableOpacity>
             </View>
 
-            {/* New Chat Pill */}
-            <TouchableOpacity
-              style={styles.newChatPill}
-              onPress={() => {
-                onNewChat();
-                handleClose();
-              }}
-              activeOpacity={0.8}
-            >
-              <PencilIcon size={18} color="#ffffff" />
-              <Text style={styles.newChatPillText}>New chat</Text>
-            </TouchableOpacity>
+            {/* Action Buttons: New Chat & Search */}
+            <View style={styles.headerActionsStack}>
+              <TouchableOpacity
+                style={styles.newChatPill}
+                onPress={() => {
+                  onNewChat();
+                  handleClose();
+                }}
+                activeOpacity={0.8}
+              >
+                <PencilIcon size={16} color="#ffffff" />
+                <Text style={styles.newChatPillText}>New chat</Text>
+              </TouchableOpacity>
 
-            {/* Search Chats Row */}
-            <TouchableOpacity
-              style={styles.searchChatsRow}
-              onPress={() => setIsSpotlightOpen(true)}
-              activeOpacity={0.7}
-            >
-              <SearchIcon size={18} color="#ffffff" />
-              <Text style={styles.searchChatsText}>Search chats</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.searchChatsRow}
+                onPress={() => setIsSpotlightOpen(true)}
+                activeOpacity={0.7}
+              >
+                <SearchIcon size={16} color="#999999" />
+                <Text style={styles.searchChatsText}>Search chats</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Recent Conversations List */}
@@ -363,21 +366,46 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
 
           {/* Bottom Footer with Desktop Sync & User Profile */}
           <View style={styles.drawerFooter}>
-            {/* Desktop Sync Row */}
+            {/* Desktop Sync Row with QR Option on Right */}
+            <View style={styles.desktopSyncCard}>
+              <TouchableOpacity
+                style={styles.desktopSyncLeft}
+                onPress={() => {
+                  onOpenSync();
+                  handleClose();
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.footerIconBox}>
+                  <LaptopIcon size={16} color="#ffffff" />
+                </View>
+                <Text style={styles.desktopSyncBtnText}>Desktop Sync</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.desktopSyncQrBtn}
+                onPress={() => {
+                  onOpenSync({ scan: true });
+                  handleClose();
+                }}
+                activeOpacity={0.7}
+                accessibilityLabel="Scan QR Code"
+              >
+                <QrCodeIcon size={17} color="#9ca3af" />
+              </TouchableOpacity>
+            </View>
+
+            {/* User Profile Bar */}
             <TouchableOpacity
-              style={styles.desktopSyncBtn}
+              style={styles.userProfileBar}
               onPress={() => {
-                onOpenSync();
-                handleClose();
+                if (onOpenSettings) {
+                  onOpenSettings();
+                  handleClose();
+                }
               }}
               activeOpacity={0.7}
             >
-              <LaptopIcon size={20} color="#ffffff" />
-              <Text style={styles.desktopSyncBtnText}>Desktop Sync</Text>
-            </TouchableOpacity>
-
-            {/* User Profile Bar */}
-            <View style={styles.userProfileBar}>
               <View style={styles.userProfileLeft}>
                 <View style={styles.userAvatarBadge}>
                   <Text style={styles.userAvatarInitials}>{userInitials}</Text>
@@ -388,19 +416,11 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               </View>
 
               {onOpenSettings && (
-                <TouchableOpacity
-                  style={styles.settingsGearBtn}
-                  onPress={() => {
-                    onOpenSettings();
-                    handleClose();
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Settings"
-                >
-                  <SettingsIcon size={21} color="#ffffff" />
-                </TouchableOpacity>
+                <View style={styles.settingsGearBtn}>
+                  <SettingsIcon size={18} color="#9ca3af" />
+                </View>
               )}
-            </View>
+            </TouchableOpacity>
           </View>
         </SafeAreaView>
       </Animated.View>
@@ -521,19 +541,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 <CloseIcon size={16} color="#a1a1aa" />
               </TouchableOpacity>
             </View>
-
-            <TouchableOpacity
-              style={styles.spotlightNewChatRow}
-              onPress={() => {
-                setIsSpotlightOpen(false);
-                onNewChat();
-                handleClose();
-              }}
-              activeOpacity={0.7}
-            >
-              <PencilIcon size={15} color="#ffffff" />
-              <Text style={styles.spotlightNewChatText}>New chat</Text>
-            </TouchableOpacity>
 
             <ScrollView style={styles.spotlightResultsScroll} showsVerticalScrollIndicator={false}>
               {recentSessions.length > 0 && (
@@ -737,16 +744,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   drawerHeader: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 10 : 16,
+    paddingBottom: 12,
     backgroundColor: '#000000',
   },
   topBrandBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   brandRow: {
     flexDirection: 'row',
@@ -754,8 +761,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   brandLogo: {
-    width: 85,
-    height: 24,
+    width: 105,
+    height: 30,
     resizeMode: 'contain',
   },
   brandTitle: {
@@ -765,64 +772,73 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
   betaPill: {
-    backgroundColor: 'rgba(59, 130, 246, 0.18)',
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
+    backgroundColor: 'rgba(59, 130, 246, 0.16)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     borderRadius: 4,
   },
   betaText: {
-    color: '#3b82f6',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.4,
+    color: '#60a5fa',
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   collapseSidebarBtn: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+  },
+  headerActionsStack: {
+    flexDirection: 'column',
+    gap: 8,
   },
   newChatPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#141414',
+    backgroundColor: '#181818',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 9999,
     paddingHorizontal: 16,
-    paddingVertical: 11,
-    marginBottom: 8,
+    paddingVertical: 10,
   },
   newChatPillText: {
     color: '#ffffff',
-    fontSize: 15,
+    fontSize: 14.5,
     fontWeight: '600',
   },
   searchChatsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 14,
+    backgroundColor: '#121212',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 9999,
+    paddingHorizontal: 16,
     paddingVertical: 9,
-    borderRadius: 8,
   },
   searchChatsText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '500',
+    color: '#999999',
+    fontSize: 14,
+    fontWeight: '400',
   },
   sessionsList: {
     flex: 1,
-    paddingHorizontal: 10,
-    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
     backgroundColor: '#000000',
   },
   recentSectionTitle: {
-    color: '#94a3b8',
-    fontSize: 13,
+    color: '#71717a',
+    fontSize: 11.5,
     fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
     marginBottom: 8,
     paddingHorizontal: 8,
   },
@@ -839,13 +855,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: 'transparent',
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 2,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 9,
   },
   sessionItemActive: {
-    backgroundColor: '#141414',
+    backgroundColor: '#18181b',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -854,19 +870,19 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   sessionTitle: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
+    color: '#f3f4f6',
+    fontSize: 14,
+    fontWeight: '500',
   },
   sessionDate: {
     color: '#71717a',
-    fontSize: 12.5,
+    fontSize: 11.5,
     marginTop: 2,
   },
   sessionMoreBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -874,34 +890,61 @@ const styles = StyleSheet.create({
   drawerFooter: {
     paddingHorizontal: 12,
     paddingTop: 10,
-    paddingBottom: 12,
+    paddingBottom: Platform.OS === 'ios' ? 8 : 12,
     backgroundColor: '#000000',
     borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
-    gap: 10,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 6,
   },
-  desktopSyncBtn: {
+  desktopSyncCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#141416',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    paddingLeft: 12,
+    paddingRight: 8,
+    paddingVertical: 7,
+  },
+  desktopSyncLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#141414',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    flex: 1,
+  },
+  desktopSyncQrBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  footerIconBox: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   desktopSyncBtnText: {
     color: '#ffffff',
-    fontSize: 14.5,
-    fontWeight: '600',
+    fontSize: 13.5,
+    fontWeight: '500',
   },
   userProfileBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    backgroundColor: '#141416',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   userProfileLeft: {
     flexDirection: 'row',
@@ -911,30 +954,29 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   userAvatarBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#383838',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#27272a',
     alignItems: 'center',
     justifyContent: 'center',
   },
   userAvatarInitials: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   userNameText: {
     color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 13.5,
+    fontWeight: '600',
     flex: 1,
   },
   settingsGearBtn: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
   },
 
   /* Spotlight Search Modal Styles */

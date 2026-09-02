@@ -172,6 +172,7 @@ export default function App() {
   const currentScreen = screenStack[screenStack.length - 1] || 'chat';
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [chatKey, setChatKey] = useState<number>(0);
+  const [syncInitialScan, setSyncInitialScan] = useState<boolean>(false);
 
   useEffect(() => {
     checkOnboardingStatus();
@@ -228,7 +229,7 @@ export default function App() {
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
         <View style={styles.splashContent}>
           <Image
-            source={require('./Assets/brown-logo.png')}
+            source={require('./Assets/brown-white-logo.png')}
             style={styles.splashLogo}
             resizeMode="contain"
           />
@@ -253,7 +254,10 @@ export default function App() {
             key={chatKey}
             onOpenModelStore={() => navigateTo('modelStore')}
             onOpenSettings={() => navigateTo('settings')}
-            onOpenDesktopSync={() => navigateTo('desktopSync')}
+            onOpenDesktopSync={(opts) => {
+              setSyncInitialScan(!!opts?.scan);
+              navigateTo('desktopSync');
+            }}
           />
         )}
 
@@ -270,12 +274,21 @@ export default function App() {
             onClearHistory={handleClearHistory}
             onRerunOnboarding={handleRerunOnboarding}
             onOpenModelStore={() => navigateTo('modelStore')}
-            onOpenDesktopSync={() => navigateTo('desktopSync')}
+            onOpenDesktopSync={() => {
+              setSyncInitialScan(false);
+              navigateTo('desktopSync');
+            }}
           />
         )}
 
         {currentScreen === 'desktopSync' && (
-          <DesktopSyncScreen onBack={navigateBack} />
+          <DesktopSyncScreen
+            onBack={() => {
+              setSyncInitialScan(false);
+              navigateBack();
+            }}
+            initialScan={syncInitialScan}
+          />
         )}
       </SafeAreaView>
     </ErrorBoundary>

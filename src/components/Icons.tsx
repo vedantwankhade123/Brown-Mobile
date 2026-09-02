@@ -135,6 +135,13 @@ export const BackArrowIcon: React.FC<IconProps> = ({ size = 18, color = colors.a
   </Svg>
 );
 
+export const RightArrowIcon: React.FC<IconProps> = ({ size = 18, color = colors.accentWhite }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Line x1="5" y1="12" x2="19" y2="12" />
+    <Polyline points="12 5 19 12 12 19" />
+  </Svg>
+);
+
 export const ShieldCheckIcon: React.FC<IconProps> = ({ size = 22, color = colors.success }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -418,5 +425,24 @@ export const AboutUltronIcon: React.FC<IconProps> = ({ size = 20, color = '#e4e4
 export const AndroidIcon: React.FC<IconProps> = ({ size = 16, color = '#3DDC84' }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
     <Path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993.0001.5511-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1556-.2696.0633-.6138-.2064-.7694-.2691-.1556-.6133-.0633-.7689.2064l-2.023 3.5042C15.3585 8.169 13.7235 7.82 12 7.82c-1.724 0-3.359.349-4.885.9854L5.092 5.3013c-.1556-.2697-.4998-.362-.7689-.2064-.2697.1556-.362.4998-.2064.7694l1.996 3.4572C2.688 11.286 0 15.378 0 20.148h24c0-4.77-2.688-8.862-6.1185-10.8266" />
+  </Svg>
+);
+
+export const QrCodeIcon: React.FC<IconProps> = ({ size = 20, color = colors.accentWhite }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Rect x="3" y="3" width="7" height="7" />
+    <Rect x="14" y="3" width="7" height="7" />
+    <Rect x="14" y="14" width="7" height="7" />
+    <Rect x="3" y="14" width="7" height="7" />
+    <Rect x="7" y="7" width="1" height="1" fill={color} />
+    <Rect x="17" y="7" width="1" height="1" fill={color} />
+    <Rect x="7" y="17" width="1" height="1" fill={color} />
+    <Line x1="17" y1="17" x2="17" y2="17.01" />
+  </Svg>
+);
+
+export const SyncCycleIcon: React.FC<IconProps> = ({ size = 18, color = colors.accentWhite }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
   </Svg>
 );

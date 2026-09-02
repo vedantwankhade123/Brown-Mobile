@@ -2475,9 +2475,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.updateCard}>
               <View style={styles.updateCardHeaderRow}>
-                {/* Ultron Logo without Background */}
+                {/* Brown Logo */}
                 <Image
-                  source={require('../../Assets/ultron-logo.png')}
+                  source={require('../../Assets/brown-white-logo.png')}
                   style={styles.updateLogoImg}
                   resizeMode="contain"
                 />
@@ -2536,7 +2536,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.aboutCard}>
               <View style={styles.aboutBrandHeader}>
                 <Image
-                  source={require('../../Assets/ultron-logo.png')}
+                  source={require('../../Assets/brown-white-logo.png')}
                   style={styles.aboutAppLogo}
                   resizeMode="contain"
                 />

@@ -32,7 +32,7 @@ import { typography, spacing, borderRadius } from '../theme/typography';
 interface ChatScreenProps {
   onOpenModelStore: () => void;
   onOpenSettings: () => void;
-  onOpenDesktopSync: () => void;
+  onOpenDesktopSync: (options?: { scan?: boolean }) => void;
 }
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
@@ -337,7 +337,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       {messages.length === 0 ? (
         <View style={styles.emptyWelcomeContainer}>
           <Image
-            source={require('../../Assets/brown-logo.png')}
+            source={require('../../Assets/brown-white-wordmark.png')}
             style={styles.emptyWelcomeLogo}
             resizeMode="contain"
           />
@@ -416,9 +416,9 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   emptyWelcomeLogo: {
-    width: 140,
-    height: 42,
-    marginBottom: 16,
+    width: 175,
+    height: 50,
+    marginBottom: 8,
     resizeMode: 'contain',
   },
   emptyWelcomeTitle: {

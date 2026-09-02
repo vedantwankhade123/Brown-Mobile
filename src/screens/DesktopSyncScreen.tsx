@@ -18,8 +18,9 @@ import { DesktopSyncService, PairedDesktopHistoryItem } from '../services/sync/D
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon } from '../components/Icons';
+import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon, QrCodeIcon, ChevronRightIcon } from '../components/Icons';
 import { SyncIllustration } from '../components/SyncIllustration';
+import { QRScannerModal } from '../components/QRScannerModal';
 
 const Easing = (Animated as any).Easing || {
   out: (f: any) => f,
@@ -31,9 +32,10 @@ const Easing = (Animated as any).Easing || {
 
 interface DesktopSyncScreenProps {
   onBack: () => void;
+  initialScan?: boolean;
 }
 
-export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) => {
+export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, initialScan = false }) => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     isConnected: false,
     syncInProgress: false,
@@ -52,6 +54,8 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
   const [pinCode, setPinCode] = useState('');
   const [awaitingCode, setAwaitingCode] = useState(false);
   const [profileConflict, setProfileConflict] = useState<ProfileConflict | null>(null);
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(initialScan);
+  const [showCodeInput, setShowCodeInput] = useState(false);
 
   const syncService = DesktopSyncService.getInstance();
   const pinInputRef = useRef<any>(null);
@@ -187,6 +191,111 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
     setAwaitingCode(false);
     setSelectedDevice(null);
     setPinCode('');
+  };
+
+  const handleQrScanned = async (rawCode: string) => {
+    const clean = rawCode.trim();
+    if (!clean) return;
+
+    // 1. Try JSON payload: { ip, port, code, syncId, name }
+    try {
+      if (clean.startsWith('{') && clean.endsWith('}')) {
+        const parsed = JSON.parse(clean);
+        const code = (parsed.code || parsed.pairCode || '').toString().trim().toUpperCase();
+        const ip = parsed.ip || parsed.ipAddress || (parsed.addresses && parsed.addresses[0]) || '';
+        const port = parsed.port || 49200;
+        const devId = parsed.syncId || parsed.id || 'Desktop';
+        const name = parsed.name || parsed.syncId || 'Brown Desktop';
+
+        if (ip && code) {
+          const device: DesktopInstance = {
+            id: devId,
+            name,
+            ipAddress: ip,
+            port,
+            version: '1.0.0',
+            isPaired: false,
+            lastSeen: Date.now(),
+            syncId: devId,
+          };
+          setSelectedDevice(device);
+          setPinCode(code);
+          await syncService.pairWithDesktop(device, code);
+          Alert.alert('Paired', `Connected to ${name}`);
+          return;
+        }
+      }
+    } catch {}
+
+    // 2. Try URL query params: ?code=...&ip=...
+    if (clean.includes('code=') || clean.includes('syncId=')) {
+      const codeMatch = clean.match(/[?&]code=([A-Za-z0-9]+)/i);
+      const ipMatch = clean.match(/[?&]ip=([0-9.]+)/i);
+      const idMatch = clean.match(/[?&]syncId=([A-Za-z0-9-]+)/i);
+
+      const code = codeMatch ? codeMatch[1].toUpperCase() : '';
+      const ip = ipMatch ? ipMatch[1] : '';
+      const devId = idMatch ? idMatch[1] : 'Desktop';
+
+      if (ip && code) {
+        const device: DesktopInstance = {
+          id: devId,
+          name: devId,
+          ipAddress: ip,
+          port: 49200,
+          version: '1.0.0',
+          isPaired: false,
+          lastSeen: Date.now(),
+          syncId: devId,
+        };
+        setSelectedDevice(device);
+        setPinCode(code);
+        await syncService.pairWithDesktop(device, code);
+        Alert.alert('Paired', `Connected to ${device.name}`);
+        return;
+      }
+    }
+
+    // 3. 4-character code (like 7842)
+    const upper = clean.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+    if (upper.length === 4) {
+      setPinCode(upper);
+      const targetDev = selectedDevice || (devices.length > 0 ? devices[0] : null);
+      if (targetDev) {
+        setSelectedDevice(targetDev);
+        try {
+          await syncService.pairWithDesktop(targetDev, upper);
+          Alert.alert('Paired', `Connected to ${targetDev.name}`);
+        } catch (err: any) {
+          Alert.alert('Pairing Failed', err?.message || 'Invalid pairing code');
+        }
+      } else {
+        setAwaitingCode(true);
+        Alert.alert('Code Recognized', `Pair code "${upper}" entered. Select your desktop below to pair.`);
+      }
+      return;
+    }
+
+    // 4. Sync ID format (BROWN-WIN-... or ULTRON-WIN-...)
+    if (upper.startsWith('BROWN-') || upper.startsWith('ULTRON-')) {
+      setSyncIdInput(upper);
+      const device: DesktopInstance = {
+        id: upper,
+        name: upper,
+        ipAddress: '127.0.0.1',
+        port: 49200,
+        version: '1.0.0',
+        isPaired: false,
+        lastSeen: Date.now(),
+        syncId: upper,
+      };
+      await beginPairing(device);
+      return;
+    }
+
+    // Fallback: populate syncId input
+    setSyncIdInput(upper);
+    Alert.alert('QR Scanned', `Detected ID: ${upper}`);
   };
 
   const resolveConflict = async (choice: 'desktop' | 'mobile' | 'merge') => {
@@ -404,11 +513,101 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
               <TouchableOpacity style={styles.textLink} onPress={cancelPairing} activeOpacity={0.7}>
                 <Text style={styles.textLinkLabel}>Cancel pairing</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.scanQrSecondaryBtn}
+                onPress={() => setIsQrScannerOpen(true)}
+                activeOpacity={0.8}
+              >
+                <QrCodeIcon size={16} color="#60a5fa" />
+                <Text style={styles.scanQrSecondaryText}>Scan QR code on desktop</Text>
+              </TouchableOpacity>
             </View>
           )}
 
           {!syncStatus.isConnected && !awaitingCode && (
             <>
+              {/* Primary Action: Instant QR Scanner */}
+              <TouchableOpacity
+                style={styles.scanQrHeroBtn}
+                onPress={() => setIsQrScannerOpen(true)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.scanQrIconCircle}>
+                  <QrCodeIcon size={22} color="#ffffff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.scanQrHeroTitle}>Scan Desktop QR Code</Text>
+                  <Text style={styles.scanQrHeroSubtitle}>
+                    Point camera at the QR code on Brown Desktop to connect directly
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              {/* OR Divider */}
+              <View style={styles.orDividerContainer}>
+                <View style={styles.orLine} />
+                <Text style={styles.orText}>OR</Text>
+                <View style={styles.orLine} />
+              </View>
+
+              {/* Connect with Code Option (Clicking opens the UI shown in the image) */}
+              {showCodeInput ? (
+                <View style={styles.card}>
+                  <View style={styles.cardHeaderRow}>
+                    <Text style={styles.cardTitle}>Connect to PC</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowCodeInput(false)}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.hideCodeText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.cardBody}>
+                    Type the Sync ID from Brown on Windows. It looks like BROWN-WIN-7842.
+                  </Text>
+                  <Text style={styles.fieldLabel}>Sync ID</Text>
+                  <TextInput
+                    style={[styles.idInput, idFocused && styles.idInputFocused]}
+                    value={syncIdInput}
+                    onChangeText={(v: string) => setSyncIdInput(v.toUpperCase())}
+                    onFocus={() => setIdFocused(true)}
+                    onBlur={() => setIdFocused(false)}
+                    placeholder="BROWN-WIN-····"
+                    placeholderTextColor="#52525b"
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={22}
+                    autoFocus
+                    {...(Platform.OS === 'web' ? ({ outline: 'none' } as any) : {})}
+                  />
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, !canConnect && styles.primaryBtnDisabled]}
+                    onPress={handleConnectById}
+                    disabled={!canConnect}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.primaryBtnText}>Connect to PC</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.connectWithCodeBtn}
+                  onPress={() => setShowCodeInput(true)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.codeIconCircle}>
+                    <Text style={styles.codeIconText}>#</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.connectWithCodeTitle}>Connect with Code</Text>
+                    <Text style={styles.connectWithCodeSub}>
+                      Type the Sync ID from Brown on Windows
+                    </Text>
+                  </View>
+                  <ChevronRightIcon size={18} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+
               {syncStatus.needsReauth && syncStatus.activeDesktop && (
                 <TouchableOpacity
                   style={styles.primaryBtn}
@@ -418,35 +617,6 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                   <Text style={styles.primaryBtnText}>Confirm with 4-digit code</Text>
                 </TouchableOpacity>
               )}
-
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>Connect to PC</Text>
-                <Text style={styles.cardBody}>
-                  Type the Sync ID from Brown on Windows. It looks like BROWN-WIN-7842.
-                </Text>
-                <Text style={styles.fieldLabel}>Sync ID</Text>
-                <TextInput
-                  style={[styles.idInput, idFocused && styles.idInputFocused]}
-                  value={syncIdInput}
-                  onChangeText={(v: string) => setSyncIdInput(v.toUpperCase())}
-                  onFocus={() => setIdFocused(true)}
-                  onBlur={() => setIdFocused(false)}
-                  placeholder="BROWN-WIN-····"
-                  placeholderTextColor="#52525b"
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  maxLength={22}
-                  {...(Platform.OS === 'web' ? ({ outline: 'none' } as any) : {})}
-                />
-                <TouchableOpacity
-                  style={[styles.primaryBtn, !canConnect && styles.primaryBtnDisabled]}
-                  onPress={handleConnectById}
-                  disabled={!canConnect}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.primaryBtnText}>Connect to PC</Text>
-                </TouchableOpacity>
-              </View>
 
               <View style={styles.sectionHead}>
                 <Text style={styles.sectionTitle}>Nearby on Wi-Fi</Text>
@@ -504,18 +674,26 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
                 ))
               ) : (
                 <View style={styles.emptyCard}>
-                  <SyncIllustration width={260} height={105} />
-                  <Text style={styles.emptyTitle}>No Windows PC found</Text>
+                  <SyncIllustration width={280} height={110} />
+                  <Text style={styles.emptyTitle}>No mobile devices paired yet</Text>
                   <Text style={styles.emptyBody}>
-                    Open Brown on your computer, stay on this Wi-Fi, then scan again.
+                    Click “Generate Pair Code” and enter the code in your mobile app to connect your device.
                   </Text>
+                  <TouchableOpacity
+                    style={styles.emptyQrBtn}
+                    onPress={() => setIsQrScannerOpen(true)}
+                    activeOpacity={0.85}
+                  >
+                    <QrCodeIcon size={16} color="#000000" />
+                    <Text style={styles.emptyQrBtnText}>Scan QR Code</Text>
+                  </TouchableOpacity>
                   {fallbackDevice && (
                     <TouchableOpacity
-                      style={styles.ghostBtn}
+                      style={styles.emptyFallbackBtn}
                       onPress={() => beginPairing(fallbackDevice)}
                       activeOpacity={0.8}
                     >
-                      <Text style={styles.ghostBtnText}>Try last known host</Text>
+                      <Text style={styles.emptyFallbackBtnText}>Try last known host</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -609,6 +787,12 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack }) 
           </View>
         </View>
       </Modal>
+
+      <QRScannerModal
+        visible={isQrScannerOpen}
+        onClose={() => setIsQrScannerOpen(false)}
+        onScan={handleQrScanned}
+      />
     </SafeAreaView>
   );
 };
@@ -925,6 +1109,143 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 6,
     marginBottom: 16,
+  },
+  scanQrHeroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#282828',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 4,
+  },
+  scanQrIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanQrHeroTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 3,
+  },
+  scanQrHeroSubtitle: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  orDividerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 4,
+    gap: 12,
+  },
+  orLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  orText: {
+    color: '#71717a',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  connectWithCodeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: '#282828',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 16,
+    padding: 16,
+  },
+  codeIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  codeIconText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  connectWithCodeTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 3,
+  },
+  connectWithCodeSub: {
+    color: '#9ca3af',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  hideCodeText: {
+    color: '#9ca3af',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  scanQrSecondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  scanQrSecondaryText: {
+    color: '#60a5fa',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  emptyQrBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 9999,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    width: 220,
+    marginTop: 6,
+  },
+  emptyQrBtnText: {
+    color: '#000000',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  emptyFallbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1f1f23',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 9999,
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    width: 220,
+    marginTop: 8,
+  },
+  emptyFallbackBtnText: {
+    color: '#ffffff',
+    fontSize: 13.5,
+    fontWeight: '700',
   },
   otpRow: {
     flexDirection: 'row',
