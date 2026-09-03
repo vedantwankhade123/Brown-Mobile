@@ -67,7 +67,9 @@ export class ModelDownloader {
       this.downloadStates.clear();
       for (const item of list) {
         if (item.status === 'downloading' || item.status === 'paused') {
-          this.downloadStates.set(item.modelId, item);
+          // Resumable sessions do not survive an app restart: surface them as
+          // paused so the UI shows a resume action instead of a stuck spinner.
+          this.downloadStates.set(item.modelId, { ...item, status: 'paused' });
           continue;
         }
         if (item.status !== 'downloaded') continue;
@@ -126,7 +128,10 @@ export class ModelDownloader {
     this.pausedModels.set(model.id, model);
 
     const existing = this.downloadStates.get(model.id);
-    const resumeFrom = existing?.status === 'paused' ? existing.downloadedBytes : 0;
+    const resumeFrom =
+      existing && (existing.status === 'paused' || existing.status === 'error')
+        ? (existing.downloadedBytes || 0)
+        : 0;
 
     const state: ModelDownloadState = {
       modelId: model.id,
@@ -142,7 +147,12 @@ export class ModelDownloader {
 
     try {
       const FileSystem = require('expo-file-system');
-      if (FileSystem?.createDownloadResumable && model.downloadUrl.startsWith('http')) {
+      let downloadUrl = model.downloadUrl;
+      if (downloadUrl.includes('huggingface.co') && !downloadUrl.includes('download=true')) {
+        downloadUrl = downloadUrl.includes('?') ? `${downloadUrl}&download=true` : `${downloadUrl}?download=true`;
+      }
+
+      if (FileSystem?.createDownloadResumable && downloadUrl.startsWith('http')) {
         const stats = await StorageBudgetService.getDeviceStorageStats();
         if (stats.freeStorageBytes < model.sizeBytes + 50 * 1024 * 1024) {
           throw new Error('Not enough free storage for this GGUF download');
@@ -164,15 +174,53 @@ export class ModelDownloader {
           this.notifyListeners();
         };
 
+        const downloadOptions = {
+          headers: {
+            'Accept-Encoding': 'identity',
+            'User-Agent': 'BrownAI-Mobile/1.0',
+          },
+        };
+
         let resumable = this.resumables.get(model.id);
+        let hadResumable = !!resumable;
         if (!resumable) {
-          resumable = FileSystem.createDownloadResumable(model.downloadUrl, dest, {}, callback);
+          resumable = FileSystem.createDownloadResumable(downloadUrl, dest, downloadOptions, callback);
           this.resumables.set(model.id, resumable);
         }
 
-        const result = await (state.downloadedBytes > 0 && resumable.resumeAsync
-          ? resumable.resumeAsync()
-          : resumable.downloadAsync());
+        let result: any = null;
+        let attempts = 0;
+        const maxAttempts = 3;
+
+        while (attempts < maxAttempts) {
+          try {
+            const isResuming = (hadResumable || attempts > 0) && state.downloadedBytes > 0 && typeof resumable.resumeAsync === 'function';
+            result = await (isResuming ? resumable.resumeAsync() : resumable.downloadAsync());
+            break;
+          } catch (downloadErr: any) {
+            attempts++;
+            const errMsg = String(downloadErr?.message || '');
+            const isNetworkInterruption =
+              errMsg.includes('stream was reset') ||
+              errMsg.includes('CANCEL') ||
+              errMsg.includes('Connection reset') ||
+              errMsg.includes('SocketTimeout') ||
+              errMsg.includes('timeout') ||
+              errMsg.includes('broken pipe') ||
+              errMsg.includes('Network request failed');
+
+            if (this.abortControllers.get(model.id)) {
+              throw downloadErr;
+            }
+
+            if (isNetworkInterruption && attempts < maxAttempts) {
+              await new Promise((res) => setTimeout(res, 1200 * attempts));
+              hadResumable = true;
+              continue;
+            }
+            throw downloadErr;
+          }
+        }
 
         if (this.abortControllers.get(model.id)) {
           state.status = 'paused';
@@ -192,8 +240,23 @@ export class ModelDownloader {
         return;
       }
     } catch (err: any) {
+      const errMsg = String(err?.message || err || '');
+      let friendlyError = errMsg || 'Download failed';
+      if (
+        errMsg.includes('stream was reset') ||
+        errMsg.includes('CANCEL') ||
+        errMsg.includes('Connection reset') ||
+        errMsg.includes('SocketTimeout') ||
+        errMsg.includes('timeout') ||
+        errMsg.includes('broken pipe')
+      ) {
+        friendlyError = 'Network connection interrupted. Tap Retry to continue.';
+      } else if (errMsg.includes('ENOSPC') || errMsg.includes('Not enough free storage')) {
+        friendlyError = 'Not enough free device storage for this model.';
+      }
+
       state.status = 'error';
-      state.error = err?.message || 'Download failed';
+      state.error = friendlyError;
       this.downloadStates.set(model.id, { ...state });
       this.notifyListeners();
       await this.persistStates();
@@ -232,11 +295,23 @@ export class ModelDownloader {
 
   async deleteModel(modelId: string): Promise<void> {
     const existing = this.downloadStates.get(modelId);
+    const model = this.pausedModels.get(modelId);
+    const targets = new Set<string>();
     if (existing?.localPath && !isPlaceholderPath(existing.localPath)) {
+      targets.add(existing.localPath);
+    }
+    if (model?.filename) {
+      // Also remove the partial file of an interrupted download.
+      try {
+        const dir = await StoragePaths.getModelsDir();
+        targets.add(dir + model.filename);
+      } catch {}
+    }
+    for (const path of targets) {
       try {
         const FileSystem = require('expo-file-system');
         if (FileSystem?.deleteAsync) {
-          await FileSystem.deleteAsync(existing.localPath, { idempotent: true });
+          await FileSystem.deleteAsync(path, { idempotent: true });
         }
       } catch {}
     }
@@ -247,10 +322,8 @@ export class ModelDownloader {
     this.notifyListeners();
   }
 
-  cancelDownload(modelId: string): void {
+  async cancelDownload(modelId: string): Promise<void> {
     this.abortControllers.set(modelId, true);
-    this.downloadStates.delete(modelId);
-    this.resumables.delete(modelId);
-    this.notifyListeners();
+    await this.deleteModel(modelId);
   }
 }

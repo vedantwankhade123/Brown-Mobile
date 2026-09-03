@@ -17,7 +17,7 @@ import {
 import { DesktopSyncService, PairedDesktopHistoryItem } from '../services/sync/DesktopSync';
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
-import { ScreenHeader } from '../components/ScreenHeader';
+import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon, QrCodeIcon, ChevronRightIcon } from '../components/Icons';
 import { SyncIllustration } from '../components/SyncIllustration';
 import { QRScannerModal } from '../components/QRScannerModal';
@@ -48,6 +48,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   const [devices, setDevices] = useState<DesktopInstance[]>([]);
   const [pairedHistory, setPairedHistory] = useState<PairedDesktopHistoryItem[]>([]);
   const [isScanning, setIsScanning] = useState(false);
+  const { onScroll: syncScroll, scrolled: syncScrolled } = useStickyHeader();
   const [selectedDevice, setSelectedDevice] = useState<DesktopInstance | null>(null);
   const [syncIdInput, setSyncIdInput] = useState('');
   const [idFocused, setIdFocused] = useState(false);
@@ -337,17 +338,18 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScreenHeader title="Desktop Sync" onBack={onBack} />
-
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <Animated.View style={{ flex: 1, opacity: pageFade, transform: [{ translateY: pageSlide }] }}>
+        <ScreenHeader title="Desktop Sync" onBack={onBack} scrolled={syncScrolled} />
         <ScrollView
           contentContainerStyle={styles.scrollArea}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          onScroll={syncScroll}
+          scrollEventThrottle={16}
         >
           <View style={styles.statusCard}>
             <Animated.View style={{ transform: [{ scale: syncStatus.isConnected ? 1 : wifiPulse }] }}>

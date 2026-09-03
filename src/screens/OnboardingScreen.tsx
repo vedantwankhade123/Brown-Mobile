@@ -511,13 +511,22 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                     <View style={styles.onboardFormGroup}>
                       <View style={styles.onboardField}>
                         <TextInput
-                          style={[styles.onboardInput, isInputFocused && styles.onboardInputFocused]}
+                          style={[
+                            styles.onboardInput,
+                            isInputFocused && styles.onboardInputFocused,
+                            Platform.OS === 'web'
+                              ? ({
+                                  outline: 'none',
+                                  border: isInputFocused ? '2px solid #ffffff' : '1.5px solid #ffffff',
+                                } as any)
+                              : {},
+                          ]}
                           value={fullName}
                           onChangeText={setFullName}
                           onFocus={() => setIsInputFocused(true)}
                           onBlur={() => setIsInputFocused(false)}
-                          placeholder=""
-                          placeholderTextColor={colors.textMuted}
+                          placeholder="Enter your name"
+                          placeholderTextColor="#71717a"
                           autoFocus
                         />
                       </View>
@@ -532,13 +541,23 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                     <View style={styles.onboardFormGroup}>
                       <View style={styles.onboardField}>
                         <TextInput
-                          style={[styles.onboardInput, { paddingRight: 44 }, isInputFocused && styles.onboardInputFocused]}
+                          style={[
+                            styles.onboardInput,
+                            { paddingRight: 44 },
+                            isInputFocused && styles.onboardInputFocused,
+                            Platform.OS === 'web'
+                              ? ({
+                                  outline: 'none',
+                                  border: isInputFocused ? '2px solid #ffffff' : '1.5px solid #ffffff',
+                                } as any)
+                              : {},
+                          ]}
                           value={birthdate}
                           onChangeText={handleBirthdateInput}
                           onFocus={() => setIsInputFocused(true)}
                           onBlur={() => setIsInputFocused(false)}
                           placeholder="DD/MM/YYYY"
-                          placeholderTextColor="#52525b"
+                          placeholderTextColor="#71717a"
                           keyboardType="numeric"
                           maxLength={10}
                         />
@@ -754,13 +773,22 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                     <View style={styles.onboardFormGroup}>
                       <View style={styles.onboardField}>
                         <TextInput
-                          style={[styles.onboardInput, isInputFocused && styles.onboardInputFocused]}
+                          style={[
+                            styles.onboardInput,
+                            isInputFocused && styles.onboardInputFocused,
+                            Platform.OS === 'web'
+                              ? ({
+                                  outline: 'none',
+                                  border: isInputFocused ? '2px solid #ffffff' : '1.5px solid #ffffff',
+                                } as any)
+                              : {},
+                          ]}
                           value={email}
                           onChangeText={setEmail}
                           onFocus={() => setIsInputFocused(true)}
                           onBlur={() => setIsInputFocused(false)}
-                          placeholder=""
-                          placeholderTextColor={colors.textMuted}
+                          placeholder="name@example.com"
+                          placeholderTextColor="#71717a"
                           keyboardType="email-address"
                           autoCapitalize="none"
                           autoFocus
@@ -1108,8 +1136,13 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {/* Body Content */}
           <ScrollView
             style={styles.fullPageScroll}
-            contentContainerStyle={styles.fullPageContent}
+            contentContainerStyle={[styles.fullPageContent, { flexGrow: 1, backgroundColor: '#000000' }]}
             showsVerticalScrollIndicator={false}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            bounces={true}
+            alwaysBounceVertical={true}
+            scrollEventThrottle={16}
           >
             <Text style={styles.fullPageDocTitle}>Brown AI Platform Terms</Text>
             <Text style={styles.fullPageDocDate}>Effective Date: August 2026 • Version 1.0 (Offline Edition)</Text>
@@ -1179,8 +1212,13 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {/* Body Content */}
           <ScrollView
             style={styles.fullPageScroll}
-            contentContainerStyle={styles.fullPageContent}
+            contentContainerStyle={[styles.fullPageContent, { flexGrow: 1, backgroundColor: '#000000' }]}
             showsVerticalScrollIndicator={false}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            bounces={true}
+            alwaysBounceVertical={true}
+            scrollEventThrottle={16}
           >
             <Text style={styles.fullPageDocTitle}>Brown Offline Privacy Policy</Text>
             <Text style={styles.fullPageDocDate}>Zero-Telemetry Commitment • Updated August 2026</Text>
@@ -1295,14 +1333,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   getStartedLogoImg: {
-    width: 76,
-    height: 76,
-    marginBottom: 16,
+    width: 54,
+    height: 54,
+    marginBottom: 14,
   },
   logoImg: {
-    width: 136,
-    height: 42,
-    marginBottom: 14,
+    width: 96,
+    height: 28,
+    marginBottom: 12,
     tintColor: '#FFFFFF',
   },
   onboardWelcome: {
@@ -1399,16 +1437,17 @@ const styles = StyleSheet.create({
   onboardInput: {
     width: '100%',
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: 9999,
     backgroundColor: '#000000',
-    borderWidth: 1.2,
-    borderColor: 'rgba(255, 255, 255, 0.32)',
-    color: '#f3f4f6',
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+    color: '#ffffff',
     fontSize: 15,
   },
   onboardInputFocused: {
-    borderColor: 'rgba(255, 255, 255, 0.75)',
+    borderColor: '#ffffff',
+    borderWidth: 2,
   },
   onboardDateToggleBtn: {
     position: 'absolute',
@@ -1988,7 +2027,7 @@ const styles = StyleSheet.create({
   },
   fullPageModalContainer: {
     flex: 1,
-    backgroundColor: '#141414',
+    backgroundColor: '#000000',
   },
   fullPageHeader: {
     flexDirection: 'row',
@@ -2020,6 +2059,17 @@ const styles = StyleSheet.create({
   },
   fullPageScroll: {
     flex: 1,
+    width: '100%',
+    backgroundColor: '#000000',
+    ...(Platform.OS === 'web'
+      ? ({
+          overflowY: 'auto',
+          touchAction: 'pan-y',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+        } as any)
+      : {}),
   },
   fullPageContent: {
     paddingHorizontal: spacing.lg,
@@ -2028,6 +2078,7 @@ const styles = StyleSheet.create({
     maxWidth: 740,
     width: '100%',
     alignSelf: 'center',
+    backgroundColor: '#000000',
   },
   fullPageDocTitle: {
     color: '#f3f4f6',
@@ -2043,9 +2094,9 @@ const styles = StyleSheet.create({
   docHighlightCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: '#18181b',
     borderWidth: 1,
-    borderColor: colors.borderHighlight,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: borderRadius.md,
     padding: spacing.md,
     marginBottom: spacing.lg,

@@ -31,7 +31,8 @@ import { ModelMetadata, ModelDownloadState, MobileRamTier } from '../types/model
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
-import { SearchIcon, ChevronLeftIcon, CloseIcon } from '../components/Icons';
+import { useStickyHeader } from '../components/ScreenHeader';
+import { SearchIcon, BackArrowIcon, ChevronRightIcon, CloseIcon, DatabaseIcon } from '../components/Icons';
 
 interface ModelStoreScreenProps {
   onBack: () => void;
@@ -69,14 +70,15 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
   const [hfNextUrl, setHfNextUrl] = useState<string | null>(null);
   const [hfSkip, setHfSkip] = useState(0);
   const [lastQuery, setLastQuery] = useState('instruct gguf');
-  const [pendingModel, setPendingModel] = useState<ModelMetadata | null>(null);
+  const [locationSheetOpen, setLocationSheetOpen] = useState(false);
   const [customDir, setCustomDir] = useState('');
-  const [defaultDir, setDefaultDir] = useState('/UltronAI/models/');
+  const [defaultDir, setDefaultDir] = useState('/BrownAI/models/');
   const [useCustomDir, setUseCustomDir] = useState(false);
 
   const downloader = ModelDownloader.getInstance();
   const engine = LlamaEngine.getInstance();
   const searchGen = useRef(0);
+  const { onScroll: storeScroll, scrolled: storeScrolled } = useStickyHeader();
 
   const mergeUnique = (existing: ModelMetadata[], incoming: ModelMetadata[]) => {
     const seen = new Set(existing.map((m) => m.id));
@@ -139,7 +141,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       await hydrateDiscoveredModels();
       const modelsDir = await StoragePaths.getModelsDir();
       setDefaultDir(StoragePaths.displayPath(modelsDir));
-      setCustomDir(StoragePaths.displayPath(modelsDir));
       setCatalog(filterMobileSafeModels(MOBILE_GGUF_LIBRARY, stats.totalRamMb));
       try {
         const page = await searchHuggingFaceGgufs({
@@ -165,26 +166,32 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       await engine.loadModel(model);
       setActiveModel(model);
       onModelActivated(model);
-      Alert.alert('Model Activated', `${model.name} loaded into neural context.`);
+      Alert.alert('Model Activated', `${model.name} is ready to chat.`);
     } catch (err: any) {
       Alert.alert('Load Failed', err?.message || 'Unable to load model.');
     }
   };
 
   const handleDownload = (model: ModelMetadata) => {
-    setPendingModel(model);
+    downloader.startDownload(model);
   };
 
-  const confirmDownload = async () => {
-    if (!pendingModel) return;
-    const dest = useCustomDir && customDir.trim()
-      ? (customDir.endsWith('/') ? customDir : customDir + '/')
-      : undefined;
-    if (dest) {
-      await StoragePaths.setModelsDir(dest);
+  const openLocationSheet = async () => {
+    const modelsDir = await StoragePaths.getModelsDir();
+    const isDefault = await StoragePaths.isDefaultModelsDir();
+    setCustomDir(StoragePaths.displayPath(modelsDir));
+    setUseCustomDir(!isDefault);
+    setLocationSheetOpen(true);
+  };
+
+  const saveLocation = async () => {
+    const trimmed = customDir.trim();
+    if (useCustomDir && trimmed) {
+      await StoragePaths.setModelsDir(trimmed.endsWith('/') ? trimmed : trimmed + '/');
+    } else {
+      await StoragePaths.resetModelsDir();
     }
-    downloader.startDownload(pendingModel, dest);
-    setPendingModel(null);
+    setLocationSheetOpen(false);
   };
 
   const handleDelete = (modelId: string) => {
@@ -200,59 +207,64 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
 
   const grouped = groupMobileModelsByTier(catalog);
   const freeLabel = deviceStats ? StorageBudgetService.formatBytes(deviceStats.freeStorageBytes) : '—';
-  const notEnough = pendingModel
-    ? (deviceStats?.freeStorageBytes || 0) < pendingModel.sizeBytes + 50 * 1024 * 1024
-    : false;
 
   return (
     <SafeAreaView style={styles.container}>
       {/* Dynamic Header: Standard vs Full-Width Search */}
       {!isSearchOpen ? (
-        <View style={styles.headerBar}>
+        <View style={[styles.headerBar, storeScrolled && styles.headerBarScrolled]}>
           <TouchableOpacity
             onPress={onBack}
             style={styles.headerBackBtn}
             activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="Go back"
           >
-            <ChevronLeftIcon size={22} color="#ffffff" />
+            <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
           </TouchableOpacity>
 
-          <Text style={styles.headerTitle}>Model Store</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            Model Store
+          </Text>
+
+          <View style={{ flex: 1 }} />
 
           <TouchableOpacity
             onPress={() => setIsSearchOpen(true)}
             style={styles.headerSearchIconBtn}
             activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityLabel="Search Hugging Face models"
           >
             <SearchIcon size={20} color="#ffffff" />
           </TouchableOpacity>
         </View>
       ) : (
-        <View style={styles.headerSearchBar}>
-          <SearchIcon size={18} color="#a1a1aa" />
-          <TextInput
-            autoFocus
-            style={[styles.headerSearchInput, Platform.OS === 'web' ? ({ outline: 'none' } as any) : {}]}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search Hugging Face GGUFs..."
-            placeholderTextColor="#71717a"
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-            onSubmitEditing={() => runHuggingFaceSearch(searchQuery, false)}
-          />
-          {searchQuery.trim().length > 0 && (
-            <TouchableOpacity
-              onPress={() => runHuggingFaceSearch(searchQuery, false)}
-              style={styles.headerSubmitBtn}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.headerSubmitBtnText}>Search</Text>
-            </TouchableOpacity>
-          )}
+        <View style={[styles.headerBar, styles.headerBarSearchActive, storeScrolled && styles.headerBarScrolled]}>
+          <View style={styles.searchBarInner}>
+            <SearchIcon size={17} color="#9ca3af" />
+            <TextInput
+              autoFocus
+              style={[styles.headerSearchInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search Hugging Face GGUFs..."
+              placeholderTextColor="#71717a"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => runHuggingFaceSearch(searchQuery, false)}
+            />
+            {searchQuery.trim().length > 0 && (
+              <TouchableOpacity
+                onPress={() => runHuggingFaceSearch(searchQuery, false)}
+                style={styles.headerSubmitBtn}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.headerSubmitBtnText}>Search</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <TouchableOpacity
             onPress={() => {
               setIsSearchOpen(false);
@@ -260,15 +272,35 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
             }}
             style={styles.headerSearchCloseBtn}
             activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="Close search"
           >
-            <CloseIcon size={18} color="#a1a1aa" />
+            <CloseIcon size={20} color="#ffffff" />
           </TouchableOpacity>
         </View>
       )}
 
-      <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-        {/* Live Hugging Face Search Results (Clean Logo + Title only) */}
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollBody}
+        showsVerticalScrollIndicator={false}
+        onScroll={storeScroll}
+        scrollEventThrottle={16}
+      >
+        {/* Download location + free storage */}
+        <TouchableOpacity style={styles.locationRow} onPress={openLocationSheet} activeOpacity={0.7}>
+          <View style={styles.locationIconBox}>
+            <DatabaseIcon size={16} color="#60a5fa" />
+          </View>
+          <View style={styles.locationTextCol}>
+            <Text style={styles.locationTitle}>Download location</Text>
+            <Text style={styles.locationPath} numberOfLines={1}>
+              {defaultDir} · {freeLabel} free
+            </Text>
+          </View>
+          <ChevronRightIcon size={16} color="#8e8e93" />
+        </TouchableOpacity>
+
         {searchQuery.trim().length > 0 || hfModels.length > 0 ? (
           <View style={styles.sectionBlock}>
             <View style={styles.sectionTitleRow}>
@@ -295,6 +327,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
                   onDelete={handleDelete}
                   onPause={(id) => downloader.pauseDownload(id)}
                   onResume={(id) => downloader.resumeDownload(id)}
+                  onCancel={(id) => downloader.cancelDownload(id)}
                 />
               ))}
 
@@ -337,6 +370,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
                   onDelete={handleDelete}
                   onPause={(id) => downloader.pauseDownload(id)}
                   onResume={(id) => downloader.resumeDownload(id)}
+                  onCancel={(id) => downloader.cancelDownload(id)}
                 />
               ))}
             </View>
@@ -346,24 +380,21 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
         <View style={{ height: 32 }} />
       </ScrollView>
 
-      {/* Download Destination Sheet Modal */}
-      <Modal visible={!!pendingModel} transparent animationType="fade" onRequestClose={() => setPendingModel(null)}>
+      {/* Download Location Sheet Modal */}
+      <Modal visible={locationSheetOpen} transparent animationType="fade" onRequestClose={() => setLocationSheetOpen(false)}>
         <View style={styles.sheetBackdrop}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Download location</Text>
             <Text style={styles.sheetSubtitle}>
-              {pendingModel?.name} needs {pendingModel?.sizeFormatted}. You have {freeLabel} free.
+              Models are saved here on your device. You have {freeLabel} free.
             </Text>
-            {notEnough && (
-              <Text style={styles.sheetWarn}>Not enough free storage for this GGUF.</Text>
-            )}
             <Text style={styles.sheetLabel}>Save location</Text>
             <TouchableOpacity
               style={[styles.pathOption, !useCustomDir && styles.pathOptionOn]}
               onPress={() => setUseCustomDir(false)}
               activeOpacity={0.8}
             >
-              <Text style={styles.pathOptionTitle}>Default</Text>
+              <Text style={styles.pathOptionTitle}>Default (recommended)</Text>
               <Text style={styles.pathOptionPath}>{defaultDir}</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -379,20 +410,18 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
                   setCustomDir(v);
                   setUseCustomDir(true);
                 }}
-                placeholder="/storage/XXXX-XXXX/UltronAI/models/"
+                placeholder="/storage/XXXX-XXXX/BrownAI/models/"
                 placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
               />
             </TouchableOpacity>
             <View style={styles.sheetActions}>
-              <TouchableOpacity style={styles.sheetCancel} onPress={() => setPendingModel(null)}>
+              <TouchableOpacity style={styles.sheetCancel} onPress={() => setLocationSheetOpen(false)}>
                 <Text style={styles.sheetCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sheetConfirm, notEnough && { opacity: 0.4 }]}
-                disabled={notEnough}
-                onPress={confirmDownload}
-              >
-                <Text style={styles.sheetConfirmText}>Start download</Text>
+              <TouchableOpacity style={styles.sheetConfirm} onPress={saveLocation}>
+                <Text style={styles.sheetConfirmText}>Save location</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -410,52 +439,51 @@ const styles = StyleSheet.create({
   headerBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingLeft: 4,
+    paddingRight: 14,
+    paddingVertical: 8,
     backgroundColor: '#000000',
+    minHeight: 56,
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
   },
-  headerBackBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
+  headerBarScrolled: {
+    backgroundColor: '#0a0a0c',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+    elevation: 12,
   },
-  headerTitle: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+  headerBarSearchActive: {
+    paddingLeft: 14,
+    paddingRight: 10,
+    gap: 10,
   },
-  headerSearchIconBtn: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerSearchBar: {
+  searchBarInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 9999,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#18181b',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-    gap: 10,
+    height: 42,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    gap: 8,
   },
   headerSearchInput: {
     flex: 1,
     color: '#ffffff',
-    fontSize: 15,
-    paddingVertical: 6,
+    fontSize: 14,
+    paddingVertical: 0,
   },
   headerSubmitBtn: {
     backgroundColor: '#ffffff',
     borderRadius: 9999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   headerSubmitBtnText: {
     color: '#000000',
@@ -463,15 +491,77 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerSearchCloseBtn: {
-    width: 32,
-    height: 32,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBackBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: '#ffffff',
+    fontSize: 19,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    marginLeft: 4,
+  },
+  headerSearchIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
   scrollArea: {
     flex: 1,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
+    backgroundColor: '#000000',
+  },
+  scrollBody: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    maxWidth: 600,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#212121',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  locationIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: 'rgba(59, 130, 246, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  locationTitle: {
+    color: '#ffffff',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  locationPath: {
+    color: '#a1a1aa',
+    fontSize: 11.5,
+    marginTop: 2,
   },
   loadMoreBtn: {
     backgroundColor: '#27272a',

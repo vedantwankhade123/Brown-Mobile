@@ -5,10 +5,8 @@ import {
   StyleSheet,
   SafeAreaView,
   StatusBar,
-  ActivityIndicator,
   Platform,
   TouchableOpacity,
-  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -27,6 +25,7 @@ import { ModelStoreScreen } from './src/screens/ModelStoreScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { DesktopSyncScreen } from './src/screens/DesktopSyncScreen';
 import { DesktopSyncService } from './src/services/sync/DesktopSync';
+import { bootstrapApp } from './src/services/storage/AppBootstrap';
 import { ModelMetadata } from './src/types/model';
 import { colors } from './src/theme/colors';
 
@@ -58,42 +57,23 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
       * {
         box-sizing: border-box;
         font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-        scrollbar-width: thin !important;
-        scrollbar-color: rgba(255, 255, 255, 0.22) transparent !important;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
         outline: none !important;
         -webkit-tap-highlight-color: transparent !important;
       }
       input, textarea, [contenteditable] {
         outline: none !important;
         box-shadow: none !important;
-        border: none !important;
       }
       input:focus, textarea:focus, [contenteditable]:focus {
         outline: none !important;
         box-shadow: none !important;
       }
-      ::-webkit-scrollbar {
-        width: 4px !important;
-        height: 4px !important;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent !important;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.22) !important;
-        border-radius: 99px !important;
-        transition: background 0.2s ease !important;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.45) !important;
-      }
-      ::-webkit-scrollbar-button {
+      *::-webkit-scrollbar {
         display: none !important;
         width: 0 !important;
         height: 0 !important;
-      }
-      ::-webkit-scrollbar-corner {
-        background: transparent !important;
       }
     `;
     document.head.appendChild(style);
@@ -175,7 +155,10 @@ export default function App() {
   const [syncInitialScan, setSyncInitialScan] = useState<boolean>(false);
 
   useEffect(() => {
-    checkOnboardingStatus();
+    (async () => {
+      await bootstrapApp();
+      await checkOnboardingStatus();
+    })();
     DesktopSyncService.getInstance().tryAutoConnect().catch(() => {});
   }, []);
 
@@ -224,20 +207,7 @@ export default function App() {
   };
 
   if (isLoading || !fontsLoaded) {
-    return (
-      <SafeAreaView style={[styles.container, styles.loadingCenter]}>
-        <StatusBar barStyle="light-content" backgroundColor="#000000" />
-        <View style={styles.splashContent}>
-          <Image
-            source={require('./Assets/brown-white-logo.png')}
-            style={styles.splashLogo}
-            resizeMode="contain"
-          />
-          <Text style={styles.splashBrandSubtitle}>OFFLINE INTELLIGENCE</Text>
-          <ActivityIndicator size="small" color="#ffffff" style={{ marginTop: 20 }} />
-        </View>
-      </SafeAreaView>
-    );
+    return null;
   }
 
   return (
@@ -301,33 +271,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     ...(Platform.OS === 'web' ? { height: '100vh', width: '100vw' } : {}),
   },
-  loadingCenter: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#000000',
-  },
-  splashContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  splashLogo: {
-    width: 160,
-    height: 48,
-    marginBottom: 8,
-  },
-  splashBrandTitle: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: 4,
-  },
-  splashBrandSubtitle: {
-    color: '#71717a',
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 2,
-    marginTop: 4,
-  },
+
   errorContainer: {
     flex: 1,
     backgroundColor: '#000000',

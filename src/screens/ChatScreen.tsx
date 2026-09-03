@@ -416,8 +416,8 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   emptyWelcomeLogo: {
-    width: 175,
-    height: 50,
+    width: 115,
+    height: 33,
     marginBottom: 8,
     resizeMode: 'contain',
   },

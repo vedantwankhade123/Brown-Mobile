@@ -264,9 +264,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   style={styles.brandLogo}
                   resizeMode="contain"
                 />
-                <View style={styles.betaPill}>
-                  <Text style={styles.betaText}>BETA</Text>
-                </View>
               </View>
 
               <TouchableOpacity
@@ -275,7 +272,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 activeOpacity={0.7}
                 accessibilityLabel="Collapse sidebar"
               >
-                <SidebarToggleIcon size={18} color="#ffffff" />
+                <SidebarToggleIcon size={22} color="#ffffff" />
               </TouchableOpacity>
             </View>
 
@@ -289,7 +286,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 }}
                 activeOpacity={0.8}
               >
-                <PencilIcon size={16} color="#ffffff" />
+                <PencilIcon size={20} color="#ffffff" />
                 <Text style={styles.newChatPillText}>New chat</Text>
               </TouchableOpacity>
 
@@ -298,7 +295,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 onPress={() => setIsSpotlightOpen(true)}
                 activeOpacity={0.7}
               >
-                <SearchIcon size={16} color="#999999" />
+                <SearchIcon size={20} color="#ffffff" />
                 <Text style={styles.searchChatsText}>Search chats</Text>
               </TouchableOpacity>
             </View>
@@ -339,11 +336,8 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     {...hoverHandlers}
                   >
                     <View style={styles.sessionContent}>
-                      <Text style={styles.sessionTitle} numberOfLines={1}>
+                      <Text style={[styles.sessionTitle, isActive && styles.sessionTitleActive]} numberOfLines={1}>
                         {formattedTitle}
-                      </Text>
-                      <Text style={styles.sessionDate} numberOfLines={1}>
-                        {formattedDate}
                       </Text>
                     </View>
 
@@ -356,7 +350,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                       activeOpacity={0.65}
                       accessibilityLabel={`Chat options for ${formattedTitle}`}
                     >
-                      <MoreVerticalIcon size={20} color="#a1a1aa" />
+                      <MoreVerticalIcon size={20} color="#ffffff" />
                     </TouchableOpacity>
                   </TouchableOpacity>
                 );
@@ -364,9 +358,9 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             )}
           </ScrollView>
 
-          {/* Bottom Footer with Desktop Sync & User Profile */}
+          {/* Bottom Footer with Connection & User Profile */}
           <View style={styles.drawerFooter}>
-            {/* Desktop Sync Row with QR Option on Right */}
+            {/* Connection Row with Scan QR Option on Right */}
             <View style={styles.desktopSyncCard}>
               <TouchableOpacity
                 style={styles.desktopSyncLeft}
@@ -377,9 +371,9 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 activeOpacity={0.7}
               >
                 <View style={styles.footerIconBox}>
-                  <LaptopIcon size={16} color="#ffffff" />
+                  <LaptopIcon size={20} color="#ffffff" />
                 </View>
-                <Text style={styles.desktopSyncBtnText}>Desktop Sync</Text>
+                <Text style={styles.desktopSyncBtnText}>Connection</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -391,7 +385,8 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 activeOpacity={0.7}
                 accessibilityLabel="Scan QR Code"
               >
-                <QrCodeIcon size={17} color="#9ca3af" />
+                <Text style={styles.desktopSyncQrText}>Scan QR</Text>
+                <QrCodeIcon size={16} color="#ffffff" />
               </TouchableOpacity>
             </View>
 
@@ -417,7 +412,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
 
               {onOpenSettings && (
                 <View style={styles.settingsGearBtn}>
-                  <SettingsIcon size={18} color="#9ca3af" />
+                  <SettingsIcon size={22} color="#ffffff" />
                 </View>
               )}
             </TouchableOpacity>
@@ -761,8 +756,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   brandLogo: {
-    width: 105,
-    height: 30,
+    width: 68,
+    height: 19,
     resizeMode: 'contain',
   },
   brandTitle: {
@@ -770,18 +765,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: -0.2,
-  },
-  betaPill: {
-    backgroundColor: 'rgba(59, 130, 246, 0.16)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  betaText: {
-    color: '#60a5fa',
-    fontSize: 9.5,
-    fontWeight: '700',
-    letterSpacing: 0.5,
   },
   collapseSidebarBtn: {
     width: 36,
@@ -799,33 +782,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#181818',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 9999,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
   },
   newChatPillText: {
     color: '#ffffff',
-    fontSize: 14.5,
+    fontSize: 16.5,
     fontWeight: '600',
   },
   searchChatsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#121212',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 9999,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 9,
   },
   searchChatsText: {
-    color: '#999999',
-    fontSize: 14,
-    fontWeight: '400',
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
   },
   sessionsList: {
     flex: 1,
@@ -834,21 +811,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   recentSectionTitle: {
-    color: '#71717a',
-    fontSize: 11.5,
-    fontWeight: '600',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
     marginBottom: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 12,
   },
   emptyState: {
     paddingVertical: 32,
     alignItems: 'center',
   },
   emptyText: {
-    color: '#71717a',
-    fontSize: 13,
+    color: '#ffffff',
+    fontSize: 14.5,
   },
   sessionItem: {
     flexDirection: 'row',
@@ -858,25 +834,27 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 2,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
   },
   sessionItemActive: {
-    backgroundColor: '#18181b',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'transparent',
   },
   sessionContent: {
     flex: 1,
     marginRight: 6,
   },
   sessionTitle: {
-    color: '#f3f4f6',
-    fontSize: 14,
+    color: '#ffffff',
+    fontSize: 16,
     fontWeight: '500',
   },
+  sessionTitleActive: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
   sessionDate: {
-    color: '#71717a',
-    fontSize: 11.5,
+    color: '#ffffff',
+    fontSize: 12.5,
     marginTop: 2,
   },
   sessionMoreBtn: {
@@ -889,24 +867,19 @@ const styles = StyleSheet.create({
   },
   drawerFooter: {
     paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 8 : 12,
     backgroundColor: '#000000',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    gap: 6,
+    gap: 2,
   },
   desktopSyncCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#141416',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 12,
-    paddingLeft: 12,
-    paddingRight: 8,
-    paddingVertical: 7,
+    paddingLeft: 10,
+    paddingRight: 4,
+    paddingVertical: 3,
   },
   desktopSyncLeft: {
     flexDirection: 'row',
@@ -915,36 +888,38 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   desktopSyncQrBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    gap: 6,
+    backgroundColor: '#2563eb',
+    borderRadius: 9999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  desktopSyncQrText: {
+    color: '#ffffff',
+    fontSize: 12.5,
+    fontWeight: '700',
   },
   footerIconBox: {
     width: 26,
     height: 26,
     borderRadius: 7,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   desktopSyncBtnText: {
     color: '#ffffff',
-    fontSize: 13.5,
-    fontWeight: '500',
+    fontSize: 15.5,
+    fontWeight: '600',
   },
   userProfileBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#141416',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 12,
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   userProfileLeft: {
     flexDirection: 'row',
@@ -954,21 +929,21 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   userAvatarBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#27272a',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#303030',
     alignItems: 'center',
     justifyContent: 'center',
   },
   userAvatarInitials: {
     color: '#ffffff',
-    fontSize: 11.5,
+    fontSize: 13.5,
     fontWeight: '700',
   },
   userNameText: {
     color: '#ffffff',
-    fontSize: 13.5,
+    fontSize: 16,
     fontWeight: '600',
     flex: 1,
   },
@@ -992,7 +967,7 @@ const styles = StyleSheet.create({
   spotlightCard: {
     width: '100%',
     maxWidth: 540,
-    backgroundColor: '#18181b',
+    backgroundColor: '#212121',
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,
@@ -1007,9 +982,7 @@ const styles = StyleSheet.create({
   spotlightInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    paddingBottom: 8,
   },
   spotlightSearchInput: {
     flex: 1,
@@ -1025,7 +998,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#27272a',
+    backgroundColor: '#303030',
     borderRadius: 9999,
     paddingHorizontal: 14,
     paddingVertical: 11,

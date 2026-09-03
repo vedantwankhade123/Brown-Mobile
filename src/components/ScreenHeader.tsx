@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { BackArrowIcon } from './Icons';
 
 export function toTitleCase(value: string): string {
@@ -17,10 +17,28 @@ export function toTitleCase(value: string): string {
     .join(' ');
 }
 
+/**
+ * Tracks whether a ScrollView has been scrolled past a threshold so a sticky
+ * header can show a raised background (One UI style).
+ */
+export function useStickyHeader(threshold = 6) {
+  const [scrolled, setScrolled] = useState(false);
+  const onScroll = useCallback(
+    (event: any) => {
+      const y = event?.nativeEvent?.contentOffset?.y || 0;
+      const next = y > threshold;
+      setScrolled((prev) => (prev === next ? prev : next));
+    },
+    [threshold]
+  );
+  return { onScroll, scrolled };
+}
+
 interface ScreenHeaderProps {
   title: string;
   onBack: () => void;
   right?: React.ReactNode;
+  scrolled?: boolean;
   accessibilityLabel?: string;
 }
 
@@ -28,18 +46,19 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   title,
   onBack,
   right,
+  scrolled = false,
   accessibilityLabel = 'Go back',
 }) => {
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, scrolled && styles.headerScrolled]}>
       <TouchableOpacity
         style={styles.backBtn}
         onPress={onBack}
         activeOpacity={0.7}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         accessibilityLabel={accessibilityLabel}
       >
-        <BackArrowIcon size={20} color="#ffffff" />
+        <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
       </TouchableOpacity>
       <Text style={styles.title} numberOfLines={1}>
         {toTitleCase(title)}
@@ -53,12 +72,22 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    paddingLeft: 4,
+    paddingRight: 12,
+    paddingVertical: 8,
     backgroundColor: '#000000',
     minHeight: 56,
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
+  },
+  headerScrolled: {
+    backgroundColor: '#0a0a0c',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+    elevation: 12,
   },
   backBtn: {
     width: 40,
@@ -66,23 +95,22 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   title: {
     flex: 1,
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: '700',
     letterSpacing: -0.2,
-    marginLeft: 10,
+    marginLeft: 4,
   },
   rightSlot: {
-    minWidth: 40,
+    minWidth: 44,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   rightSpacer: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
   },
 });

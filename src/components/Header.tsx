@@ -34,7 +34,6 @@ export const Header: React.FC<HeaderProps> = ({
               style={styles.brandLogo}
               resizeMode="contain"
             />
-            <Text style={styles.betaText}>BETA</Text>
           </View>
         </View>
 

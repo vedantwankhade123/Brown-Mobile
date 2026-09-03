@@ -57,6 +57,22 @@ export class StoragePaths {
     await this.ensureDir(await this.getModelsDir());
   }
 
+  static async isDefaultModelsDir(): Promise<boolean> {
+    try {
+      const stored = await AsyncStorage.getItem(MODELS_KEY);
+      return !stored;
+    } catch {
+      return true;
+    }
+  }
+
+  static async resetModelsDir(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem(MODELS_KEY);
+    } catch {}
+    await this.ensureDir(await this.getModelsDir());
+  }
+
   static async ensureDir(dir: string): Promise<void> {
     try {
       const FileSystem = require('expo-file-system');

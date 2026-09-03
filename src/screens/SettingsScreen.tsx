@@ -12,6 +12,14 @@ import {
   Animated,
   Image,
 } from 'react-native';
+
+const Easing = (Animated as any).Easing || {
+  inOut: (fn: any) => fn,
+  out: (fn: any) => fn,
+  in: (fn: any) => fn,
+  cubic: (t: any) => t,
+  ease: (t: any) => t,
+};
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService, ConsentRecord } from '../services/storage/ConsentService';
 import { SoundService } from '../services/sound/SoundService';
@@ -31,7 +39,7 @@ import {
   testProviderConnection,
 } from '../services/inference/CloudProviders';
 import { LlamaEngine } from '../services/inference/LlamaEngine';
-import { ScreenHeader } from '../components/ScreenHeader';
+import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
 import { ModelBrandLogo } from '../components/ModelBrandLogo';
 import { typography, spacing, borderRadius } from '../theme/typography';
@@ -53,6 +61,7 @@ import {
   SlidersIcon,
   CalendarIcon,
   ChevronLeftIcon,
+  BackArrowIcon,
   ChevronRightIcon,
   ChevronDownIcon,
   VolumeIcon,
@@ -61,6 +70,8 @@ import {
   GlobeIcon,
   WifiIcon,
   GithubIcon,
+  InstagramIcon,
+  MailIcon,
   WindowsIcon,
   AndroidIcon,
   MapPinIcon,
@@ -124,7 +135,7 @@ const HoverableSettingsRow: React.FC<{
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          paddingVertical: 18,
+          paddingVertical: 15,
           paddingHorizontal: 16,
           borderRadius: 12,
         },
@@ -154,6 +165,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Smooth Screen Slide & Fade Animation
   const screenSlideAnim = useRef(new Animated.Value(20)).current;
   const screenFadeAnim = useRef(new Animated.Value(0)).current;
+
+  // One UI style sticky header: gains background once content scrolls under it
+  const { onScroll: settingsScroll, scrolled: settingsScrolled } = useStickyHeader();
 
   // Profile Edit State
   const [editName, setEditName] = useState('');
@@ -247,17 +261,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   // Trigger smooth enter animation on screen change
   useEffect(() => {
-    screenSlideAnim.setValue(20);
+    screenSlideAnim.setValue(12);
     screenFadeAnim.setValue(0);
     Animated.parallel([
       Animated.timing(screenSlideAnim, {
         toValue: 0,
-        duration: 220,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(screenFadeAnim, {
         toValue: 1,
-        duration: 220,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
@@ -671,13 +687,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     if (viewHistory.length > 1) {
       Animated.parallel([
         Animated.timing(screenSlideAnim, {
-          toValue: 20,
+          toValue: 12,
           duration: 140,
+          easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(screenFadeAnim, {
           toValue: 0,
           duration: 140,
+          easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
       ]).start(() => {
@@ -688,13 +706,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
     Animated.parallel([
       Animated.timing(screenSlideAnim, {
-        toValue: 30,
-        duration: 140,
+        toValue: 16,
+        duration: 150,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(screenFadeAnim, {
         toValue: 0,
-        duration: 140,
+        duration: 150,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -705,13 +725,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const navigateToView = (view: SettingsView) => {
     Animated.parallel([
       Animated.timing(screenSlideAnim, {
-        toValue: -15,
-        duration: 120,
+        toValue: -10,
+        duration: 130,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(screenFadeAnim, {
         toValue: 0,
-        duration: 120,
+        duration: 130,
+        easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -937,7 +959,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           title: 'Software Updates',
           iconType: 'update',
           iconColor: '#fb923c',
-          detail: 'BETA v1',
+          detail: 'v1.0',
           action: () => navigateToView('updates'),
         },
       ],
@@ -952,7 +974,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           title: 'About Brown',
           iconType: 'about',
           iconColor: '#e4e4e7',
-          detail: 'BETA v1',
+          detail: 'v1.0',
           action: () => navigateToView('about'),
         },
       ],
@@ -1044,7 +1066,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // VIEW HELPER: FULL-PAGE HEADER COMPONENT
   // ==========================================
   const renderFullPageHeader = (title: string, onCustomBack?: () => void) => (
-    <ScreenHeader title={title} onBack={onCustomBack || handleSmoothBack} />
+    <ScreenHeader title={title} onBack={onCustomBack || handleSmoothBack} scrolled={settingsScrolled} />
   );
 
   // ==========================================
@@ -1262,7 +1284,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('User Account')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             {/* User Profile Card without Green Badge */}
             <View style={styles.accountProfileCard}>
               <View style={styles.accountAvatarLarge}>
@@ -1347,7 +1375,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Models')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             {/* Section 1: Connectors & Weights Header */}
             <Text style={styles.desktopSectionHeading}>{'Connectors & Weights'}</Text>
 
@@ -2080,7 +2114,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Agent Sounds')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             {/* 1. Voice Input Section */}
             <View style={styles.pageCardGroup}>
               <Text style={styles.sectionCardTitle}>Voice input</Text>
@@ -2218,7 +2258,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Desktop Sync')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             {/* 1. Device Connection & Pairing Card */}
             <View style={styles.pageCardGroup}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -2357,7 +2403,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Storage & Memory')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             {/* Storage Locations Header with Memory Toggle */}
             <View style={styles.pageCardGroup}>
               <View style={styles.toggleRow}>
@@ -2405,7 +2457,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
 
               {/* Connectors Dir */}
-              <View style={{ marginTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.06)', paddingTop: 14 }}>
+              <View style={{ marginTop: 16, paddingTop: 6 }}>
                 <Text style={styles.inputFieldLabel}>{'Connectors & Downloads'}</Text>
                 <View style={styles.storageInputRow}>
                   <TextInput
@@ -2472,7 +2524,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Software Updates')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             <View style={styles.updateCard}>
               <View style={styles.updateCardHeaderRow}>
                 {/* Brown Logo */}
@@ -2532,11 +2590,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('About')}
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollContainer}
+            contentContainerStyle={styles.fullPageScrollContent}
+            showsVerticalScrollIndicator={false}
+            onScroll={settingsScroll}
+            scrollEventThrottle={16}
+          >
             <View style={styles.aboutCard}>
               <View style={styles.aboutBrandHeader}>
                 <Image
-                  source={require('../../Assets/brown-white-logo.png')}
+                  source={require('../../Assets/brown-b-white-logo.png')}
                   style={styles.aboutAppLogo}
                   resizeMode="contain"
                 />
@@ -2544,7 +2608,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={styles.aboutAppTitle}>Brown</Text>
                     <View style={styles.aboutVersionBadge}>
-                      <Text style={styles.aboutVersionBadgeText}>BETA v1</Text>
+                      <Text style={styles.aboutVersionBadgeText}>v1.0</Text>
                     </View>
                   </View>
                   <Text style={styles.aboutTagline}>{'Local & Offline Mobile AI Companion'}</Text>
@@ -2563,7 +2627,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.aboutSpecsGrid}>
                 <View style={styles.aboutSpecItem}>
                   <Text style={styles.aboutSpecLabel}>VERSION</Text>
-                  <Text style={styles.aboutSpecValue}>BETA v1 Mobile</Text>
+                  <Text style={styles.aboutSpecValue}>v1.0 Mobile</Text>
                 </View>
                 <View style={styles.aboutSpecItem}>
                   <Text style={styles.aboutSpecLabel}>PLATFORM</Text>
@@ -2575,10 +2639,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
               </View>
 
-              {/* External Links (Fully Rounded with GitHub Logo & Instagram) */}
-              <View style={[styles.aboutLinksContainer, { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }]}>
+              {/* Social Media Links (Only icons without bg, center-aligned in a single row) */}
+              <View style={styles.aboutSocialIconsRow}>
                 <TouchableOpacity
-                  style={styles.aboutLinkBtn}
+                  style={styles.aboutSocialIconBtn}
                   onPress={() => {
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
                       window.open('https://github.com/vedantwankhade123', '_blank');
@@ -2586,15 +2650,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       Alert.alert('GitHub', 'https://github.com/vedantwankhade123');
                     }
                   }}
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
+                  accessibilityLabel="GitHub"
                 >
-                  <GithubIcon size={16} color="#000000" />
-                  <Text style={styles.aboutLinkBtnText}>GitHub</Text>
-                  <Text style={styles.platformButtonArrow}>↗</Text>
+                  <GithubIcon size={24} color="#ffffff" />
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.aboutLinkBtn, { backgroundColor: '#e1306c' }]}
+                  style={styles.aboutSocialIconBtn}
                   onPress={() => {
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
                       window.open('https://www.instagram.com/ultron_offline', '_blank');
@@ -2602,14 +2665,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       Alert.alert('Instagram', 'https://www.instagram.com/ultron_offline');
                     }
                   }}
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Instagram"
                 >
-                  <Text style={[styles.aboutLinkBtnText, { color: '#ffffff' }]}>Instagram: @ultron_offline</Text>
-                  <Text style={[styles.platformButtonArrow, { color: '#ffffff' }]}>↗</Text>
+                  <InstagramIcon size={24} color="#ffffff" />
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.aboutLinkBtn, { backgroundColor: '#1e293b' }]}
+                  style={styles.aboutSocialIconBtn}
                   onPress={() => {
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
                       window.open('mailto:contact@usebrown.online', '_blank');
@@ -2617,10 +2680,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       Alert.alert('Email Developer', 'contact@usebrown.online');
                     }
                   }}
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Email"
                 >
-                  <Text style={[styles.aboutLinkBtnText, { color: '#f8fafc' }]}>Email: contact@usebrown.online</Text>
-                  <Text style={[styles.platformButtonArrow, { color: '#f8fafc' }]}>↗</Text>
+                  <MailIcon size={24} color="#ffffff" />
                 </TouchableOpacity>
               </View>
 
@@ -2670,14 +2733,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       ]}
     >
       <SafeAreaView style={styles.container}>
-        {/* Spotlight Search Overlay Bar */}
-        {isSpotlightOpen && (
-          <View style={styles.spotlightContainer}>
-            <View style={styles.spotlightBar}>
-              <SearchIcon size={16} color="#9ca3af" />
+        {/* Top Header Row: Transitions into Search Field in the exact same row when search is active */}
+        {isSpotlightOpen ? (
+          <View style={[styles.mainHeaderRow, styles.mainHeaderSearchActive, settingsScrolled && styles.mainHeaderRowScrolled]}>
+            <View style={styles.headerSearchBar}>
+              <SearchIcon size={17} color="#9ca3af" />
               <TextInput
                 style={[
-                  styles.spotlightInput,
+                  styles.headerSearchInput,
                   Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {},
                 ]}
                 value={searchQuery}
@@ -2685,12 +2748,65 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 placeholder="Search settings, models, audio, storage..."
                 placeholderTextColor="#71717a"
                 autoFocus
+                returnKeyType="search"
               />
               {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <TouchableOpacity
+                  onPress={() => setSearchQuery('')}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={{ padding: 4 }}
+                >
                   <CloseIcon size={16} color="#a1a1aa" />
                 </TouchableOpacity>
               )}
+            </View>
+            <TouchableOpacity
+              style={styles.searchCloseBtn}
+              onPress={() => {
+                setIsSpotlightOpen(false);
+                setSearchQuery('');
+              }}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Close Search"
+            >
+              <CloseIcon size={20} color="#e4e4e7" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={[styles.mainHeaderRow, settingsScrolled && styles.mainHeaderRowScrolled]}>
+            <TouchableOpacity
+              style={styles.settingsBackBtn}
+              onPress={handleSmoothBack}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Back to Chat"
+            >
+              <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
+            </TouchableOpacity>
+            <Text style={styles.settingsTitleText} numberOfLines={1}>
+              Settings
+            </Text>
+            <View style={{ flex: 1 }} />
+            <View style={styles.headerRightGroup}>
+              <TouchableOpacity
+                style={styles.headerIconBtn}
+                onPress={() => setIsSpotlightOpen(true)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Spotlight Search"
+              >
+                <SearchIcon size={20} color="#e4e4e7" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerIconBtn}
+                onPress={() => navigateToView('about')}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="About Brown"
+              >
+                <HelpCircleIcon size={20} color="#e4e4e7" />
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -2700,52 +2816,49 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           style={styles.scrollContainer}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          onScroll={settingsScroll}
+          scrollEventThrottle={16}
         >
-          {/* Inline Title Row: back button left of the Settings title */}
-          <View style={styles.settingsTitleRow}>
-            <TouchableOpacity
-              style={styles.settingsBackBtn}
-              onPress={handleSmoothBack}
-              activeOpacity={0.7}
-              accessibilityLabel="Back to Chat"
-            >
-              <ChevronLeftIcon size={18} color="#e4e4e7" />
-            </TouchableOpacity>
-            <Text style={styles.settingsTitleText}>Settings</Text>
-            <View style={{ flex: 1 }} />
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              onPress={() => setIsSpotlightOpen(!isSpotlightOpen)}
-              activeOpacity={0.7}
-              accessibilityLabel="Spotlight Search"
-            >
-              <SearchIcon size={19} color="#e4e4e7" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.headerIconBtn}
-              onPress={() => navigateToView('about')}
-              activeOpacity={0.7}
-              accessibilityLabel="About Brown"
-            >
-              <HelpCircleIcon size={20} color="#e4e4e7" />
-            </TouchableOpacity>
-          </View>
 
           {/* iOS-Style Profile Card */}
-          <TouchableOpacity
-            style={styles.iosProfileCard}
-            onPress={() => navigateToView('account')}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iosAvatarCircle}>
-              <Text style={styles.iosAvatarText}>{userInitial}</Text>
-            </View>
-            <View style={styles.iosProfileInfo}>
-              <Text style={styles.iosProfileName}>{userName}</Text>
-              <Text style={styles.iosProfileSubtitle}>{userEmail || 'vedantwankhade47@gmail.com'}</Text>
-            </View>
-            <ChevronRightIcon size={18} color="#8e8e93" />
-          </TouchableOpacity>
+          {(!searchQuery.trim() ||
+            'account'.includes(searchQuery.toLowerCase()) ||
+            'profile'.includes(searchQuery.toLowerCase()) ||
+            userName.toLowerCase().includes(searchQuery.toLowerCase())) && (
+            <TouchableOpacity
+              style={styles.iosProfileCard}
+              onPress={() => navigateToView('account')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.iosAvatarCircle}>
+                <Text style={styles.iosAvatarText}>{userInitial}</Text>
+              </View>
+              <View style={styles.iosProfileInfo}>
+                <Text style={styles.iosProfileName}>{userName}</Text>
+                <Text style={styles.iosProfileSubtitle}>{userEmail || 'vedantwankhade47@gmail.com'}</Text>
+              </View>
+              <ChevronRightIcon size={18} color="#8e8e93" />
+            </TouchableOpacity>
+          )}
+
+          {/* No Search Results Empty State */}
+          {searchQuery.trim().length > 0 &&
+            settingsGroups.every((g) =>
+              g.items.every((it) => !it.title.toLowerCase().includes(searchQuery.toLowerCase()))
+            ) &&
+            !('account'.includes(searchQuery.toLowerCase()) ||
+              'profile'.includes(searchQuery.toLowerCase()) ||
+              userName.toLowerCase().includes(searchQuery.toLowerCase())) && (
+              <View style={{ alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 }}>
+                <SearchIcon size={32} color="#52525b" />
+                <Text style={{ color: '#ffffff', fontSize: 16, fontWeight: '600', marginTop: 14 }}>
+                  No settings found
+                </Text>
+                <Text style={{ color: '#71717a', fontSize: 13, marginTop: 4, textAlign: 'center' }}>
+                  No results matching "{searchQuery}". Try searching for models, sync, voice, or storage.
+                </Text>
+              </View>
+            )}
 
           {/* Categorized Settings Cards Groups matching iOS Design */}
           {settingsGroups.map((group) => {
@@ -2759,15 +2872,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             return (
               <View key={group.id} style={styles.menuGroupContainer}>
-                <View style={styles.menuGroupHeaderRow}>
-                  <Text style={styles.menuGroupSectionTitle}>{group.title}</Text>
-                  {group.badge && (
-                    <View style={styles.menuGroupBadge}>
-                      <Text style={styles.menuGroupBadgeText}>{group.badge}</Text>
-                    </View>
-                  )}
-                </View>
-
                 <View style={styles.groupCardContainer}>
                   {visibleItems.map((item, idx) => {
                     const isLast = idx === visibleItems.length - 1;
@@ -2836,7 +2940,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.bottomVersionLabel}>BETA V1.0.0</Text>
+            <Text style={styles.bottomVersionLabel}>V1.0.0</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -2856,8 +2960,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: '#000000',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   headerLeftGroup: {
     flexDirection: 'row',
@@ -2876,36 +2978,79 @@ const styles = StyleSheet.create({
   headerRightGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 8,
   },
   headerIconBtn: {
-    padding: 4,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  settingsTitleRow: {
+  mainHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingLeft: 4,
+    paddingRight: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+    backgroundColor: '#000000',
+    minHeight: 56,
+    width: '100%',
+    maxWidth: 600,
+    alignSelf: 'center',
+  },
+  mainHeaderRowScrolled: {
+    backgroundColor: '#0a0a0c',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  mainHeaderSearchActive: {
+    paddingLeft: 14,
+    paddingRight: 10,
     gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 4,
+  },
+  headerSearchBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 9999,
+    paddingHorizontal: 12,
+    height: 42,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    gap: 8,
+  },
+  headerSearchInput: {
+    flex: 1,
+    color: '#ffffff',
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  searchCloseBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   settingsBackBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   settingsTitleText: {
     color: '#ffffff',
-    fontSize: 17,
+    fontSize: 19,
     fontWeight: '700',
     letterSpacing: -0.2,
+    marginLeft: 4,
   },
   fullscreenBackdrop: {
     position: 'absolute',
@@ -2920,8 +3065,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: '#000000',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   spotlightBar: {
     flexDirection: 'row',
@@ -2946,12 +3089,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingTop: 10,
     paddingBottom: 40,
     maxWidth: 600,
     width: '100%',
     alignSelf: 'center',
-    gap: 10,
+    gap: 8,
   },
   fullPageScrollContent: {
     paddingHorizontal: 16,
@@ -2963,7 +3106,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   menuGroupContainer: {
-    marginBottom: 20,
+    marginBottom: 8,
   },
   menuGroupHeaderRow: {
     flexDirection: 'row',
@@ -2992,18 +3135,18 @@ const styles = StyleSheet.create({
   iosProfileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1c1c1e',
-    borderRadius: 22,
+    backgroundColor: '#212121',
+    borderRadius: 20,
     padding: 14,
-    marginBottom: 18,
+    marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   iosAvatarCircle: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#3a3a3c',
+    backgroundColor: '#303030',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -3029,10 +3172,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   groupCardContainer: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 22,
+    backgroundColor: '#212121',
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     overflow: 'hidden',
   },
   cleanMenuRow: {
@@ -3084,7 +3227,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#1c1c1e',
+    borderColor: '#212121',
     zIndex: 2,
   },
   modelsStackedLogo2: {
@@ -3095,7 +3238,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#1c1c1e',
+    borderColor: '#212121',
     marginLeft: -8,
     zIndex: 1,
   },
@@ -3224,9 +3367,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingBottom: 4,
   },
   datepickerMonthYearBtn: {
     flexDirection: 'row',
@@ -3871,7 +4012,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   locationCardGroup: {
-    backgroundColor: '#1c1c1e',
+    backgroundColor: '#212121',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
@@ -4039,10 +4180,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
+    marginBottom: 12,
+    paddingBottom: 4,
   },
   aboutAppLogo: {
     width: 46,
@@ -4109,44 +4248,40 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 3,
   },
-  aboutLinksContainer: {
-    flexDirection: 'column',
-    gap: 10,
-    marginTop: 18,
-  },
-  aboutLinkBtn: {
+  aboutSocialIconsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: '#ffffff',
-    borderRadius: 9999,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
+    gap: 32,
+    marginTop: 22,
+    marginBottom: 6,
   },
-  aboutLinkBtnText: {
-    color: '#000000',
-    fontSize: 15.5,
-    fontWeight: '600',
-    letterSpacing: -0.2,
+  aboutSocialIconBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   alsoAvailableContainer: {
     marginTop: 20,
   },
   alsoAvailableTitle: {
-    color: '#9ca3af',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.2,
     marginBottom: 8,
+    textAlign: 'center',
     paddingHorizontal: 4,
   },
   alsoAvailableHeading: {
-    color: '#9ca3af',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 0.2,
     marginBottom: 8,
+    textAlign: 'center',
     paddingHorizontal: 4,
   },
   platformButtonsGrid: {

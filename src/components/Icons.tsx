@@ -6,6 +6,7 @@ interface IconProps {
   size?: number;
   color?: string;
   branded?: boolean;
+  strokeWidth?: number;
 }
 
 export const UltronLogoIcon: React.FC<IconProps> = ({ size = 20, color = colors.accentWhite }) => (
@@ -80,6 +81,20 @@ export const PauseIcon: React.FC<IconProps> = ({ size = 16, color = colors.accen
   </Svg>
 );
 
+export const PlayIcon: React.FC<IconProps> = ({ size = 16, color = colors.accentWhite }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+    <Polygon points="6 4 20 12 6 20 6 4" />
+  </Svg>
+);
+
+export const AlertIcon: React.FC<IconProps> = ({ size = 16, color = '#f87171' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <Line x1="12" y1="9" x2="12" y2="13" />
+    <Line x1="12" y1="17" x2="12.01" y2="17" />
+  </Svg>
+);
+
 export const CopyIcon: React.FC<IconProps> = ({ size = 14, color = colors.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -128,8 +143,8 @@ export const ChevronDownIcon: React.FC<IconProps> = ({ size = 12, color = colors
   </Svg>
 );
 
-export const BackArrowIcon: React.FC<IconProps> = ({ size = 18, color = colors.accentWhite }) => (
-  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+export const BackArrowIcon: React.FC<IconProps> = ({ size = 18, color = colors.accentWhite, strokeWidth = 2 }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
     <Line x1="19" y1="12" x2="5" y2="12" />
     <Polyline points="12 19 5 12 12 5" />
   </Svg>
@@ -374,6 +389,14 @@ export const WifiIcon: React.FC<IconProps> = ({ size = 16, color = '#ffffff' }) 
 export const GithubIcon: React.FC<IconProps> = ({ size = 16, color = '#ffffff' }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+  </Svg>
+);
+
+export const InstagramIcon: React.FC<IconProps> = ({ size = 16, color = '#ffffff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+    <Path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+    <Line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
   </Svg>
 );
 

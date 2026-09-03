@@ -1,9 +1,11 @@
+import { Platform } from 'react-native';
 import { ChatMessage, GenerationStats } from '../../types/chat';
 import { ModelMetadata, InferenceSettings } from '../../types/model';
 import { formatPromptForModel } from './PromptTemplates';
 import { MockLlamaEngine } from './MockLlamaEngine';
 import { streamGeminiReply } from './GeminiClient';
 import { streamCloudReply, CloudProviderId } from './CloudProviders';
+import { ModelDownloader } from '../modelManager/Downloader';
 
 const CLOUD_PROVIDER_IDS: CloudProviderId[] = ['openai', 'anthropic', 'deepseek', 'groq', 'custom'];
 
@@ -51,7 +53,49 @@ export class LlamaEngine implements ILlamaService {
     }
 
     this.activeModel = model;
+
+    const provider = model.provider || (model.source === 'online' ? 'ollama' : model.source === 'cloud' ? 'gemini' : 'device');
+
+    if (provider === 'device' && Platform.OS !== 'web') {
+      const loaded = await this.initNativeContext(model, settings);
+      this.useNativeEngine = loaded;
+      return loaded;
+    }
+
+    this.useNativeEngine = false;
     return this.mockEngine.loadModel(model, settings);
+  }
+
+  private async initNativeContext(model: ModelMetadata, settings?: Partial<InferenceSettings>): Promise<boolean> {
+    try {
+      const state = ModelDownloader.getInstance().getState(model.id);
+      const localPath = state.localPath;
+      if (!localPath) return false;
+
+      const FileSystem = require('expo-file-system');
+      if (FileSystem?.getInfoAsync) {
+        let info = await FileSystem.getInfoAsync(localPath);
+        if (!info?.exists && !localPath.startsWith('file:')) {
+          info = await FileSystem.getInfoAsync('file://' + localPath);
+        }
+        if (!info?.exists) return false;
+      }
+
+      const { initLlama } = require('llama.rn');
+      const nCtx = Math.min(settings?.contextSize || model.contextLength || 2048, 4096);
+      this.llamaContext = await initLlama({
+        model: localPath,
+        n_ctx: nCtx,
+        n_threads: settings?.threads || 4,
+        n_gpu_layers: Platform.OS === 'ios' && settings?.useHardwareAcceleration ? 99 : 0,
+        use_mmap: true,
+      });
+      return !!this.llamaContext;
+    } catch (err: any) {
+      console.warn('[LlamaEngine] native init failed:', err?.message || err);
+      this.llamaContext = null;
+      return false;
+    }
   }
 
   async unloadModel(): Promise<void> {

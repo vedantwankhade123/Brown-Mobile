@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
 import { ModelMetadata, ModelDownloadState } from '../types/model';
-import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon } from './Icons';
+import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon, PlayIcon, AlertIcon } from './Icons';
 import { HuggingFaceLogo } from './HuggingFaceLogo';
 
 const OLLAMA_LOGO = require('../../Assets/ollama-logo.png');
@@ -16,38 +17,75 @@ interface ModelCardProps {
   onDelete: (modelId: string) => void;
   onPause?: (modelId: string) => void;
   onResume?: (modelId: string) => void;
+  onCancel?: (modelId: string) => void;
 }
+
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 MB';
+  const gb = bytes / (1024 * 1024 * 1024);
+  if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`;
+  return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} MB`;
+}
+
+const CircularProgress: React.FC<{
+  progress: number;
+  size: number;
+  strokeWidth: number;
+  color: string;
+  trackColor: string;
+  children?: React.ReactNode;
+}> = ({ progress, size, strokeWidth, color, trackColor, children }) => {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.min(Math.max(progress, 0), 100);
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: size, height: size, position: 'absolute' }}>
+        <Svg width={size} height={size}>
+          <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={strokeWidth} fill="none" />
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            stroke={color}
+            strokeWidth={strokeWidth}
+            fill="none"
+            strokeDasharray={`${circumference}`}
+            strokeDashoffset={circumference * (1 - clamped / 100)}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        </Svg>
+      </View>
+      {children}
+    </View>
+  );
+};
 
 function getSupportedFeatures(model: ModelMetadata): string[] {
   const caps = (model.capabilities || {}) as any;
   const features: string[] = [];
 
-  // Check reasoning / thinking
   if (/r1|reason|think|deepseek/i.test(model.name) || /reason|think/i.test(model.id)) {
     features.push('🧠 Thinking & Reasoning');
   }
 
-  // Check vision / image
   if (caps.vision || /vision|vl|image|llava/i.test(model.name) || /vision|vl/i.test(model.id)) {
     features.push('👁️ Vision & Images');
   }
 
-  // Check code
   if (caps.code || model.tags.some((t) => /code/i.test(t)) || /coder|qwen/i.test(model.name)) {
     features.push('💻 Code');
   }
 
-  // Check chat / assistant
   if (caps.chat !== false) {
     features.push('💬 Chat');
   }
 
-  // Check multilingual
   if (caps.multilingual || model.tags.some((t) => /multi/i.test(t)) || /qwen|llama/i.test(model.name)) {
     features.push('🌐 Multilingual');
   }
 
-  // Return top 3-4 distinct features
   return features.slice(0, 4);
 }
 
@@ -60,16 +98,26 @@ export const ModelCard: React.FC<ModelCardProps> = ({
   onDelete,
   onPause,
   onResume,
+  onCancel,
 }) => {
   const isDownloaded = downloadState.status === 'downloaded';
   const isDownloading = downloadState.status === 'downloading';
   const isPaused = downloadState.status === 'paused';
+  const isError = downloadState.status === 'error';
   const features = getSupportedFeatures(model);
   const capabilitySummary = features
     .map((feature) => feature.replace(/^\S+\s+/, ''))
     .slice(0, 2)
     .join(' · ');
   const contextLabel = `${Math.max(1, Math.round((model.contextLength || 4096) / 1024))}K context`;
+  const ramLabel = model.recommendedRamMb ? `${(model.recommendedRamMb / 1024).toFixed(model.recommendedRamMb % 1024 === 0 ? 0 : 1)} GB RAM` : null;
+
+  const downloadedLabel = formatBytes(downloadState.downloadedBytes);
+  const totalLabel = formatBytes(downloadState.totalBytes || model.sizeBytes);
+  const speedLabel =
+    downloadState.speedBytesPerSec > 0
+      ? `${(downloadState.speedBytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`
+      : null;
 
   return (
     <View style={[styles.card, isActive && styles.activeCard]}>
@@ -101,26 +149,53 @@ export const ModelCard: React.FC<ModelCardProps> = ({
 
       <View style={styles.modelFactsRow}>
         <Text style={styles.modelFact}>{model.parameters || '1B'} parameters</Text>
+        {ramLabel ? <Text style={styles.modelFact}>{ramLabel}</Text> : null}
         {capabilitySummary ? <Text style={styles.modelFact}>{capabilitySummary}</Text> : null}
       </View>
       <Text style={styles.description} numberOfLines={2}>{model.description}</Text>
 
-      {/* Download Progress Bar */}
+      {/* Download progress: circular ring around the action icon */}
       {(isDownloading || isPaused) && (
         <View style={styles.progressContainer}>
-          <View style={styles.progressBarBackground}>
-            <View style={[styles.progressBarFill, { width: `${downloadState.progress}%` }]} />
-          </View>
-          <View style={styles.progressStats}>
-            <Text style={styles.progressText}>{downloadState.progress}%</Text>
-            <Text style={styles.progressSpeed}>
-              {isPaused
-                ? 'Paused'
-                : downloadState.speedBytesPerSec > 0
-                  ? `${(downloadState.speedBytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`
-                  : 'Downloading GGUF...'}
+          <CircularProgress
+            progress={downloadState.progress}
+            size={40}
+            strokeWidth={3.5}
+            color={isPaused ? '#a1a1aa' : '#3b82f6'}
+            trackColor="rgba(255, 255, 255, 0.1)"
+          >
+            <TouchableOpacity
+              onPress={() => (isPaused ? onResume?.(model.id) : onPause?.(model.id))}
+              activeOpacity={0.7}
+              accessibilityLabel={isPaused ? 'Resume download' : 'Pause download'}
+              style={styles.ringTapArea}
+            >
+              {isPaused ? (
+                <PlayIcon size={13} color="#ffffff" />
+              ) : (
+                <PauseIcon size={13} color="#ffffff" />
+              )}
+            </TouchableOpacity>
+          </CircularProgress>
+
+          <View style={styles.progressTextCol}>
+            <Text style={styles.progressTitle}>
+              {downloadState.progress}% complete
+            </Text>
+            <Text style={styles.progressDetail}>
+              {downloadedLabel} of {totalLabel}
+              {speedLabel ? ` · ${speedLabel}` : ''}
             </Text>
           </View>
+        </View>
+      )}
+
+      {isError && (
+        <View style={styles.errorContainer}>
+          <AlertIcon size={13} color="#f87171" />
+          <Text style={styles.errorText} numberOfLines={2}>
+            {downloadState.error || 'Download failed.'}
+          </Text>
         </View>
       )}
 
@@ -155,31 +230,30 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                 <TrashIcon size={15} color="#ef4444" />
               </TouchableOpacity>
             </>
-          ) : isDownloading ? (
+          ) : isDownloading || isPaused ? (
             <TouchableOpacity
-              style={styles.pauseBtn}
-              onPress={() => onPause?.(model.id)}
+              style={styles.cancelLink}
+              onPress={() => (onCancel ? onCancel(model.id) : onDelete(model.id))}
               activeOpacity={0.7}
             >
-              <PauseIcon size={13} color="#ffffff" />
-              <Text style={styles.pauseBtnText}>Pause</Text>
+              <Text style={styles.cancelLinkText}>Cancel</Text>
             </TouchableOpacity>
-          ) : isPaused ? (
+          ) : isError ? (
             <TouchableOpacity
-              style={styles.downloadBtn}
-              onPress={() => onResume?.(model.id)}
-              activeOpacity={0.7}
+              style={styles.retryBtn}
+              onPress={() => (onResume ? onResume(model.id) : onDownload(model))}
+              activeOpacity={0.8}
             >
-              <DownloadIcon size={16} color="#111113" />
-              <Text style={styles.downloadBtnText}>Resume {downloadState.progress}%</Text>
+              <DownloadIcon size={14} color="#111113" />
+              <Text style={styles.retryBtnText}>Retry download</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={styles.downloadBtn}
               onPress={() => onDownload(model)}
-              activeOpacity={0.7}
+              activeOpacity={0.8}
             >
-              <DownloadIcon size={16} color="#111113" />
+              <DownloadIcon size={14} color="#111113" />
               <Text style={styles.downloadBtnText}>Download Model</Text>
             </TouchableOpacity>
           )}
@@ -205,7 +279,7 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 6,
   },
   titleArea: {
@@ -214,8 +288,8 @@ const styles = StyleSheet.create({
   },
   modelName: {
     color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
     letterSpacing: -0.2,
   },
   modelOriginRow: {
@@ -230,13 +304,13 @@ const styles = StyleSheet.create({
     tintColor: '#ffffff',
   },
   originText: {
-    color: '#8b8b92',
-    fontSize: 11.5,
+    color: '#9ca3af',
+    fontSize: 13,
     fontWeight: '600',
   },
   contextText: {
     color: '#9ca3af',
-    fontSize: 11.5,
+    fontSize: 13,
     fontWeight: '600',
   },
   modelFactsRow: {
@@ -247,59 +321,76 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   modelFact: {
-    color: '#a1a1aa',
-    fontSize: 11.5,
+    color: '#9ca3af',
+    fontSize: 13,
     fontWeight: '600',
   },
   description: {
-    color: '#b3b3ba',
-    fontSize: 12.5,
+    color: '#9ca3af',
+    fontSize: 13,
+    fontWeight: '600',
     lineHeight: 18,
     marginBottom: 10,
   },
   progressContainer: {
-    marginVertical: 8,
-  },
-  progressBarBackground: {
-    height: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#3b82f6',
-  },
-  progressStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 4,
+    alignItems: 'center',
+    gap: 12,
+    marginVertical: 4,
+    marginBottom: 10,
   },
-  progressText: {
+  ringTapArea: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressTextCol: {
+    flex: 1,
+  },
+  progressTitle: {
     color: '#60a5fa',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
-  progressSpeed: {
-    color: '#a1a1aa',
-    fontSize: 11,
+  progressDetail: {
+    color: '#9ca3af',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 10,
+  },
+  errorText: {
+    color: '#f87171',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
   },
   bottomRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 9,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    paddingTop: 8,
   },
   bottomSizeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+    flex: 1,
   },
   bottomSizeText: {
     color: '#9ca3af',
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
   },
   actionsGroup: {
@@ -310,16 +401,39 @@ const styles = StyleSheet.create({
   downloadBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
     backgroundColor: '#f4f4f5',
-    paddingHorizontal: 11,
+    paddingHorizontal: 13,
     paddingVertical: 7,
-    borderRadius: 7,
+    borderRadius: 9999,
   },
   downloadBtnText: {
     color: '#111113',
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#f4f4f5',
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 9999,
+  },
+  retryBtnText: {
+    color: '#111113',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  cancelLink: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  cancelLinkText: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    fontWeight: '600',
   },
   loadBtn: {
     backgroundColor: 'rgba(59, 130, 246, 0.15)',
@@ -335,23 +449,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   deleteBtn: {
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-  },
-  pauseBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#3f3f46',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    padding: 7,
     borderRadius: 9999,
-  },
-  pauseBtnText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
   },
   activePill: {
     flexDirection: 'row',
