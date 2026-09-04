@@ -41,7 +41,24 @@ import {
 import { LlamaEngine } from '../services/inference/LlamaEngine';
 import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
-import { ModelBrandLogo } from '../components/ModelBrandLogo';
+import { UpdatePromptModal } from '../components/UpdatePromptModal';
+import {
+  AppUpdateInfo,
+  checkForAppUpdate,
+  getAutoCheckEnabled,
+  getCurrentAppVersion,
+  setAutoCheckEnabled,
+} from '../services/updater/GitHubUpdateService';
+import {
+  KOKORO_VOICES,
+  KokoroVoiceId,
+  cancelKokoroDownload,
+  deleteKokoroAssets,
+  downloadKokoroOnboardingDefaults,
+  getActiveKokoroVoice,
+  getKokoroInstallStatus,
+  setActiveKokoroVoice,
+} from '../services/voice/KokoroTtsService';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   SearchIcon,
@@ -250,8 +267,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [syncBusy, setSyncBusy] = useState(false);
 
   // Software Updates State (Desktop Parity)
-  const [updateStatus, setUpdateStatus] = useState<'up-to-date' | 'checking' | 'available'>('up-to-date');
+  const [updateStatus, setUpdateStatus] = useState<'up-to-date' | 'checking' | 'available' | 'error'>('up-to-date');
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
+  const [latestUpdateInfo, setLatestUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const currentAppVersion = getCurrentAppVersion();
+  const [kokoroVoice, setKokoroVoice] = useState<KokoroVoiceId>('af_heart');
+  const [kokoroInstalled, setKokoroInstalled] = useState(false);
+  const [kokoroBusy, setKokoroBusy] = useState(false);
+  const [kokoroProgress, setKokoroProgress] = useState('');
   const [desktopSyncStatus, setDesktopSyncStatus] = useState<{ isConnected: boolean; deviceName: string }>({
     isConnected: false,
     deviceName: '',
@@ -284,6 +309,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     loadGeminiKey();
     loadAllCloudKeys();
     loadStorageAndSyncPrefs();
+    getAutoCheckEnabled()
+      .then(setAutoCheckUpdates)
+      .catch(() => {});
+    getActiveKokoroVoice()
+      .then(setKokoroVoice)
+      .catch(() => {});
+    getKokoroInstallStatus()
+      .then((s) => setKokoroInstalled(s.fullyInstalled))
+      .catch(() => {});
     const active = LlamaEngine.getInstance().getActiveModel();
     if (active) setSelectedModelId(active.id);
     AsyncStorage.getItem(LOCATION_STORAGE_KEY)
@@ -838,12 +872,29 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     );
   };
 
-  const handleCheckUpdates = () => {
+  const handleCheckUpdates = async () => {
     setUpdateStatus('checking');
-    setTimeout(() => {
-      setUpdateStatus('up-to-date');
-      Alert.alert('Software Update', 'Brown Mobile BETA v1 is up to date.');
-    }, 1200);
+    setUpdateError(null);
+    try {
+      const info = await checkForAppUpdate();
+      setLatestUpdateInfo(info);
+      if (info.available) {
+        setUpdateStatus('available');
+        setShowUpdateModal(true);
+      } else {
+        setUpdateStatus('up-to-date');
+        Alert.alert('Software Update', `Brown Mobile v${info.currentVersion} is up to date.`);
+      }
+    } catch (e: any) {
+      setUpdateStatus('error');
+      setUpdateError(e?.message || 'Unable to reach GitHub Releases.');
+      Alert.alert('Update Check Failed', e?.message || 'Unable to reach GitHub Releases.');
+    }
+  };
+
+  const handleAutoCheckToggle = (value: boolean) => {
+    setAutoCheckUpdates(value);
+    setAutoCheckEnabled(value).catch(() => {});
   };
 
   const userName = profile?.fullName || 'Vedant Wankhade';
@@ -2035,7 +2086,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     <View style={styles.modelRowCardHeader}>
                       <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <ModelBrandLogo modelName={m.name} provider={m.provider} size={20} />
                           <Text style={styles.modelRowCardTitle}>{m.name}</Text>
                           <View style={[styles.weightsBadge, !isDevice && { borderColor: 'rgba(96, 165, 250, 0.35)', backgroundColor: 'rgba(96, 165, 250, 0.12)' }]}>
                             <Text style={[styles.weightsBadgeText, !isDevice && { color: '#93c5fd' }]}>
@@ -2155,9 +2205,89 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
 
               <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Voice persona</Text>
-                <Text style={styles.fullPageRowValue}>Neutral</Text>
+                <Text style={styles.fullPageRowLabel}>Kokoro status</Text>
+                <Text style={styles.fullPageRowValue}>
+                  {kokoroInstalled ? 'Installed' : 'Not installed'}
+                </Text>
               </View>
+
+              <View style={{ marginTop: 8, marginBottom: 4 }}>
+                <Text style={styles.fullPageRowLabel}>Voice persona</Text>
+                <Text style={styles.toggleDesc}>
+                  Heart (female) or Michael (male) — same Kokoro voices as Brown Desktop.
+                </Text>
+                <View style={[styles.speedPillsRow, { marginTop: 10 }]}>
+                  {KOKORO_VOICES.map((v) => (
+                    <TouchableOpacity
+                      key={v.key}
+                      style={[styles.speedPill, kokoroVoice === v.voiceId && styles.speedPillActive]}
+                      onPress={async () => {
+                        setKokoroVoice(v.voiceId);
+                        await setActiveKokoroVoice(v.voiceId);
+                      }}
+                    >
+                      <Text style={[styles.speedPillText, kokoroVoice === v.voiceId && styles.speedPillTextActive]}>
+                        {v.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.exportBackupBtn, { marginTop: 12 }]}
+                disabled={kokoroBusy}
+                onPress={async () => {
+                  setKokoroBusy(true);
+                  setKokoroProgress('Starting download…');
+                  const result = await downloadKokoroOnboardingDefaults((p) => {
+                    setKokoroProgress(p.status || `${p.percent}%`);
+                  });
+                  setKokoroBusy(false);
+                  if (result.success) {
+                    setKokoroInstalled(true);
+                    setKokoroProgress('Kokoro ready');
+                    Alert.alert('Kokoro TTS', 'Engine + Heart & Michael voices installed.');
+                  } else if (!result.cancelled) {
+                    Alert.alert('Download Failed', result.error || 'Could not download Kokoro.');
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <DownloadIcon size={16} color="#ffffff" />
+                <Text style={styles.exportBackupBtnText}>
+                  {kokoroBusy
+                    ? (kokoroProgress || 'Downloading…')
+                    : kokoroInstalled
+                      ? 'Re-download Kokoro voices'
+                      : 'Download Kokoro TTS'}
+                </Text>
+              </TouchableOpacity>
+
+              {kokoroInstalled ? (
+                <TouchableOpacity
+                  style={[styles.clearChatsBtn, { marginTop: 8 }]}
+                  onPress={() => {
+                    Alert.alert('Remove Kokoro?', 'Deletes the on-device engine and voice models.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          cancelKokoroDownload();
+                          await deleteKokoroAssets();
+                          setKokoroInstalled(false);
+                          setKokoroProgress('');
+                        },
+                      },
+                    ]);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <TrashIcon size={16} color="#ffffff" />
+                  <Text style={styles.clearChatsBtnText}>Remove Kokoro assets</Text>
+                </TouchableOpacity>
+              ) : null}
 
               <View style={styles.fullPageDetailRow}>
                 <Text style={styles.fullPageRowLabel}>Speech rate</Text>
@@ -2535,15 +2665,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.updateCardHeaderRow}>
                 {/* Brown Logo */}
                 <Image
-                  source={require('../../Assets/brown-white-logo.png')}
+                  source={require('../../Assets/brown-b-white-logo.png')}
                   style={styles.updateLogoImg}
                   resizeMode="contain"
                 />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.updateStatusTitle}>
-                    {updateStatus === 'checking' ? 'Checking for updates...' : 'Brown is up to date'}
+                    {updateStatus === 'checking'
+                      ? 'Checking for updates...'
+                      : updateStatus === 'available'
+                        ? `Update available · v${latestUpdateInfo?.latestVersion || ''}`
+                        : updateStatus === 'error'
+                          ? 'Update check failed'
+                          : 'Brown is up to date'}
                   </Text>
-                  <Text style={styles.updateStatusSubtitle}>Current Version: v1.0.14 Mobile</Text>
+                  <Text style={styles.updateStatusSubtitle}>Current Version: v{currentAppVersion} Mobile</Text>
                 </View>
                 <TouchableOpacity
                   style={styles.checkUpdatesActionBtn}
@@ -2559,11 +2695,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.toggleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fullPageRowLabel}>Auto-Check on Launch</Text>
-                  <Text style={styles.toggleDesc}>Check for engine optimization releases when starting app</Text>
+                  <Text style={styles.toggleDesc}>Check GitHub Releases when starting the app</Text>
                 </View>
                 <ToggleSwitch
                   value={autoCheckUpdates}
-                  onValueChange={setAutoCheckUpdates}
+                  onValueChange={handleAutoCheckToggle}
                 />
               </View>
 
@@ -2577,6 +2713,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <Text style={styles.primaryFullBtnText}>Back to Settings</Text>
             </TouchableOpacity>
           </ScrollView>
+          <UpdatePromptModal
+            visible={showUpdateModal && !!latestUpdateInfo?.available}
+            update={latestUpdateInfo}
+            onDismiss={() => setShowUpdateModal(false)}
+            onUpdated={() => {
+              setShowUpdateModal(false);
+              setUpdateStatus('up-to-date');
+            }}
+          />
         </SafeAreaView>
       </Animated.View>
     );

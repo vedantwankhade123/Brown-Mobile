@@ -130,6 +130,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const [renameValue, setRenameValue] = useState('');
   const [userName, setUserName] = useState('Om Patil');
   const [userInitials, setUserInitials] = useState('OP');
+  const [isSidebarScrolled, setIsSidebarScrolled] = useState(false);
 
   const slideAnim = useRef(new Animated.Value(closedDrawerOffset)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -255,108 +256,120 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         ]}
       >
         <SafeAreaView style={styles.drawerInner}>
-          {/* Top Brand Header */}
-          <View style={styles.drawerHeader}>
-            <View style={styles.topBrandBar}>
-              <View style={styles.brandRow}>
-                <Image
-                  source={require('../../Assets/brown-white-wordmark.png')}
-                  style={styles.brandLogo}
-                  resizeMode="contain"
-                />
-              </View>
+          <View style={styles.drawerBody}>
+            {/* Recent Conversations List — scrolls behind sticky header */}
+            <ScrollView
+              style={styles.sessionsList}
+              contentContainerStyle={styles.sessionsListContent}
+              showsVerticalScrollIndicator={false}
+              onScroll={(e: any) => {
+                const y = e?.nativeEvent?.contentOffset?.y || 0;
+                setIsSidebarScrolled(y > 8);
+              }}
+              scrollEventThrottle={16}
+            >
+              <Text style={styles.recentSectionTitle}>Recent Conversations</Text>
+              {sessions.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyText}>No saved chats yet.</Text>
+                </View>
+              ) : (
+                sessions.map((item: ChatSession) => {
+                  const isActive = item.id === activeSessionId;
+                  const isHovered = item.id === hoveredSessionId;
+                  const formattedTitle = formatConversationTitle(item.title);
+                  const formattedDate = formatSessionDate(item.updatedAt || item.createdAt);
+                  const hoverHandlers =
+                    Platform.OS === 'web'
+                      ? ({
+                          onMouseEnter: () => setHoveredSessionId(item.id),
+                          onMouseLeave: () => setHoveredSessionId(null),
+                        } as any)
+                      : {};
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[
+                        styles.sessionItem,
+                        (isActive || isHovered) && styles.sessionItemActive,
+                      ]}
+                      onPress={() => {
+                        onSelectSession(item.id);
+                        handleClose();
+                      }}
+                      activeOpacity={0.8}
+                      {...hoverHandlers}
+                    >
+                      <View style={styles.sessionContent}>
+                        <Text style={[styles.sessionTitle, isActive && styles.sessionTitleActive]} numberOfLines={1}>
+                          {formattedTitle}
+                        </Text>
+                      </View>
 
-              <TouchableOpacity
-                style={styles.collapseSidebarBtn}
-                onPress={handleClose}
-                activeOpacity={0.7}
-                accessibilityLabel="Collapse sidebar"
-              >
-                <SidebarToggleIcon size={22} color="#ffffff" />
-              </TouchableOpacity>
-            </View>
+                      <TouchableOpacity
+                        style={styles.sessionMoreBtn}
+                        onPress={(e: any) => {
+                          e?.stopPropagation?.();
+                          setSessionActionTarget({ id: item.id, title: formattedTitle });
+                        }}
+                        activeOpacity={0.65}
+                        accessibilityLabel={`Chat options for ${formattedTitle}`}
+                      >
+                        <MoreVerticalIcon size={20} color="#ffffff" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
 
-            {/* Action Buttons: New Chat & Search */}
-            <View style={styles.headerActionsStack}>
-              <TouchableOpacity
-                style={styles.newChatPill}
-                onPress={() => {
-                  onNewChat();
-                  handleClose();
-                }}
-                activeOpacity={0.8}
-              >
-                <PencilIcon size={20} color="#ffffff" />
-                <Text style={styles.newChatPillText}>New chat</Text>
-              </TouchableOpacity>
+            {/* Sticky header overlay — chats scroll behind */}
+            <View style={styles.drawerHeaderOverlay} pointerEvents="box-none">
+              <View style={styles.drawerHeader}>
+                <View style={styles.topBrandBar}>
+                  <View style={[styles.brandPill, isSidebarScrolled && styles.sidebarScrolledPill]}>
+                    <Image
+                      source={require('../../Assets/brown-white-wordmark.png')}
+                      style={styles.brandLogo}
+                      resizeMode="contain"
+                    />
+                  </View>
 
-              <TouchableOpacity
-                style={styles.searchChatsRow}
-                onPress={() => setIsSpotlightOpen(true)}
-                activeOpacity={0.7}
-              >
-                <SearchIcon size={20} color="#ffffff" />
-                <Text style={styles.searchChatsText}>Search chats</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Recent Conversations List */}
-          <ScrollView style={styles.sessionsList} showsVerticalScrollIndicator={false}>
-            <Text style={styles.recentSectionTitle}>Recent</Text>
-            {sessions.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No saved chats yet.</Text>
-              </View>
-            ) : (
-              sessions.map((item: ChatSession) => {
-                const isActive = item.id === activeSessionId;
-                const isHovered = item.id === hoveredSessionId;
-                const formattedTitle = formatConversationTitle(item.title);
-                const formattedDate = formatSessionDate(item.updatedAt || item.createdAt);
-                const hoverHandlers =
-                  Platform.OS === 'web'
-                    ? ({
-                        onMouseEnter: () => setHoveredSessionId(item.id),
-                        onMouseLeave: () => setHoveredSessionId(null),
-                      } as any)
-                    : {};
-                return (
                   <TouchableOpacity
-                    key={item.id}
-                    style={[
-                      styles.sessionItem,
-                      (isActive || isHovered) && styles.sessionItemActive,
-                    ]}
+                    style={[styles.collapseSidebarBtn, isSidebarScrolled && styles.sidebarScrolledPill]}
+                    onPress={handleClose}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Collapse sidebar"
+                  >
+                    <SidebarToggleIcon size={22} color="#ffffff" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.headerActionsStack}>
+                  <TouchableOpacity
+                    style={[styles.newChatPill, isSidebarScrolled && styles.sidebarScrolledPill]}
                     onPress={() => {
-                      onSelectSession(item.id);
+                      onNewChat();
                       handleClose();
                     }}
                     activeOpacity={0.8}
-                    {...hoverHandlers}
                   >
-                    <View style={styles.sessionContent}>
-                      <Text style={[styles.sessionTitle, isActive && styles.sessionTitleActive]} numberOfLines={1}>
-                        {formattedTitle}
-                      </Text>
-                    </View>
-
-                    <TouchableOpacity
-                      style={styles.sessionMoreBtn}
-                      onPress={(e: any) => {
-                        e?.stopPropagation?.();
-                        setSessionActionTarget({ id: item.id, title: formattedTitle });
-                      }}
-                      activeOpacity={0.65}
-                      accessibilityLabel={`Chat options for ${formattedTitle}`}
-                    >
-                      <MoreVerticalIcon size={20} color="#ffffff" />
-                    </TouchableOpacity>
+                    <PencilIcon size={20} color="#ffffff" />
+                    <Text style={styles.newChatPillText}>New chat</Text>
                   </TouchableOpacity>
-                );
-              })
-            )}
-          </ScrollView>
+
+                  <TouchableOpacity
+                    style={[styles.searchChatsRow, isSidebarScrolled && styles.sidebarScrolledPill]}
+                    onPress={() => setIsSpotlightOpen(true)}
+                    activeOpacity={0.7}
+                  >
+                    <SearchIcon size={20} color="#ffffff" />
+                    <Text style={styles.searchChatsText}>Search chats</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
 
           {/* Bottom Footer with Connection & User Profile */}
           <View style={styles.drawerFooter}>
@@ -738,11 +751,23 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#000000',
   },
+  drawerBody: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  drawerHeaderOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+  },
   drawerHeader: {
     paddingHorizontal: 16,
     paddingTop: Platform.OS === 'ios' ? 10 : 16,
     paddingBottom: 12,
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
   },
   topBrandBar: {
     flexDirection: 'row',
@@ -754,6 +779,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  brandPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   brandLogo: {
     width: 68,
@@ -773,10 +808,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  sidebarScrolledPill: {
+    backgroundColor: '#212121',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   headerActionsStack: {
     flexDirection: 'column',
-    gap: 8,
+    gap: 2,
   },
   newChatPill: {
     flexDirection: 'row',
@@ -784,11 +825,14 @@ const styles = StyleSheet.create({
     gap: 10,
     borderRadius: 9999,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   newChatPillText: {
     color: '#ffffff',
-    fontSize: 16.5,
+    fontSize: 18,
     fontWeight: '600',
   },
   searchChatsRow: {
@@ -797,24 +841,30 @@ const styles = StyleSheet.create({
     gap: 10,
     borderRadius: 9999,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   searchChatsText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 17.5,
     fontWeight: '500',
   },
   sessionsList: {
     flex: 1,
     paddingHorizontal: 12,
-    paddingTop: 10,
-    backgroundColor: '#000000',
+  },
+  sessionsListContent: {
+    paddingTop: 148,
+    paddingBottom: 16,
   },
   recentSectionTitle: {
-    color: '#ffffff',
-    fontSize: 14,
+    color: '#9ca3af',
+    fontSize: 15.5,
     fontWeight: '700',
     letterSpacing: 0.2,
+    marginTop: 18,
     marginBottom: 8,
     paddingHorizontal: 12,
   },
@@ -823,8 +873,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    color: '#ffffff',
-    fontSize: 14.5,
+    color: '#d4d4d8',
+    fontSize: 16,
   },
   sessionItem: {
     flexDirection: 'row',
@@ -845,7 +895,7 @@ const styles = StyleSheet.create({
   },
   sessionTitle: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 17.5,
     fontWeight: '500',
   },
   sessionTitleActive: {
@@ -853,8 +903,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sessionDate: {
-    color: '#ffffff',
-    fontSize: 12.5,
+    color: '#a1a1aa',
+    fontSize: 13.5,
     marginTop: 2,
   },
   sessionMoreBtn: {
@@ -898,7 +948,7 @@ const styles = StyleSheet.create({
   },
   desktopSyncQrText: {
     color: '#ffffff',
-    fontSize: 12.5,
+    fontSize: 14,
     fontWeight: '700',
   },
   footerIconBox: {
@@ -910,7 +960,7 @@ const styles = StyleSheet.create({
   },
   desktopSyncBtnText: {
     color: '#ffffff',
-    fontSize: 15.5,
+    fontSize: 17,
     fontWeight: '600',
   },
   userProfileBar: {
@@ -938,12 +988,12 @@ const styles = StyleSheet.create({
   },
   userAvatarInitials: {
     color: '#ffffff',
-    fontSize: 13.5,
+    fontSize: 14.5,
     fontWeight: '700',
   },
   userNameText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 17.5,
     fontWeight: '600',
     flex: 1,
   },

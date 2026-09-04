@@ -10,6 +10,7 @@ import {
   Alert,
   Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { MessageInput } from '../components/MessageInput';
 import { Header } from '../components/Header';
@@ -22,12 +23,28 @@ import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog'
 import { getCachedGeminiModels } from '../services/inference/GeminiClient';
 import { getConfiguredCloudModels } from '../services/inference/CloudProviders';
 import { SpeechToTextService } from '../services/voice/SpeechToText';
-import { TextToSpeechService } from '../services/voice/TextToSpeech';
+import { TextToSpeechService, KokoroNotInstalledError } from '../services/voice/TextToSpeech';
+import {
+  downloadKokoroOnboardingDefaults,
+  getKokoroInstallStatus,
+  KokoroDownloadProgress,
+} from '../services/voice/KokoroTtsService';
+import {
+  AppUpdateInfo,
+  checkForAppUpdate,
+  dismissUpdateVersion,
+  shouldAutoCheckNow,
+  wasVersionDismissed,
+} from '../services/updater/GitHubUpdateService';
+import { UpdatePromptModal } from '../components/UpdatePromptModal';
 import { SoundService } from '../services/sound/SoundService';
 import { ChatMessage, ChatSession } from '../types/chat';
 import { ModelMetadata } from '../types/model';
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
+import { getContextualThinkingLabel, ANSWERING_PROMOTE_MS, GENERATING_PROMOTE_MS } from '../utils/thinkingLabel';
+import { generateSessionTitle, isDefaultSessionTitle } from '../utils/sessionTitle';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 interface ChatScreenProps {
   onOpenModelStore: () => void;
@@ -51,6 +68,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [userName, setUserName] = useState<string>('');
+  const [modelSheetVisible, setModelSheetVisible] = useState(false);
+  const [pendingUpdate, setPendingUpdate] = useState<AppUpdateInfo | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [kokoroDownloading, setKokoroDownloading] = useState(false);
 
   const isSpeaking = Boolean(speakingMessageId) && !ttsPaused;
 
@@ -62,7 +83,65 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   useEffect(() => {
     initApp();
     loadUserProfile();
+    checkUpdatesOnLaunch();
   }, []);
+
+  const checkUpdatesOnLaunch = async () => {
+    try {
+      if (!(await shouldAutoCheckNow())) return;
+      const info = await checkForAppUpdate();
+      if (!info.available) return;
+      if (await wasVersionDismissed(info.latestVersion)) return;
+      setPendingUpdate(info);
+    } catch {
+      // Silent on launch — Settings has manual check
+    }
+  };
+
+  const promptKokoroDownload = (messageId: string, text: string) => {
+    Alert.alert(
+      'Kokoro TTS Required',
+      'Download the Kokoro TTS engine and the Heart (female) & Michael (male) voice models to use Speak / Listen. Same voices as Brown Desktop (~120 MB).',
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Download',
+          onPress: () => startKokoroDownload(messageId, text),
+        },
+      ]
+    );
+  };
+
+  const startKokoroDownload = async (messageId: string, text: string) => {
+    if (kokoroDownloading) return;
+    setKokoroDownloading(true);
+    Alert.alert('Downloading Kokoro TTS', 'Downloading neural engine and voice models…');
+    try {
+      const result = await downloadKokoroOnboardingDefaults((p: KokoroDownloadProgress) => {
+        if (p.percent >= 100 || p.phase === 'complete') return;
+      });
+      if (!result.success) {
+        Alert.alert('Download Failed', result.error || 'Could not download Kokoro TTS.');
+        return;
+      }
+      const status = await getKokoroInstallStatus();
+      if (!status.fullyInstalled) {
+        Alert.alert('Download Incomplete', 'Kokoro assets are still missing. Please retry from Settings → Voice & Speech.');
+        return;
+      }
+      Alert.alert('Kokoro Ready', 'Heart & Michael voices are installed. Playing your message…');
+      setSpeakingMessageId(messageId);
+      setTtsPaused(false);
+      await TextToSpeechService.speak(text, () => {
+        setSpeakingMessageId(null);
+        setTtsPaused(false);
+      });
+    } catch (e: any) {
+      Alert.alert('Download Failed', e?.message || 'Could not download Kokoro TTS.');
+    } finally {
+      setKokoroDownloading(false);
+    }
+  };
 
   const loadUserProfile = async () => {
     try {
@@ -189,8 +268,23 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setMessages(newHistory);
     await chatRepo.addMessage(userMsg);
 
-    // Prepare assistant streaming placeholder
+    // Auto-title the chat from the first meaningful user prompt
+    const currentSession = sessions.find((s) => s.id === currentSessionId);
+    if (currentSession && isDefaultSessionTitle(currentSession.title)) {
+      const autoTitle = generateSessionTitle(text);
+      if (autoTitle && !isDefaultSessionTitle(autoTitle)) {
+        await chatRepo.upsertSession({
+          ...currentSession,
+          title: autoTitle,
+          updatedAt: Date.now(),
+        });
+        setSessions(await chatRepo.getAllSessions());
+      }
+    }
+
+    // Prepare assistant streaming placeholder — dynamic contextual status (Thinking/Searching/Analyzing → Answering)
     const assistantMsgId = 'msg_ast_' + Date.now();
+    const initialStatus = getContextualThinkingLabel(text);
     const streamingPlaceholder: ChatMessage = {
       id: assistantMsgId,
       sessionId: currentSessionId,
@@ -198,14 +292,42 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       content: '',
       timestamp: Date.now(),
       isStreaming: true,
+      statusLabel: initialStatus,
       modelId: activeModel.id,
     };
 
     setMessages([...newHistory, streamingPlaceholder]);
     setIsGenerating(true);
 
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 60);
+
+    // Promote to Formulating response / Answering if still waiting for the first token
+    const promoteTimer = setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsgId && m.isStreaming && !String(m.content || '').trim()
+            ? { ...m, statusLabel: 'Formulating response' }
+            : m
+        )
+      );
+    }, ANSWERING_PROMOTE_MS);
+
+    // Secondary progress indication if model load or context warm-up is taking longer
+    const secondPromoteTimer = setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsgId && m.isStreaming && !String(m.content || '').trim()
+            ? { ...m, statusLabel: 'Generating answer' }
+            : m
+        )
+      );
+    }, GENERATING_PROMOTE_MS);
+
     try {
       let streamedContent = '';
+      let receivedFirstToken = false;
 
       await engine.generateStream(
         text,
@@ -219,16 +341,23 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           useHardwareAcceleration: true,
         },
         (token) => {
+          if (!receivedFirstToken) {
+            receivedFirstToken = true;
+            clearTimeout(promoteTimer);
+            clearTimeout(secondPromoteTimer);
+          }
           streamedContent += token;
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, content: streamedContent }
+                ? { ...m, content: streamedContent, statusLabel: undefined }
                 : m
             )
           );
         },
         async (fullText, stats) => {
+          clearTimeout(promoteTimer);
+          clearTimeout(secondPromoteTimer);
           setIsGenerating(false);
           SoundService.playCompletion();
           const finalMsg: ChatMessage = {
@@ -254,12 +383,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         }
       );
     } catch (err: any) {
+      clearTimeout(promoteTimer);
+      clearTimeout(secondPromoteTimer);
       setIsGenerating(false);
       const friendlyMsg = err?.message || 'Failed to complete generation';
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMsgId
-            ? { ...m, content: `⚠️ ${friendlyMsg}`, isStreaming: false }
+            ? { ...m, content: `⚠️ ${friendlyMsg}`, isStreaming: false, statusLabel: undefined }
             : m
         )
       );
@@ -270,28 +401,64 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleStopGeneration = () => {
     engine.stopGeneration();
     setIsGenerating(false);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.isStreaming
+          ? {
+              ...m,
+              isStreaming: false,
+              statusLabel: undefined,
+              content: m.content?.trim()
+                ? m.content
+                : 'Generation stopped.',
+            }
+          : m
+      )
+    );
   };
+
+  const [voiceInsertText, setVoiceInsertText] = useState<string | null>(null);
 
   const handleVoiceToggle = async () => {
     if (isListening) {
-      await SpeechToTextService.stopListening();
-      setIsListening(false);
-    } else {
-      setIsListening(true);
+      // Default mic tap while listening = commit (same as pause)
+      await handleVoiceCommit();
+      return;
+    }
+    setIsListening(true);
+    try {
       await SpeechToTextService.startListening({
-        onPartialResult: (text) => {},
+        onPartialResult: () => {
+          // Keep partials internal — do not put text in the input until commit
+        },
         onFinalResult: (finalText) => {
-          setIsListening(false);
-          if (finalText) {
-            handleSendMessage(finalText);
+          // Finalization is triggered only by stopListening(); insert for review
+          if (finalText?.trim()) {
+            setVoiceInsertText(finalText.trim());
           }
         },
         onError: () => setIsListening(false),
       });
+    } catch {
+      setIsListening(false);
     }
   };
 
-  const handleSpeakText = (messageId: string, text: string) => {
+  const handleVoiceCommit = async () => {
+    if (!isListening) return;
+    const text = await SpeechToTextService.stopListening();
+    setIsListening(false);
+    if (text?.trim()) {
+      setVoiceInsertText(text.trim());
+    }
+  };
+
+  const handleVoiceCancel = async () => {
+    await SpeechToTextService.cancelListening();
+    setIsListening(false);
+  };
+
+  const handleSpeakText = async (messageId: string, text: string) => {
     const isThisMessage = speakingMessageId === messageId;
 
     if (isThisMessage && !ttsPaused) {
@@ -309,77 +476,110 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     TextToSpeechService.stop();
     setSpeakingMessageId(messageId);
     setTtsPaused(false);
-    TextToSpeechService.speak(text, () => {
+    try {
+      await TextToSpeechService.speak(text, () => {
+        setSpeakingMessageId(null);
+        setTtsPaused(false);
+      });
+    } catch (err) {
       setSpeakingMessageId(null);
       setTtsPaused(false);
-    });
+      if (err instanceof KokoroNotInstalledError) {
+        promptKokoroDownload(messageId, text);
+      } else {
+        Alert.alert('Speech Error', (err as any)?.message || 'Unable to speak this message.');
+      }
+    }
   };
 
-  const handleCopy = (_text: string) => {
-    // Visual copied-state is handled on the bubble copy button.
+  const handleCopy = async (text: string) => {
+    await copyTextToClipboard(text);
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
-      {/* Header */}
-      <Header
-        onOpenSidebar={() => setIsSidebarOpen(true)}
-        onOpenSettings={() => {
-          setIsSidebarOpen(false);
-          onOpenSettings();
-        }}
-        isScrolled={isScrolled}
-      />
-
-      {/* Chat Messages or Centered New Chat Greeting Canvas */}
-      {messages.length === 0 ? (
-        <View style={styles.emptyWelcomeContainer}>
-          <Image
-            source={require('../../Assets/brown-white-wordmark.png')}
-            style={styles.emptyWelcomeLogo}
-            resizeMode="contain"
-          />
-          <Text style={styles.emptyWelcomeTitle}>{getGreetingText()}</Text>
-          <Text style={styles.emptyWelcomeSubtitle}>How can Brown assist you today?</Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={(item: ChatMessage) => item.id}
-          renderItem={({ item }: { item: ChatMessage }) => (
-            <ChatBubble
-              message={item}
-              onCopy={handleCopy}
-              onSpeak={handleSpeakText}
-              isSpeaking={speakingMessageId === item.id && isSpeaking}
-              isPaused={speakingMessageId === item.id && ttsPaused}
+      <View style={styles.chatBody}>
+        {/* Chat Messages or Centered New Chat Greeting Canvas */}
+        {messages.length === 0 ? (
+          <View style={styles.emptyWelcomeContainer}>
+            <Image
+              source={require('../../Assets/brown-white-wordmark.png')}
+              style={styles.emptyWelcomeLogo}
+              resizeMode="contain"
             />
-          )}
-          contentContainerStyle={styles.listContent}
-          onScroll={(e: any) => {
-            const y = e?.nativeEvent?.contentOffset?.y || 0;
-            setIsScrolled(y > 8);
-          }}
-          scrollEventThrottle={16}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-          onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
-        />
-      )}
+            <Text style={styles.emptyWelcomeTitle}>{getGreetingText()}</Text>
+            <Text style={styles.emptyWelcomeSubtitle}>How can Brown assist you today?</Text>
+          </View>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            keyExtractor={(item: ChatMessage) => item.id}
+            renderItem={({ item }: { item: ChatMessage }) => (
+              <ChatBubble
+                message={item}
+                onCopy={handleCopy}
+                onSpeak={handleSpeakText}
+                isSpeaking={speakingMessageId === item.id && isSpeaking}
+                isPaused={speakingMessageId === item.id && ttsPaused}
+              />
+            )}
+            contentContainerStyle={styles.listContent}
+            onScroll={(e: any) => {
+              const y = e?.nativeEvent?.contentOffset?.y || 0;
+              setIsScrolled(y > 8);
+            }}
+            scrollEventThrottle={16}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+          />
+        )}
+
+        {/* Top fade — chat softens under floating header (ChatGPT-style) */}
+        {messages.length > 0 && (
+          <LinearGradient
+            pointerEvents="none"
+            colors={['#000000', 'rgba(0,0,0,0.92)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0)']}
+            locations={[0, 0.35, 0.7, 1]}
+            style={styles.topFade}
+          />
+        )}
+
+        {/* Floating header — chat scrolls behind the individual pills */}
+        <View style={styles.headerOverlay} pointerEvents="box-none">
+          <Header
+            onOpenSidebar={() => setIsSidebarOpen(true)}
+            onOpenSettings={() => {
+              setIsSidebarOpen(false);
+              onOpenSettings();
+            }}
+            isScrolled={isScrolled}
+            updateAvailable={Boolean(pendingUpdate?.available)}
+            updateVersion={pendingUpdate?.latestVersion || null}
+            onOpenUpdate={() => setShowUpdateModal(true)}
+          />
+        </View>
+      </View>
 
       {/* Input Field & Voice Controls */}
       <MessageInput
         onSendMessage={handleSendMessage}
         onStopGeneration={handleStopGeneration}
         onVoicePress={handleVoiceToggle}
+        onVoiceCommit={handleVoiceCommit}
+        onVoiceCancel={handleVoiceCancel}
+        voiceInsertText={voiceInsertText}
+        onVoiceInsertConsumed={() => setVoiceInsertText(null)}
         onOpenModelStore={onOpenModelStore}
         onSelectModel={handleSelectModel}
         activeModel={activeModel}
         isGenerating={isGenerating}
         isListening={isListening}
         isSpeaking={isSpeaking}
+        modelSheetVisible={modelSheetVisible}
+        onModelSheetVisibleChange={setModelSheetVisible}
       />
 
       {/* Sidebar Drawer */}
@@ -398,6 +598,21 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         }}
         onClose={() => setIsSidebarOpen(false)}
       />
+
+      <UpdatePromptModal
+        visible={showUpdateModal && !!pendingUpdate}
+        update={pendingUpdate}
+        autoStartDownload
+        onDismiss={async () => {
+          setShowUpdateModal(false);
+          if (pendingUpdate) {
+            await dismissUpdateVersion(pendingUpdate.latestVersion).catch(() => {});
+          }
+        }}
+        onUpdated={() => {
+          setShowUpdateModal(false);
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -408,12 +623,33 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     overflow: 'visible',
   },
+  chatBody: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 30,
+  },
+  topFade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 88,
+    zIndex: 20,
+  },
   emptyWelcomeContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
     paddingBottom: 40,
+    paddingTop: 56,
   },
   emptyWelcomeLogo: {
     width: 115,
@@ -436,7 +672,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   listContent: {
-    paddingVertical: spacing.md,
+    paddingTop: 64,
+    paddingBottom: 90,
     width: '100%',
     maxWidth: 740,
     alignSelf: 'center',

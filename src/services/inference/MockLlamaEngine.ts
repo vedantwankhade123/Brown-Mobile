@@ -87,20 +87,23 @@ export class MockLlamaEngine {
   }
 
   private craftContextualResponse(userInput: string, modelName = 'Ultron SLM'): string {
-    const inputLower = userInput.toLowerCase();
+    const inputTrimmed = userInput.trim();
+    const inputLower = inputTrimmed.toLowerCase();
 
-    if (inputLower.includes('hello') || inputLower.includes('hi') || inputLower.includes('hey')) {
-      return `Greetings! I am **Ultron Mobile**, running completely on-device with ${modelName}. No internet connection or cloud servers are used for this response. How can I assist your workflow today?`;
+    // Check for coding or programming inquiries
+    if (/\b(code|function|javascript|typescript|python|react|html|css|sql|script|algorithm|bug|fix|implement)\b/i.test(inputLower)) {
+      const topic = inputTrimmed.replace(/^(write|code|create|show|give me|implement)\s+(a\s+|an\s+)?/i, '').replace(/[?.]+$/, '');
+      return `Here is a clean implementation for **${topic || 'your request'}** using ${modelName} on Ultron Mobile:\n\n\`\`\`typescript\n// Solution for: ${topic || 'task'}\nexport function executeTask(input: string): { success: boolean; data: string } {\n  const normalized = input.trim();\n  if (!normalized) {\n    return { success: false, data: 'No valid input provided' };\n  }\n  return {\n    success: true,\n    data: \`Processed successfully: \${normalized}\`\n  };\n}\n\`\`\`\n\n### Key Points:\n- **Type safety**: Fully typed TypeScript contracts.\n- **Error handling**: Guards against invalid or empty states.\n- **Performance**: High throughput with minimal overhead.\n\n*Executed via ${modelName} with Ultron Mobile.*`;
     }
 
-    if (inputLower.includes('who are you') || inputLower.includes('what are you')) {
-      return `I am **Ultron Mobile**, an offline privacy-first AI companion. I run quantized GGUF neural models directly on your smartphone's Neural Engine & GPU with zero data tracking or cloud transmission.`;
+    // Check for conceptual or analytical questions
+    if (/^(what|why|how|explain|describe|tell me about|compare|difference|who)\b/i.test(inputLower)) {
+      const cleanSubject = inputTrimmed.replace(/^(what is|what are|why is|how does|explain|tell me about|who is)\s+(the\s+|a\s+|an\s+)?/i, '').replace(/[?.]+$/, '');
+      const subjectTitle = cleanSubject ? cleanSubject.charAt(0).toUpperCase() + cleanSubject.slice(1) : 'Analysis';
+      return `### Overview: ${subjectTitle}\n\nHere is a structured analysis based on your inquiry:\n\n1. **Core Concept**: Understanding the key principles and structure behind **${subjectTitle}**.\n2. **Practical Application**: In production and real-world workflows, this approach ensures high stability and deterministic performance.\n3. **Best Practices**: Maintain clear modular design, minimize side effects, and verify output against expectations.\n\n> [!NOTE]\n> Processed locally via **${modelName}** on Ultron Mobile with zero cloud telemetry.\n\n*Let me know if you would like me to provide further technical details, architecture diagrams, or step-by-step guidance!*`;
     }
 
-    if (inputLower.includes('code') || inputLower.includes('function') || inputLower.includes('javascript') || inputLower.includes('python')) {
-      return `Here is an optimized example for your request:\n\n\`\`\`typescript\n// Fast On-Device Buffer Pipeline\nexport function computeThroughput(tokens: number, durationMs: number): number {\n  if (durationMs <= 0) return 0;\n  return Number(((tokens / durationMs) * 1000).toFixed(2));\n}\n\`\`\`\n\nThis executes in constant $O(1)$ time complexity and minimal memory allocation.`;
-    }
-
-    return `I processed your request using **${modelName}** offline on-device.\n\nKey analysis:\n1. **Local Privacy**: 100% offline on-device compute.\n2. **Low Latency**: Direct hardware inference via NPU/GPU acceleration.\n3. **Reliability**: Fully functional without cellular data or Wi-Fi.\n\nLet me know if you would like me to elaborate or format this in another format!`;
+    // Dynamic contextual response for general queries
+    return `I have processed your request: "${inputTrimmed.slice(0, 90)}"\n\n- **Model**: ${modelName}\n- **Engine**: Ultron Mobile Local Core\n- **Execution**: On-device processing complete without cloud transmission.\n\nHow would you like to build on this next?`;
   }
 }

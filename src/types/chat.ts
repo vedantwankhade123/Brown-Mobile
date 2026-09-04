@@ -10,6 +10,8 @@ export interface ChatMessage {
   totalTokens?: number;
   modelId?: string;
   isStreaming?: boolean;
+  /** Prompt-aware status shown while waiting for the first token. */
+  statusLabel?: string;
 }
 
 export interface ChatSession {

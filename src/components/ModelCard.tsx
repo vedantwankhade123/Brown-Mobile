@@ -1,12 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { ModelMetadata, ModelDownloadState } from '../types/model';
 import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon, PlayIcon, AlertIcon } from './Icons';
-import { HuggingFaceLogo } from './HuggingFaceLogo';
-
-const OLLAMA_LOGO = require('../../Assets/ollama-logo.png');
-const GEMINI_LOGO = require('../../Assets/gemini-logo.png');
 
 interface ModelCardProps {
   model: ModelMetadata;
@@ -128,19 +124,14 @@ export const ModelCard: React.FC<ModelCardProps> = ({
             {model.name}
           </Text>
           <View style={styles.modelOriginRow}>
-            {model.source === 'online' || model.id.includes('ollama') ? (
-              <Image source={OLLAMA_LOGO} style={styles.originLogo} resizeMode="contain" />
-            ) : model.source === 'cloud' || model.id.includes('gemini') ? (
-              <Image source={GEMINI_LOGO} style={styles.originLogo} resizeMode="contain" />
-            ) : (
-              <HuggingFaceLogo size={15} />
-            )}
             <Text style={styles.originText}>
               {model.source === 'online' || model.id.includes('ollama')
                 ? 'Ollama'
                 : model.source === 'cloud' || model.id.includes('gemini')
                   ? 'Google Gemini'
-                  : 'Hugging Face'}
+                  : model.source === 'offline' || model.provider === 'device'
+                    ? 'On-device'
+                    : 'Cloud'}
             </Text>
           </View>
         </View>
@@ -193,7 +184,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       {isError && (
         <View style={styles.errorContainer}>
           <AlertIcon size={13} color="#f87171" />
-          <Text style={styles.errorText} numberOfLines={2}>
+          <Text style={styles.errorText} numberOfLines={3}>
             {downloadState.error || 'Download failed.'}
           </Text>
         </View>
@@ -297,11 +288,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     marginTop: 3,
-  },
-  originLogo: {
-    width: 15,
-    height: 15,
-    tintColor: '#ffffff',
   },
   originText: {
     color: '#9ca3af',

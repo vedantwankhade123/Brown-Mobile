@@ -174,6 +174,9 @@ export function detectProviderForModel(modelName: string): CloudProviderId | 'ge
 
 export function cloudModelToMetadata(providerId: CloudProviderId, model: CloudModelDef): ModelMetadata {
   const provider = CLOUD_PROVIDERS[providerId];
+  const supportsImages = /gpt-4o|gpt-4\.1|claude-3|claude-4|gemini|vision|llava/i.test(
+    `${model.id} ${model.name}`
+  );
   return {
     id: `${providerId}-cloud-${model.id}`,
     name: model.name,
@@ -192,7 +195,7 @@ export function cloudModelToMetadata(providerId: CloudProviderId, model: CloudMo
     source: 'cloud',
     provider: providerId,
     apiModel: model.id,
-    capabilities: { documents: true, images: false, voice: true, chat: true },
+    capabilities: { documents: true, images: supportsImages, voice: true, chat: true },
   };
 }
 
