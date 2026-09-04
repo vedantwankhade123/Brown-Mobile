@@ -4,7 +4,7 @@
     "slug": "brown-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./Assets/icon.png",
+    "icon": "./Assets/brown-b-white-logo.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./Assets/splash-small.png",
@@ -23,7 +23,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./Assets/adaptive-icon.png",
+        "foregroundImage": "./Assets/brown-b-white-logo.png",
         "backgroundColor": "#000000"
       },
       "package": "com.brown.mobile",
