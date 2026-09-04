@@ -25,3 +25,7 @@ app/my-release-key.keystore
 replay_pid*.log
 hs_err_pid*.log
 
+build-log.txt
+hs_err_pid*.log
+*.log
+
