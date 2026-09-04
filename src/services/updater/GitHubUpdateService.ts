@@ -127,12 +127,28 @@ export async function fetchLatestGitHubRelease(): Promise<GitHubReleasePayload> 
   return (await response.json()) as GitHubReleasePayload;
 }
 
+/** Prefer version embedded in APK asset name (unified desktop+mobile releases share one tag). */
+export function extractMobileVersionFromApkName(assetName: string | undefined | null): string | null {
+  const name = String(assetName || '');
+  const mobileMatch = name.match(/mobile[\s._-]*v?(\d+(?:\.\d+){1,3})/i);
+  if (mobileMatch?.[1]) return mobileMatch[1];
+  const trailing = name.match(/v(\d+(?:\.\d+){1,3})\.apk$/i);
+  if (trailing?.[1] && /mobile|android/i.test(name)) return trailing[1];
+  return null;
+}
+
 export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
   const currentVersion = getCurrentAppVersion();
   const release = await fetchLatestGitHubRelease();
-  const latestVersion = String(release.tag_name || release.name || '').replace(/^v/i, '').trim() || currentVersion;
   const apk = pickApkAsset(release.assets);
-  const available = isNewerVersion(latestVersion, currentVersion);
+  const fromApk = extractMobileVersionFromApkName(apk?.name);
+  const latestVersion =
+    fromApk ||
+    String(release.tag_name || release.name || '')
+      .replace(/^v/i, '')
+      .trim() ||
+    currentVersion;
+  const available = Boolean(apk) && isNewerVersion(latestVersion, currentVersion);
 
   await AsyncStorage.setItem(UPDATE_CONFIG.STORAGE_KEYS.LAST_CHECK_AT, String(Date.now()));
 
@@ -232,6 +248,7 @@ export const GitHubUpdateService = {
   getCurrentAppVersion,
   isNewerVersion,
   parseSemver,
+  extractMobileVersionFromApkName,
   installOrOpenApkUpdate,
   getAutoCheckEnabled,
   setAutoCheckEnabled,
