@@ -220,7 +220,7 @@ tasks.register("copyReleaseApkToUltronReleases") {
         def destDir = file("${rootProject.projectDir}/../../Downloadable Files")
         destDir.mkdirs()
         def versionName = android.defaultConfig.versionName ?: "1.0.0"
-        def targetName = "Brown-Mobile-v${versionName}.apk"
+        def targetName = "Brown-AI-Mobile-v${versionName}.apk"
         def built = fileTree(apkDir) { include "*.apk" }.files.find { it.name.endsWith(".apk") }
         if (built == null || !built.exists()) {
             throw new GradleException("No release APK found in ${apkDir}")
