@@ -2,7 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { ChatMessage } from '../types/chat';
 import { spacing } from '../theme/typography';
+import { colors } from '../theme/colors';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { ThinkingIndicator } from './ThinkingIndicator';
 import { CopyIcon, SpeakerIcon, CheckIcon, PauseIcon } from './Icons';
 
 interface ChatBubbleProps {
@@ -13,6 +15,10 @@ interface ChatBubbleProps {
   isPaused?: boolean;
 }
 
+const TYPE_INTERVAL_MS = 32;
+/** Characters revealed per tick — keeps UI smooth even for large one-shot chunks. */
+const CHARS_PER_TICK = 4;
+
 export const ChatBubble: React.FC<ChatBubbleProps> = ({
   message,
   onCopy,
@@ -22,16 +28,158 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 }) => {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
+  const [displayedContent, setDisplayedContent] = useState(() =>
+    isUser || !message.isStreaming ? message.content : ''
+  );
+  const [isTyping, setIsTyping] = useState(false);
+
   const copyProgress = useRef(new Animated.Value(0)).current;
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const caretOpacity = useRef(new Animated.Value(1)).current;
+  const targetRef = useRef(message.content || '');
+  const displayedRef = useRef(isUser || !message.isStreaming ? message.content || '' : '');
+  const typeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wasStreamingRef = useRef(Boolean(message.isStreaming));
+  const pendingFrameRef = useRef<string | null>(null);
+  const rafScheduledRef = useRef(false);
+
+  const showThinking =
+    !isUser &&
+    Boolean(message.isStreaming) &&
+    !String(message.content || '').trim() &&
+    !displayedContent.trim();
+
+  const flushDisplay = (next: string) => {
+    pendingFrameRef.current = next;
+    if (rafScheduledRef.current) return;
+    rafScheduledRef.current = true;
+    requestAnimationFrame(() => {
+      rafScheduledRef.current = false;
+      if (pendingFrameRef.current != null) {
+        setDisplayedContent(pendingFrameRef.current);
+        pendingFrameRef.current = null;
+      }
+    });
+  };
+
+  const stopTypingTimer = () => {
+    if (typeTimerRef.current) {
+      clearInterval(typeTimerRef.current);
+      typeTimerRef.current = null;
+    }
+  };
+
+  const startTypingTimer = () => {
+    if (typeTimerRef.current) return;
+
+    setIsTyping(true);
+    typeTimerRef.current = setInterval(() => {
+      const target = targetRef.current;
+      const current = displayedRef.current;
+
+      if (current.length >= target.length) {
+        stopTypingTimer();
+        displayedRef.current = target;
+        flushDisplay(target);
+        setIsTyping(false);
+        return;
+      }
+
+      const remaining = target.length - current.length;
+      // Adaptive pace: faster when far behind a big chunk, never dump all at once
+      const step =
+        remaining > 1200
+          ? 14
+          : remaining > 400
+          ? 9
+          : remaining > 100
+          ? 6
+          : CHARS_PER_TICK;
+
+      const next = target.slice(0, current.length + step);
+      displayedRef.current = next;
+      flushDisplay(next);
+    }, TYPE_INTERVAL_MS);
+  };
 
   useEffect(() => {
     return () => {
       if (copyResetTimer.current) {
         clearTimeout(copyResetTimer.current);
       }
+      stopTypingTimer();
     };
   }, []);
+
+  // Keep typing toward full content — even after stream ends (one-chunk replies).
+  useEffect(() => {
+    targetRef.current = message.content || '';
+
+    if (isUser) {
+      stopTypingTimer();
+      displayedRef.current = message.content || '';
+      setDisplayedContent(message.content || '');
+      setIsTyping(false);
+      return;
+    }
+
+    const target = message.content || '';
+    const current = displayedRef.current;
+    const stillCatchingUp = current.length < target.length;
+    const startedStreaming = message.isStreaming || wasStreamingRef.current;
+
+    if (message.isStreaming) {
+      wasStreamingRef.current = true;
+    }
+
+    // Historical / non-streamed messages: show immediately
+    if (!startedStreaming && !message.isStreaming) {
+      stopTypingTimer();
+      displayedRef.current = target;
+      setDisplayedContent(target);
+      setIsTyping(false);
+      return;
+    }
+
+    if (stillCatchingUp) {
+      startTypingTimer();
+    } else {
+      stopTypingTimer();
+      setIsTyping(false);
+      if (!message.isStreaming) {
+        displayedRef.current = target;
+        setDisplayedContent(target);
+      }
+    }
+  }, [message.content, message.isStreaming, isUser, message.id]);
+
+  const showCaret = !isUser && !showThinking && (isTyping || message.isStreaming) && displayedContent.length > 0;
+  const showActions = !isUser && !message.isStreaming && !isTyping && !showThinking;
+
+  // Blinking caret while typing
+  useEffect(() => {
+    if (!showCaret) {
+      caretOpacity.setValue(0);
+      return;
+    }
+
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(caretOpacity, {
+          toValue: 1,
+          duration: 320,
+          useNativeDriver: true,
+        }),
+        Animated.timing(caretOpacity, {
+          toValue: 0.15,
+          duration: 320,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    blink.start();
+    return () => blink.stop();
+  }, [showCaret, caretOpacity]);
 
   const handleCopyPress = () => {
     onCopy?.(message.content);
@@ -93,12 +241,24 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
         style={[
           styles.bubble,
           isUser ? styles.userBubble : styles.assistantBubble,
-          message.isStreaming && styles.streamingBubble,
+          (message.isStreaming || isTyping) && styles.streamingBubble,
         ]}
       >
-        <MarkdownRenderer content={message.content} onCopyText={onCopy} />
+        {showThinking ? (
+          <ThinkingIndicator label={message.statusLabel || 'Thinking'} />
+        ) : (
+          <View>
+            <MarkdownRenderer
+              content={isUser ? message.content : displayedContent}
+              onCopyText={onCopy}
+            />
+            {showCaret ? (
+              <Animated.Text style={[styles.caret, { opacity: caretOpacity }]}>|</Animated.Text>
+            ) : null}
+          </View>
+        )}
 
-        {!isUser && !message.isStreaming && (
+        {showActions && (
           <View style={styles.actionsRow}>
             {onCopy && (
               <TouchableOpacity
@@ -169,7 +329,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   streamingBubble: {
-    opacity: 0.95,
+    opacity: 0.98,
+  },
+  caret: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    lineHeight: 22,
+    marginTop: 2,
   },
   actionsRow: {
     flexDirection: 'row',

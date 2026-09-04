@@ -33,8 +33,12 @@
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
-      ]
+        "ACCESS_COARSE_LOCATION",
+        "REQUEST_INSTALL_PACKAGES",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "versionCode": 1
     },
     "plugins": [
       "expo-font",

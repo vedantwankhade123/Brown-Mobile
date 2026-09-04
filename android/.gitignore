@@ -1,0 +1,27 @@
+# OSX
+#
+.DS_Store
+
+# Android/IntelliJ
+#
+build/
+.idea
+.gradle
+local.properties
+*.iml
+*.hprof
+.cxx/
+
+# Bundle artifacts
+*.jsbundle
+
+# Release signing (do not commit secrets / production keystore)
+keystore.properties
+app/my-release-key.keystore
+*.keystore
+!app/debug.keystore
+
+# Crash/debug noise
+replay_pid*.log
+hs_err_pid*.log
+

@@ -184,8 +184,12 @@ export class ModelDownloader {
         let resumable = this.resumables.get(model.id);
         let hadResumable = !!resumable;
         if (!resumable) {
-          resumable = FileSystem.createDownloadResumable(downloadUrl, dest, downloadOptions, callback);
-          this.resumables.set(model.id, resumable);
+          try {
+            resumable = FileSystem.createDownloadResumable(downloadUrl, dest, downloadOptions, callback);
+            this.resumables.set(model.id, resumable);
+          } catch {
+            resumable = null;
+          }
         }
 
         let result: any = null;
@@ -194,12 +198,54 @@ export class ModelDownloader {
 
         while (attempts < maxAttempts) {
           try {
-            const isResuming = (hadResumable || attempts > 0) && state.downloadedBytes > 0 && typeof resumable.resumeAsync === 'function';
-            result = await (isResuming ? resumable.resumeAsync() : resumable.downloadAsync());
-            break;
+            if (resumable && typeof resumable.downloadAsync === 'function') {
+              const isResuming = (hadResumable || attempts > 0) && state.downloadedBytes > 0 && typeof resumable.resumeAsync === 'function';
+              result = await (isResuming ? resumable.resumeAsync() : resumable.downloadAsync());
+              break;
+            } else {
+              throw new Error('downloadResumableStartAsync is not available');
+            }
           } catch (downloadErr: any) {
             attempts++;
             const errMsg = String(downloadErr?.message || '');
+            const isUnavailability =
+              errMsg.includes('downloadResumableStartAsync') ||
+              errMsg.includes('is not available') ||
+              errMsg.includes('ERR_UNAVAILABLE');
+
+            if (isUnavailability && typeof FileSystem?.downloadAsync === 'function') {
+              // Resumable background native task is not supported in this client runtime (e.g. Expo Go).
+              // Gracefully fallback to FileSystem.downloadAsync with periodic getInfoAsync progress monitoring.
+              let progressTimer: any = null;
+              try {
+                progressTimer = setInterval(async () => {
+                  try {
+                    if (this.abortControllers.get(model.id)) return;
+                    if (FileSystem?.getInfoAsync) {
+                      const info = await FileSystem.getInfoAsync(dest);
+                      if (info?.exists && typeof info?.size === 'number') {
+                        const downloaded = info.size;
+                        const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
+                        state.downloadedBytes = downloaded;
+                        state.totalBytes = model.sizeBytes;
+                        state.progress = Math.min(Math.round((downloaded / model.sizeBytes) * 100), 99);
+                        state.speedBytesPerSec = Math.round(downloaded / elapsed);
+                        this.downloadStates.set(model.id, { ...state });
+                        this.notifyListeners();
+                      }
+                    }
+                  } catch {}
+                }, 600);
+
+                result = await FileSystem.downloadAsync(downloadUrl, dest, downloadOptions);
+                if (progressTimer) clearInterval(progressTimer);
+                break;
+              } catch (fallbackErr: any) {
+                if (progressTimer) clearInterval(progressTimer);
+                throw fallbackErr;
+              }
+            }
+
             const isNetworkInterruption =
               errMsg.includes('stream was reset') ||
               errMsg.includes('CANCEL') ||
@@ -243,6 +289,14 @@ export class ModelDownloader {
       const errMsg = String(err?.message || err || '');
       let friendlyError = errMsg || 'Download failed';
       if (
+        errMsg.includes('downloadResumableStartAsync') ||
+        errMsg.includes('downloadAsync') ||
+        errMsg.includes('is not available') ||
+        errMsg.includes('ERR_UNAVAILABLE') ||
+        errMsg.includes('linked all the native dependencies')
+      ) {
+        friendlyError = 'Local model storage requires native Android build. Run "npx expo run:android" or use Cloud / Desktop Sync models.';
+      } else if (
         errMsg.includes('stream was reset') ||
         errMsg.includes('CANCEL') ||
         errMsg.includes('Connection reset') ||
