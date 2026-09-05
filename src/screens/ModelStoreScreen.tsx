@@ -281,7 +281,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       )}
 
       <ScrollView
-        style={styles.scrollArea}
+        keyboardShouldPersistTaps="handled" style={styles.scrollArea}
         contentContainerStyle={styles.scrollBody}
         showsVerticalScrollIndicator={false}
         onScroll={storeScroll}

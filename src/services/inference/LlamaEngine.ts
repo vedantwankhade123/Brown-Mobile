@@ -320,8 +320,10 @@ export class LlamaEngine implements ILlamaService {
       }
     } catch (_) {}
 
-    // Fallback path
-    return this.mockEngine.generateStream(prompt, history, settings, onToken, onComplete);
+    // No silent mock answers in production — surface a clear actionable error
+    throw new Error(
+      'On-device GGUF inference is unavailable in this build. Open Models and use a Cloud model (Gemini / OpenAI / etc.), or pair with Desktop Sync.'
+    );
   }
 
   private async tryDirectOllamaInference(

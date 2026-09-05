@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, memo } from 'react';
 import { View, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { ChatMessage } from '../types/chat';
 import { spacing } from '../theme/typography';
@@ -19,7 +19,7 @@ const TYPE_INTERVAL_MS = 32;
 /** Characters revealed per tick — keeps UI smooth even for large one-shot chunks. */
 const CHARS_PER_TICK = 4;
 
-export const ChatBubble: React.FC<ChatBubbleProps> = ({
+export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
   message,
   onCopy,
   onSpeak,
@@ -280,10 +280,10 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
                 style={styles.actionIconBtn}
                 onPress={() => onSpeak(message.id, message.content)}
                 activeOpacity={0.6}
-                accessibilityLabel={isSpeaking ? 'Pause speaking' : isPaused ? 'Resume speaking' : 'Listen'}
+                accessibilityLabel={isSpeaking ? 'Stop speaking' : isPaused ? 'Resume speaking' : 'Listen'}
               >
                 {isSpeaking ? (
-                  <PauseIcon size={18} color="#ffffff" />
+                  <PauseIcon size={18} color="#3b82f6" />
                 ) : (
                   <SpeakerIcon size={20} color="#9ca3af" />
                 )}
@@ -294,7 +294,9 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
       </View>
     </View>
   );
-};
+});
+
+ChatBubble.displayName = 'ChatBubble';
 
 const styles = StyleSheet.create({
   container: {

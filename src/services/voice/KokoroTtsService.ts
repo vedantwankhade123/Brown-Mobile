@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, Platform } from 'react-native';
 import { StoragePaths } from '../storage/StoragePaths';
+import { KOKORO_HF_ASSETS, resetKokoroOnnxSession } from './KokoroOnnxEngine';
 
 /** Mirrors desktop `voice-tts.js` catalog keys */
 export type KokoroVoiceId = 'af_heart' | 'am_michael';
@@ -31,29 +33,38 @@ export const KOKORO_VOICES: Array<{
   },
 ];
 
-/**
- * Same family of assets desktop/Kokoro uses (82M ONNX + voices pack).
- * GitHub release mirrors are used for reliable mobile downloads.
- */
 export const KOKORO_ASSETS = {
   engineKey: 'kokoro-engine',
   modelId: 'onnx-community/Kokoro-82M-v1.0-ONNX',
-  minEngineBytes: 75 * 1024 * 1024,
-  minVoicesBytes: 20 * 1024 * 1024,
+  minEngineBytes: KOKORO_HF_ASSETS.model.minBytes,
   files: [
     {
       id: 'engine',
-      fileName: 'model_quantized.onnx',
-      url: 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx',
-      label: 'Kokoro TTS engine',
-      minBytes: 75 * 1024 * 1024,
+      fileName: KOKORO_HF_ASSETS.model.fileName,
+      url: KOKORO_HF_ASSETS.model.url,
+      label: 'Kokoro TTS engine (ONNX)',
+      minBytes: KOKORO_HF_ASSETS.model.minBytes,
     },
     {
-      id: 'voices',
-      fileName: 'voices-v1.0.bin',
-      url: 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin',
-      label: 'Heart & Michael voice models',
-      minBytes: 20 * 1024 * 1024,
+      id: 'af_heart',
+      fileName: KOKORO_HF_ASSETS.voices.af_heart.fileName,
+      url: KOKORO_HF_ASSETS.voices.af_heart.url,
+      label: 'Heart voice model',
+      minBytes: KOKORO_HF_ASSETS.voices.af_heart.minBytes,
+    },
+    {
+      id: 'am_michael',
+      fileName: KOKORO_HF_ASSETS.voices.am_michael.fileName,
+      url: KOKORO_HF_ASSETS.voices.am_michael.url,
+      label: 'Michael voice model',
+      minBytes: KOKORO_HF_ASSETS.voices.am_michael.minBytes,
+    },
+    {
+      id: 'tokenizer',
+      fileName: KOKORO_HF_ASSETS.tokenizer.fileName,
+      url: KOKORO_HF_ASSETS.tokenizer.url,
+      label: 'Kokoro tokenizer',
+      minBytes: KOKORO_HF_ASSETS.tokenizer.minBytes,
     },
   ],
 } as const;
@@ -116,26 +127,27 @@ async function writeJson(uri: string, data: unknown): Promise<void> {
 
 export async function getKokoroInstallStatus(): Promise<KokoroInstallStatus> {
   const cacheDir = await getCacheDir();
-  const engineUri = `${cacheDir}${KOKORO_ASSETS.files[0].fileName}`;
-  const voicesUri = `${cacheDir}${KOKORO_ASSETS.files[1].fileName}`;
-  const engine = await fileInfo(engineUri);
-  const voices = await fileInfo(voicesUri);
-  const engineInstalled =
-    engine.exists && engine.size >= KOKORO_ASSETS.minEngineBytes && voices.exists && voices.size >= KOKORO_ASSETS.minVoicesBytes;
+  let engineBytes = 0;
+  let allPresent = true;
+  for (const asset of KOKORO_ASSETS.files) {
+    const info = await fileInfo(`${cacheDir}${asset.fileName}`);
+    engineBytes += info.size;
+    if (!info.exists || info.size < asset.minBytes) allPresent = false;
+  }
 
   const installedVoices = await readJson<string[]>(`${cacheDir}${INSTALLED_VOICES_FILE}`, []);
   const heartInstalled =
-    engineInstalled && (installedVoices.length === 0 || installedVoices.includes('af_heart'));
+    allPresent && (installedVoices.length === 0 || installedVoices.includes('af_heart'));
   const michaelInstalled =
-    engineInstalled && (installedVoices.length === 0 || installedVoices.includes('am_michael'));
+    allPresent && (installedVoices.length === 0 || installedVoices.includes('am_michael'));
 
   return {
-    engineInstalled,
+    engineInstalled: allPresent,
     heartInstalled,
     michaelInstalled,
-    fullyInstalled: engineInstalled && heartInstalled && michaelInstalled,
+    fullyInstalled: allPresent && heartInstalled && michaelInstalled,
     cacheDir,
-    engineBytes: engine.size + voices.size,
+    engineBytes,
   };
 }
 
@@ -161,6 +173,7 @@ export function keyToVoiceId(key: KokoroVoiceKey): KokoroVoiceId {
 
 let downloadCancelled = false;
 let downloadInProgress = false;
+let activeResumable: any = null;
 
 export function isKokoroDownloadInProgress(): boolean {
   return downloadInProgress;
@@ -168,6 +181,24 @@ export function isKokoroDownloadInProgress(): boolean {
 
 export function cancelKokoroDownload(): void {
   downloadCancelled = true;
+  try {
+    activeResumable?.pauseAsync?.();
+  } catch {}
+}
+
+async function activateKeepAwake(): Promise<void> {
+  try {
+    const KeepAwake = require('expo-keep-awake');
+    if (KeepAwake?.activateKeepAwakeAsync) await KeepAwake.activateKeepAwakeAsync('kokoro-download');
+    else if (KeepAwake?.activateKeepAwake) KeepAwake.activateKeepAwake('kokoro-download');
+  } catch {}
+}
+
+async function deactivateKeepAwake(): Promise<void> {
+  try {
+    const KeepAwake = require('expo-keep-awake');
+    if (KeepAwake?.deactivateKeepAwake) KeepAwake.deactivateKeepAwake('kokoro-download');
+  } catch {}
 }
 
 async function downloadFile(
@@ -196,24 +227,62 @@ async function downloadFile(
     });
   };
 
-  const resumable = FileSystem.createDownloadResumable(url, dest, {}, callback);
-  const result = await resumable.downloadAsync();
-  if (downloadCancelled) throw new Error('Download cancelled.');
-  if (!result || result.status !== 200) {
-    throw new Error(`Failed to download ${label} (HTTP ${result?.status || 'error'}).`);
-  }
-  const info = await fileInfo(dest);
-  if (!info.exists || info.size < minBytes) {
+  let attempts = 0;
+  const maxAttempts = 5;
+  while (attempts < maxAttempts) {
+    attempts++;
+    if (downloadCancelled) throw new Error('Download cancelled.');
     try {
-      await FileSystem.deleteAsync(dest, { idempotent: true });
-    } catch {}
-    throw new Error(`${label} download is incomplete. Please retry.`);
+      const resumable = FileSystem.createDownloadResumable(url, dest, {
+        headers: { 'User-Agent': 'BrownAI-Mobile/1.0', 'Accept-Encoding': 'identity' },
+      }, callback);
+      activeResumable = resumable;
+      const result = await resumable.downloadAsync();
+      activeResumable = null;
+      if (downloadCancelled) throw new Error('Download cancelled.');
+      if (!result || (result.status && result.status !== 200)) {
+        throw new Error(`Failed to download ${label} (HTTP ${result?.status || 'error'}).`);
+      }
+      const info = await fileInfo(dest);
+      if (!info.exists || info.size < minBytes) {
+        try {
+          await FileSystem.deleteAsync(dest, { idempotent: true });
+        } catch {}
+        throw new Error(`${label} download is incomplete. Please retry.`);
+      }
+      return;
+    } catch (err: any) {
+      activeResumable = null;
+      if (downloadCancelled) throw err;
+      const msg = String(err?.message || '');
+      const retryable =
+        /network|timeout|reset|broken pipe|CANCEL|stream was reset|incomplete/i.test(msg);
+      if (retryable && attempts < maxAttempts) {
+        // Wait until app is active again (phone may have slept)
+        if (AppState.currentState !== 'active') {
+          await new Promise<void>((resolve) => {
+            const sub = AppState.addEventListener('change', (s: string) => {
+              if (s === 'active') {
+                sub.remove();
+                resolve();
+              }
+            });
+            setTimeout(() => {
+              try { sub.remove(); } catch {}
+              resolve();
+            }, 15000);
+          });
+        }
+        await new Promise((r) => setTimeout(r, 1200 * attempts));
+        continue;
+      }
+      throw err;
+    }
   }
 }
 
 /**
- * Downloads Kokoro engine + shared voice pack, then marks Heart & Michael installed
- * (same onboarding pair as desktop).
+ * Downloads Kokoro ONNX engine + Heart & Michael voice bins (same as desktop HF assets).
  */
 export async function downloadKokoroOnboardingDefaults(
   onProgress?: (p: KokoroDownloadProgress) => void
@@ -223,6 +292,7 @@ export async function downloadKokoroOnboardingDefaults(
   }
   downloadInProgress = true;
   downloadCancelled = false;
+  await activateKeepAwake();
 
   try {
     const cacheDir = await getCacheDir();
@@ -230,7 +300,6 @@ export async function downloadKokoroOnboardingDefaults(
 
     onProgress?.({ phase: 'download', percent: 2, status: 'Preparing Kokoro neural engine…' });
 
-    // Fresh incomplete cache cleanup for engine file only when missing/partial
     for (const asset of KOKORO_ASSETS.files) {
       const dest = `${cacheDir}${asset.fileName}`;
       const info = await fileInfo(dest);
@@ -239,25 +308,22 @@ export async function downloadKokoroOnboardingDefaults(
       }
     }
 
-    const engine = KOKORO_ASSETS.files[0];
-    const voices = KOKORO_ASSETS.files[1];
-    const engineDest = `${cacheDir}${engine.fileName}`;
-    const voicesDest = `${cacheDir}${voices.fileName}`;
-
-    const engineInfo = await fileInfo(engineDest);
-    if (!(engineInfo.exists && engineInfo.size >= engine.minBytes)) {
-      await downloadFile(engine.url, engineDest, engine.label, engine.minBytes, onProgress, 0, 70);
-    } else {
-      onProgress?.({ phase: 'download', percent: 70, status: 'Kokoro engine already on device…' });
-    }
-
-    if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
-
-    const voicesInfo = await fileInfo(voicesDest);
-    if (!(voicesInfo.exists && voicesInfo.size >= voices.minBytes)) {
-      await downloadFile(voices.url, voicesDest, voices.label, voices.minBytes, onProgress, 70, 25);
-    } else {
-      onProgress?.({ phase: 'download', percent: 95, status: 'Voice models already on device…' });
+    const span = Math.floor(90 / KOKORO_ASSETS.files.length);
+    let offset = 5;
+    for (const asset of KOKORO_ASSETS.files) {
+      if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
+      const dest = `${cacheDir}${asset.fileName}`;
+      const info = await fileInfo(dest);
+      if (!(info.exists && info.size >= asset.minBytes)) {
+        await downloadFile(asset.url, dest, asset.label, asset.minBytes, onProgress, offset, span);
+      } else {
+        onProgress?.({
+          phase: 'download',
+          percent: offset + span,
+          status: `${asset.label} already on device…`,
+        });
+      }
+      offset += span;
     }
 
     if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
@@ -267,7 +333,9 @@ export async function downloadKokoroOnboardingDefaults(
       modelId: KOKORO_ASSETS.modelId,
       installedAt: new Date().toISOString(),
       voices: ['af_heart', 'am_michael'],
+      runtime: Platform.OS,
     });
+    resetKokoroOnnxSession();
 
     onProgress?.({
       phase: 'complete',
@@ -281,6 +349,8 @@ export async function downloadKokoroOnboardingDefaults(
   } finally {
     downloadInProgress = false;
     downloadCancelled = false;
+    activeResumable = null;
+    await deactivateKeepAwake();
   }
 }
 
@@ -289,6 +359,7 @@ export async function deleteKokoroAssets(): Promise<void> {
     const cacheDir = await getCacheDir();
     const FileSystem = require('expo-file-system');
     await FileSystem.deleteAsync(cacheDir, { idempotent: true });
+    resetKokoroOnnxSession();
   } catch {}
 }
 

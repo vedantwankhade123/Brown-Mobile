@@ -1137,7 +1137,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             />
           )}
 
-          <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.centerSection}>
               <View style={styles.editAvatarBigCircle}>
                 <Text style={styles.editAvatarInitialText}>{userInitial}</Text>
@@ -1151,13 +1151,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <View style={styles.floatingBorderLabelBadge}>
                   <Text style={styles.floatingBorderLabelText}>Full name</Text>
                 </View>
-                <TextInput
-                  style={[styles.floatingBorderInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder="Enter your name"
-                  placeholderTextColor="#71717a"
-                />
+              <TextInput
+                style={[styles.floatingBorderInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder="Enter your name"
+                placeholderTextColor="#71717a"
+                showSoftInputOnFocus
+              />
               </View>
 
               <View style={styles.floatingBorderField}>
@@ -1271,7 +1272,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   )}
 
                   {calendarView === 'months' && (
-                    <ScrollView style={styles.verticalSelectionList} showsVerticalScrollIndicator={false}>
+                    <ScrollView keyboardShouldPersistTaps="handled" style={styles.verticalSelectionList} showsVerticalScrollIndicator={false}>
                       {MONTHS_LIST.map((mName, idx) => (
                         <TouchableOpacity
                           key={mName}
@@ -1291,7 +1292,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   )}
 
                   {calendarView === 'years' && (
-                    <ScrollView style={styles.verticalSelectionList} showsVerticalScrollIndicator={false}>
+                    <ScrollView keyboardShouldPersistTaps="handled" style={styles.verticalSelectionList} showsVerticalScrollIndicator={false}>
                       {yearsList.map((yVal) => (
                         <TouchableOpacity
                           key={yVal}
@@ -1336,7 +1337,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('User Account')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -1427,7 +1428,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Models')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2047,7 +2048,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             {/* Model Tag Filter Pills without Visible Scrollbar */}
             <ScrollView
-              horizontal
+              keyboardShouldPersistTaps="handled" horizontal
               showsHorizontalScrollIndicator={false}
               style={[
                 styles.tagFiltersRow,
@@ -2165,7 +2166,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Agent Sounds')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2389,7 +2390,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Desktop Sync')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2534,7 +2535,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Storage & Memory')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2655,7 +2656,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Software Updates')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2736,7 +2737,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('About')}
           <ScrollView
-            style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2958,7 +2959,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* Main Settings Scroll Container */}
         <ScrollView
-          style={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={settingsScroll}

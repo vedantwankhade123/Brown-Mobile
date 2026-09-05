@@ -9,6 +9,9 @@ declare namespace React {
   export function useEffect(effect: () => void | (() => void), deps?: any[]): void;
   export function useRef<T>(initialValue?: T): { current: T };
   export const Component: any;
+  export function useCallback<T extends (...args: any[]) => any>(fn: T, deps?: any[]): T;
+  export function useMemo<T>(fn: () => T, deps?: any[]): T;
+  export function memo<T>(component: T, propsAreEqual?: any): T;
   export type ReactNode = any;
   export type ReactElement = any;
 }
@@ -31,9 +34,11 @@ declare module 'react-native' {
     create<T extends Record<string, any>>(styles: T): T;
   };
   export const TouchableOpacity: any;
+  export const Pressable: any;
   export const TextInput: any;
   export const FlatList: any;
   export type FlatList<T = any> = any;
+  export type ListRenderItemInfo<T = any> = { item: T; index: number; separators?: any };
   export const ScrollView: any;
   export const SafeAreaView: any;
   export const StatusBar: any;
@@ -43,6 +48,10 @@ declare module 'react-native' {
   export const Image: any;
   export const Modal: any;
   export const KeyboardAvoidingView: any;
+  export const AppState: {
+    currentState: string;
+    addEventListener: (type: string, listener: (state: string) => void) => { remove: () => void };
+  };
   export const Platform: { OS: 'ios' | 'android' | 'windows' | 'macos' | 'web' };
   export const Alert: {
     alert: (title: string, message?: string, buttons?: any[]) => void;
