@@ -36,12 +36,16 @@
         "ACCESS_COARSE_LOCATION",
         "REQUEST_INSTALL_PACKAGES",
         "WRITE_EXTERNAL_STORAGE",
-        "READ_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE",
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_DATA_SYNC"
       ],
       "versionCode": 2
     },
     "plugins": [
       "expo-font",
+      "expo-keep-awake",
       [
         "expo-location",
         {

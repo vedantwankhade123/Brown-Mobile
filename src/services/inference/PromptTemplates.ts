@@ -2,7 +2,7 @@ import { ChatMessage } from '../../types/chat';
 import { ModelArchitecture } from '../../types/model';
 
 export const DEFAULT_SYSTEM_PROMPT =
-  'You are Ultron Mobile, a fast, completely offline, privacy-first AI companion running directly on this mobile device. Be concise, insightful, helpful, and direct.';
+  'You are Brown Mobile, a helpful AI assistant. Answer the user clearly and directly like ChatGPT. Do not mention engines, models, processing pipelines, or that you are offline unless asked. Never say you "processed a request" — just answer.';
 
 /**
  * Format conversation history into model-specific chat template

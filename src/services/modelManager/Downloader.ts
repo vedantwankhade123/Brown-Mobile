@@ -1,10 +1,14 @@
 import { ModelMetadata, ModelDownloadState } from '../../types/model';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { StorageBudgetService } from './StorageBudget';
 import { StoragePaths } from '../storage/StoragePaths';
+import { CURATED_MODELS, getModelById, MOBILE_GGUF_LIBRARY } from './ModelCatalog';
 
 const LEGACY_DOWNLOADS_KEY = '@ultron_downloaded_models';
 const DOWNLOADS_KEY = '@ultron_downloaded_models_v2';
+const PAUSED_MODELS_KEY = '@brown_paused_download_models';
+const RESUMABLE_KEY = '@brown_download_resumables';
 
 function isPlaceholderPath(localPath?: string): boolean {
   const path = String(localPath || '');
@@ -14,6 +18,25 @@ function isPlaceholderPath(localPath?: string): boolean {
     return !path.startsWith('content:') && path.length < 80;
   }
   return false;
+}
+
+async function activateKeepAwake(tag: string): Promise<void> {
+  try {
+    const KeepAwake = require('expo-keep-awake');
+    if (KeepAwake?.activateKeepAwakeAsync) await KeepAwake.activateKeepAwakeAsync(tag);
+    else if (KeepAwake?.activateKeepAwake) KeepAwake.activateKeepAwake(tag);
+  } catch {}
+}
+
+async function deactivateKeepAwake(tag: string): Promise<void> {
+  try {
+    const KeepAwake = require('expo-keep-awake');
+    if (KeepAwake?.deactivateKeepAwake) KeepAwake.deactivateKeepAwake(tag);
+  } catch {}
+}
+
+function findModelById(modelId: string): ModelMetadata | null {
+  return getModelById(modelId) || MOBILE_GGUF_LIBRARY.find((m) => m.id === modelId) || CURATED_MODELS.find((m) => m.id === modelId) || null;
 }
 
 export class ModelDownloader {
@@ -65,11 +88,21 @@ export class ModelDownloader {
         (await AsyncStorage.getItem(LEGACY_DOWNLOADS_KEY));
       const list: ModelDownloadState[] = stored ? JSON.parse(stored) : [];
       this.downloadStates.clear();
+
+      const pausedRaw = await AsyncStorage.getItem(PAUSED_MODELS_KEY);
+      const pausedList: ModelMetadata[] = pausedRaw ? JSON.parse(pausedRaw) : [];
+      this.pausedModels.clear();
+      for (const m of pausedList) {
+        if (m?.id) this.pausedModels.set(m.id, m);
+      }
+
       for (const item of list) {
-        if (item.status === 'downloading' || item.status === 'paused') {
-          // Resumable sessions do not survive an app restart: surface them as
-          // paused so the UI shows a resume action instead of a stuck spinner.
-          this.downloadStates.set(item.modelId, { ...item, status: 'paused' });
+        if (item.status === 'downloading' || item.status === 'paused' || item.status === 'error') {
+          this.downloadStates.set(item.modelId, { ...item, status: item.status === 'error' ? 'error' : 'paused' });
+          if (!this.pausedModels.has(item.modelId)) {
+            const fromCatalog = findModelById(item.modelId);
+            if (fromCatalog) this.pausedModels.set(item.modelId, fromCatalog);
+          }
           continue;
         }
         if (item.status !== 'downloaded') continue;
@@ -90,7 +123,44 @@ export class ModelDownloader {
     try {
       const arr = Array.from(this.downloadStates.values());
       await AsyncStorage.setItem(DOWNLOADS_KEY, JSON.stringify(arr));
+      const paused = Array.from(this.pausedModels.values());
+      await AsyncStorage.setItem(PAUSED_MODELS_KEY, JSON.stringify(paused));
     } catch {}
+  }
+
+  private async persistResumable(modelId: string, resumable: any): Promise<void> {
+    try {
+      if (!resumable?.savable) return;
+      const snapshot = resumable.savable();
+      const raw = await AsyncStorage.getItem(RESUMABLE_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      map[modelId] = snapshot;
+      await AsyncStorage.setItem(RESUMABLE_KEY, JSON.stringify(map));
+    } catch {}
+  }
+
+  private async clearResumable(modelId: string): Promise<void> {
+    try {
+      const raw = await AsyncStorage.getItem(RESUMABLE_KEY);
+      if (!raw) return;
+      const map = JSON.parse(raw);
+      delete map[modelId];
+      await AsyncStorage.setItem(RESUMABLE_KEY, JSON.stringify(map));
+    } catch {}
+  }
+
+  private async restoreResumable(modelId: string, callback: any): Promise<any | null> {
+    try {
+      const FileSystem = require('expo-file-system');
+      const raw = await AsyncStorage.getItem(RESUMABLE_KEY);
+      if (!raw) return null;
+      const map = JSON.parse(raw);
+      const snapshot = map[modelId];
+      if (!snapshot || !FileSystem?.createDownloadResumableFromSavable) return null;
+      return FileSystem.createDownloadResumableFromSavable(snapshot, callback);
+    } catch {
+      return null;
+    }
   }
 
   getStates(): ModelDownloadState[] {
@@ -126,6 +196,7 @@ export class ModelDownloader {
   async startDownload(model: ModelMetadata, destDir?: string): Promise<void> {
     this.abortControllers.set(model.id, false);
     this.pausedModels.set(model.id, model);
+    await this.persistStates();
 
     const existing = this.downloadStates.get(model.id);
     const resumeFrom =
@@ -144,6 +215,7 @@ export class ModelDownloader {
 
     this.downloadStates.set(model.id, state);
     this.notifyListeners();
+    await activateKeepAwake(`gguf-${model.id}`);
 
     try {
       const FileSystem = require('expo-file-system');
@@ -184,9 +256,17 @@ export class ModelDownloader {
         let resumable = this.resumables.get(model.id);
         let hadResumable = !!resumable;
         if (!resumable) {
+          resumable = await this.restoreResumable(model.id, callback);
+          if (resumable) {
+            hadResumable = true;
+            this.resumables.set(model.id, resumable);
+          }
+        }
+        if (!resumable) {
           try {
             resumable = FileSystem.createDownloadResumable(downloadUrl, dest, downloadOptions, callback);
             this.resumables.set(model.id, resumable);
+            await this.persistResumable(model.id, resumable);
           } catch {
             resumable = null;
           }
@@ -194,13 +274,17 @@ export class ModelDownloader {
 
         let result: any = null;
         let attempts = 0;
-        const maxAttempts = 3;
+        const maxAttempts = 8;
 
         while (attempts < maxAttempts) {
           try {
             if (resumable && typeof resumable.downloadAsync === 'function') {
-              const isResuming = (hadResumable || attempts > 0) && state.downloadedBytes > 0 && typeof resumable.resumeAsync === 'function';
+              const isResuming =
+                (hadResumable || attempts > 0) &&
+                state.downloadedBytes > 0 &&
+                typeof resumable.resumeAsync === 'function';
               result = await (isResuming ? resumable.resumeAsync() : resumable.downloadAsync());
+              await this.persistResumable(model.id, resumable);
               break;
             } else {
               throw new Error('downloadResumableStartAsync is not available');
@@ -214,8 +298,6 @@ export class ModelDownloader {
               errMsg.includes('ERR_UNAVAILABLE');
 
             if (isUnavailability && typeof FileSystem?.downloadAsync === 'function') {
-              // Resumable background native task is not supported in this client runtime (e.g. Expo Go).
-              // Gracefully fallback to FileSystem.downloadAsync with periodic getInfoAsync progress monitoring.
               let progressTimer: any = null;
               try {
                 progressTimer = setInterval(async () => {
@@ -246,21 +328,33 @@ export class ModelDownloader {
               }
             }
 
-            const isNetworkInterruption =
-              errMsg.includes('stream was reset') ||
-              errMsg.includes('CANCEL') ||
-              errMsg.includes('Connection reset') ||
-              errMsg.includes('SocketTimeout') ||
-              errMsg.includes('timeout') ||
-              errMsg.includes('broken pipe') ||
-              errMsg.includes('Network request failed');
-
             if (this.abortControllers.get(model.id)) {
               throw downloadErr;
             }
 
+            const isNetworkInterruption =
+              /stream was reset|CANCEL|Connection reset|SocketTimeout|timeout|broken pipe|Network request failed|incomplete/i.test(
+                errMsg
+              );
+
             if (isNetworkInterruption && attempts < maxAttempts) {
-              await new Promise((res) => setTimeout(res, 1200 * attempts));
+              if (AppState.currentState !== 'active') {
+                await new Promise<void>((resolve) => {
+                  const sub = AppState.addEventListener('change', (s: string) => {
+                    if (s === 'active') {
+                      sub.remove();
+                      resolve();
+                    }
+                  });
+                  setTimeout(() => {
+                    try {
+                      sub.remove();
+                    } catch {}
+                    resolve();
+                  }, 20000);
+                });
+              }
+              await new Promise((res) => setTimeout(res, 1500 * attempts));
               hadResumable = true;
               continue;
             }
@@ -272,6 +366,7 @@ export class ModelDownloader {
           state.status = 'paused';
           this.downloadStates.set(model.id, { ...state });
           this.notifyListeners();
+          await this.persistStates();
           return;
         }
 
@@ -281,6 +376,7 @@ export class ModelDownloader {
         state.speedBytesPerSec = 0;
         this.downloadStates.set(model.id, { ...state });
         this.resumables.delete(model.id);
+        await this.clearResumable(model.id);
         this.notifyListeners();
         await this.persistStates();
         return;
@@ -295,16 +391,20 @@ export class ModelDownloader {
         errMsg.includes('ERR_UNAVAILABLE') ||
         errMsg.includes('linked all the native dependencies')
       ) {
-        friendlyError = 'Local model storage requires native Android build. Run "npx expo run:android" or use Cloud / Desktop Sync models.';
+        friendlyError =
+          'Local model storage requires native Android build. Run "npx expo run:android" or use Cloud / Desktop Sync models.';
       } else if (
-        errMsg.includes('stream was reset') ||
-        errMsg.includes('CANCEL') ||
-        errMsg.includes('Connection reset') ||
-        errMsg.includes('SocketTimeout') ||
-        errMsg.includes('timeout') ||
-        errMsg.includes('broken pipe')
+        /stream was reset|CANCEL|Connection reset|SocketTimeout|timeout|broken pipe|Network request failed/i.test(
+          errMsg
+        )
       ) {
         friendlyError = 'Network connection interrupted. Tap Retry to continue.';
+        state.status = 'paused';
+        state.error = friendlyError;
+        this.downloadStates.set(model.id, { ...state });
+        this.notifyListeners();
+        await this.persistStates();
+        return;
       } else if (errMsg.includes('ENOSPC') || errMsg.includes('Not enough free storage')) {
         friendlyError = 'Not enough free device storage for this model.';
       }
@@ -315,6 +415,8 @@ export class ModelDownloader {
       this.notifyListeners();
       await this.persistStates();
       return;
+    } finally {
+      await deactivateKeepAwake(`gguf-${model.id}`);
     }
 
     state.status = 'error';
@@ -329,6 +431,7 @@ export class ModelDownloader {
     const resumable = this.resumables.get(modelId);
     try {
       if (resumable?.pauseAsync) await resumable.pauseAsync();
+      if (resumable) await this.persistResumable(modelId, resumable);
     } catch {}
     const state = this.downloadStates.get(modelId);
     if (state && state.status === 'downloading') {
@@ -340,22 +443,32 @@ export class ModelDownloader {
   }
 
   async resumeDownload(modelId: string): Promise<void> {
-    const model = this.pausedModels.get(modelId);
+    let model = this.pausedModels.get(modelId) || findModelById(modelId);
     const state = this.downloadStates.get(modelId);
-    if (!model || !state) return;
+    if (!model) {
+      // Last resort: cannot resume without metadata
+      if (state) {
+        state.status = 'error';
+        state.error = 'Cannot retry — model metadata missing. Start the download again from the Models list.';
+        this.downloadStates.set(modelId, { ...state });
+        this.notifyListeners();
+        await this.persistStates();
+      }
+      return;
+    }
+    this.pausedModels.set(modelId, model);
     this.abortControllers.set(modelId, false);
     await this.startDownload(model);
   }
 
   async deleteModel(modelId: string): Promise<void> {
     const existing = this.downloadStates.get(modelId);
-    const model = this.pausedModels.get(modelId);
+    const model = this.pausedModels.get(modelId) || findModelById(modelId);
     const targets = new Set<string>();
     if (existing?.localPath && !isPlaceholderPath(existing.localPath)) {
       targets.add(existing.localPath);
     }
     if (model?.filename) {
-      // Also remove the partial file of an interrupted download.
       try {
         const dir = await StoragePaths.getModelsDir();
         targets.add(dir + model.filename);
@@ -372,6 +485,7 @@ export class ModelDownloader {
     this.downloadStates.delete(modelId);
     this.resumables.delete(modelId);
     this.pausedModels.delete(modelId);
+    await this.clearResumable(modelId);
     await this.persistStates();
     this.notifyListeners();
   }

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
+  ListRenderItemInfo,
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
@@ -75,15 +76,35 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const isSpeaking = Boolean(speakingMessageId) && !ttsPaused;
 
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<ChatMessage>>(null);
+  const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const engine = LlamaEngine.getInstance();
   const chatRepo = useRef(new ChatRepository()).current;
   const downloader = ModelDownloader.getInstance();
+
+  const scheduleScrollToEnd = useCallback((animated = true) => {
+    if (scrollToEndTimer.current) clearTimeout(scrollToEndTimer.current);
+    scrollToEndTimer.current = setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated });
+    }, animated ? 80 : 0);
+  }, []);
+
+  const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
+
+  const onChatScroll = useCallback((e: any) => {
+    const y = e?.nativeEvent?.contentOffset?.y || 0;
+    setIsScrolled(y > 8);
+  }, []);
+
+  const listContentStyle = useMemo(() => styles.listContent, []);
 
   useEffect(() => {
     initApp();
     loadUserProfile();
     checkUpdatesOnLaunch();
+    return () => {
+      if (scrollToEndTimer.current) clearTimeout(scrollToEndTimer.current);
+    };
   }, []);
 
   const checkUpdatesOnLaunch = async () => {
@@ -300,7 +321,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setIsGenerating(true);
 
     setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
+      scheduleScrollToEnd(true);
     }, 60);
 
     // Promote to Formulating response / Answering if still waiting for the first token
@@ -337,7 +358,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           topP: 0.9,
           contextSize: 2048,
           threads: 4,
-          systemPrompt: 'You are Brown Mobile, a fast, offline privacy-first AI companion.',
+          systemPrompt: 'You are Brown Mobile, a helpful AI assistant. Answer clearly and directly like ChatGPT. Do not mention engines, models, or processing — just help the user.',
           useHardwareAcceleration: true,
         },
         (token) => {
@@ -458,17 +479,21 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     setIsListening(false);
   };
 
-  const handleSpeakText = async (messageId: string, text: string) => {
+  const handleSpeakText = useCallback(async (messageId: string, text: string) => {
     const isThisMessage = speakingMessageId === messageId;
 
+    // While speaking: pause button must STOP audio immediately (Android expo-speech
+    // pause is unreliable; treat pause as hard stop).
     if (isThisMessage && !ttsPaused) {
-      TextToSpeechService.pause();
-      setTtsPaused(true);
+      TextToSpeechService.stop();
+      setSpeakingMessageId(null);
+      setTtsPaused(false);
       return;
     }
 
     if (isThisMessage && ttsPaused) {
-      TextToSpeechService.resume();
+      TextToSpeechService.stop();
+      setSpeakingMessageId(null);
       setTtsPaused(false);
       return;
     }
@@ -490,11 +515,24 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         Alert.alert('Speech Error', (err as any)?.message || 'Unable to speak this message.');
       }
     }
-  };
+  }, [speakingMessageId, ttsPaused]);
 
-  const handleCopy = async (text: string) => {
+  const handleCopy = useCallback(async (text: string) => {
     await copyTextToClipboard(text);
-  };
+  }, []);
+
+  const renderMessage = useCallback(
+    ({ item }: ListRenderItemInfo<ChatMessage>) => (
+      <ChatBubble
+        message={item}
+        onCopy={handleCopy}
+        onSpeak={handleSpeakText}
+        isSpeaking={speakingMessageId === item.id && isSpeaking}
+        isPaused={speakingMessageId === item.id && ttsPaused}
+      />
+    ),
+    [handleCopy, handleSpeakText, speakingMessageId, isSpeaking, ttsPaused]
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -516,24 +554,22 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           <FlatList
             ref={flatListRef}
             data={messages}
-            keyExtractor={(item: ChatMessage) => item.id}
-            renderItem={({ item }: { item: ChatMessage }) => (
-              <ChatBubble
-                message={item}
-                onCopy={handleCopy}
-                onSpeak={handleSpeakText}
-                isSpeaking={speakingMessageId === item.id && isSpeaking}
-                isPaused={speakingMessageId === item.id && ttsPaused}
-              />
-            )}
-            contentContainerStyle={styles.listContent}
-            onScroll={(e: any) => {
-              const y = e?.nativeEvent?.contentOffset?.y || 0;
-              setIsScrolled(y > 8);
+            keyExtractor={keyExtractor}
+            renderItem={renderMessage}
+            contentContainerStyle={listContentStyle}
+            onScroll={onChatScroll}
+            scrollEventThrottle={32}
+            onContentSizeChange={() => {
+              if (isGenerating) scheduleScrollToEnd(false);
             }}
-            scrollEventThrottle={16}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+            onLayout={() => scheduleScrollToEnd(false)}
+            removeClippedSubviews
+            windowSize={7}
+            maxToRenderPerBatch={6}
+            updateCellsBatchingPeriod={50}
+            initialNumToRender={10}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
           />
         )}
 

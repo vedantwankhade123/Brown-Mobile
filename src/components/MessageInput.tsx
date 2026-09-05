@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -176,8 +177,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const [availableModels, setAvailableModels] = useState<ModelMetadata[]>([]);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const lastSentAtRef = useRef(0);
   const lastSentTextRef = useRef('');
+  const textInputRef = useRef<any>(null);
+
+  const focusComposer = useCallback(() => {
+    if (disabled || isListening) return;
+    textInputRef.current?.focus();
+  }, [disabled, isListening]);
 
   const isModelSheetControlled = typeof modelSheetVisible === 'boolean';
   const isModelSheetOpen = isModelSheetControlled
@@ -323,7 +331,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   }, [showAttachMenu]);
 
   useEffect(() => {
-    if (text.length > 0 || isListening) return;
+    // Don't thrash re-renders while the user is trying to focus/type
+    if (text.length > 0 || isListening || isComposerFocused) return;
 
     if (isPaused) {
       const pauseTimeout = setTimeout(() => {
@@ -357,12 +366,14 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       setSubIndex((prev) => prev + 1);
     }, 55);
     return () => clearTimeout(typeTimeout);
-  }, [subIndex, isDeleting, isPaused, placeholderIndex, text.length, isListening]);
+  }, [subIndex, isDeleting, isPaused, placeholderIndex, text.length, isListening, isComposerFocused]);
 
   const displayedPlaceholder = isListening
     ? 'Listening to voice...'
     : text.length > 0
     ? ''
+    : isComposerFocused
+    ? 'Ask Brown…'
     : PLACEHOLDER_PROMPTS[placeholderIndex].substring(0, subIndex);
 
   const handleSend = () => {
@@ -565,19 +576,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             />
           )}
 
-          {!isListening && isSpeaking && (
-            <View style={styles.voiceDock}>
-              <AudioWaveform isActive={true} barCount={12} />
-              <Text style={styles.voiceDockLabel}>
-                Speaking… tap pause on the message to stop
-              </Text>
-            </View>
-          )}
-
-          {/* Main Input Card (All 4 Corners Symmetrically 36px Curvy) */}
-          <View style={styles.inputCard}>
+          {/* Main Input Card — Pressable focuses TextInput on first tap */}
+          <Pressable
+            style={styles.inputCard}
+            onPressIn={focusComposer}
+            accessible={false}
+          >
             {/* Top Text Input Area with Animated Typewriter Placeholder */}
             <TextInput
+              ref={textInputRef}
               style={[
                 styles.textInput,
                 { height: inputHeight },
@@ -594,6 +601,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               onContentSizeChange={handleContentSizeChange}
               onKeyPress={handleKeyPress}
               onSubmitEditing={handleSend}
+              onFocus={() => {
+                setIsComposerFocused(true);
+                setShowAttachMenu(false);
+              }}
+              onBlur={() => setIsComposerFocused(false)}
               blurOnSubmit={false}
               returnKeyType="send"
               placeholder={displayedPlaceholder}
@@ -601,7 +613,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               multiline
               showsVerticalScrollIndicator={false}
               maxLength={4000}
-              editable={!disabled}
+              editable={!disabled && !isListening}
+              showSoftInputOnFocus
+              caretHidden={false}
             />
 
             {/* Bottom Action Controls Row */}
@@ -829,7 +843,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 )}
               </View>
             </View>
-          </View>
+          </Pressable>
         </View>
       </View>
 

@@ -453,7 +453,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       )}
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
@@ -679,7 +679,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                           {/* View 2: Single Column Vertical Months List */}
                           {calendarView === 'months' && (
                             <ScrollView
-                              style={styles.verticalListScroll}
+                              keyboardShouldPersistTaps="handled" style={styles.verticalListScroll}
                               contentContainerStyle={styles.verticalListContent}
                               showsVerticalScrollIndicator={false}
                             >
@@ -708,7 +708,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                           {/* View 3: Single Column Vertical Years List */}
                           {calendarView === 'years' && (
                             <ScrollView
-                              style={styles.verticalListScroll}
+                              keyboardShouldPersistTaps="handled" style={styles.verticalListScroll}
                               contentContainerStyle={styles.verticalListContent}
                               showsVerticalScrollIndicator={false}
                             >
