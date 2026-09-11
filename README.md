@@ -38,7 +38,7 @@ Download the official Android release directly from **[Brown-Mobile Releases](ht
 
 | Platform | Package Name | Version | Description |
 | :--- | :--- | :--- | :--- |
-| **Android** | [`Brown-AI-Mobile-v1.0.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | v1.0.0 | Direct installation package for Android 10+ devices. |
+| **Android** | [`Brown-AI-Mobile.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | v1.0.2 | Direct installation package for Android 10+ devices. |
 
 ---
 
