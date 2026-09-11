@@ -119,5 +119,16 @@ declare module '@react-native-voice/voice' {
 }
 
 declare module 'llama.rn' {
-  export function initLlama(options: any): Promise<any>;
+  export function initLlama(options: any, onProgress?: (progress: number) => void): Promise<any>;
 }
+
+declare module 'onnxruntime-react-native' {
+  export class InferenceSession {
+    static create(path: string, options?: any): Promise<InferenceSession>;
+    run(feeds: Record<string, any>): Promise<Record<string, any>>;
+  }
+  export class Tensor {
+    constructor(type: string, data: any, dims?: number[]);
+  }
+}
+

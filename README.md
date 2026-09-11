@@ -1,8 +1,8 @@
-﻿# Brown AI Mobile — Sovereign On-Device AI Companion
+# Brown AI Mobile — Sovereign On-Device AI Companion
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-0078D4?logo=android)](https://github.com/vedantwankhade123/Brown-Releases/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
+[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-0078D4?logo=android)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
@@ -34,11 +34,11 @@
 
 ## 💾 Download APK
 
-Download the official Android release directly from **[Brown-Releases](https://github.com/vedantwankhade123/Brown-Releases/releases)**:
+Download the official Android release directly from **[Brown-Mobile Releases](https://github.com/vedantwankhade123/Brown-Mobile/releases)**:
 
 | Platform | Package Name | Version | Description |
 | :--- | :--- | :--- | :--- |
-| **Android** | [`Brown AI Mobile v1.0.0.apk`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20Mobile%20v1.0.0.apk) | v1.0.0 | Direct installation package for Android 10+ devices. |
+| **Android** | [`Brown-AI-Mobile-v1.0.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | v1.0.0 | Direct installation package for Android 10+ devices. |
 
 ---
 

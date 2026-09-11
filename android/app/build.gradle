@@ -213,39 +213,44 @@ if (rnVersion < versionToNumber(0, 75, 0)) {
     applyNativeModulesAppBuildGradle(project)
 }
 
-// Copy signed release APK into D:\Ultron\Downloadable Files (not C:\)
+// Copy signed release APK into Downloadable Files (if available locally)
 tasks.register("copyReleaseApkToUltronReleases") {
     doLast {
         def apkDir = file("${project.buildDir}/outputs/apk/release")
-        def destDir = file("${rootProject.projectDir}/../../Downloadable Files")
-        destDir.mkdirs()
-        def versionName = android.defaultConfig.versionName ?: "1.0"
-        // Spaced name for local Downloadable Files; GitHub Releases rewrites spaces to hyphens
-        def targetName = "Brown AI Mobile v${versionName}.apk"
-        def githubSafeName = "Brown-AI-Mobile-v${versionName}.apk"
         def built = fileTree(apkDir) { include "*.apk" }.files.find { it.name.endsWith(".apk") }
         if (built == null || !built.exists()) {
-            throw new GradleException("No release APK found in ${apkDir}")
+            println "Notice: No release APK found in ${apkDir} to copy"
+            return
         }
-        copy {
-            from built
-            into destDir
-            rename { targetName }
+        try {
+            def destDir = file("${rootProject.projectDir}/../../Downloadable Files")
+            destDir.mkdirs()
+            def versionName = android.defaultConfig.versionName ?: "1.0"
+            // Spaced name for local Downloadable Files; GitHub Releases rewrites spaces to hyphens
+            def targetName = "Brown AI Mobile v${versionName}.apk"
+            def githubSafeName = "Brown-AI-Mobile-v${versionName}.apk"
+            copy {
+                from built
+                into destDir
+                rename { targetName }
+            }
+            copy {
+                from built
+                into destDir
+                rename { githubSafeName }
+            }
+            def alsoCopy = file("${destDir}/app-release.apk")
+            java.nio.file.Files.copy(
+                built.toPath(),
+                alsoCopy.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING
+            )
+            println "Release APK copied to: ${new File(destDir, targetName).absolutePath}"
+            println "GitHub-safe copy: ${new File(destDir, githubSafeName).absolutePath}"
+            println "Also available as: ${alsoCopy.absolutePath}"
+        } catch (Exception e) {
+            println "Notice: Could not copy to local Downloadable Files folder: ${e.message}"
         }
-        copy {
-            from built
-            into destDir
-            rename { githubSafeName }
-        }
-        def alsoCopy = file("${destDir}/app-release.apk")
-        java.nio.file.Files.copy(
-            built.toPath(),
-            alsoCopy.toPath(),
-            java.nio.file.StandardCopyOption.REPLACE_EXISTING
-        )
-        println "Release APK copied to: ${new File(destDir, targetName).absolutePath}"
-        println "GitHub-safe copy: ${new File(destDir, githubSafeName).absolutePath}"
-        println "Also available as: ${alsoCopy.absolutePath}"
     }
 }
 

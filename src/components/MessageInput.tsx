@@ -58,7 +58,6 @@ interface MessageInputProps {
   activeModel?: ModelMetadata | null;
   isGenerating: boolean;
   isListening: boolean;
-  isSpeaking?: boolean;
   disabled?: boolean;
   /** Controlled model sheet visibility (opened from chat input model pill). */
   modelSheetVisible?: boolean;
@@ -163,7 +162,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   activeModel,
   isGenerating,
   isListening,
-  isSpeaking = false,
   disabled = false,
   modelSheetVisible,
   onModelSheetVisibleChange,
@@ -184,7 +182,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const focusComposer = useCallback(() => {
     if (disabled || isListening) return;
-    textInputRef.current?.focus();
+    // Android often needs a deferred focus when the Pressable wrapper receives the first tap
+    const run = () => {
+      try {
+        textInputRef.current?.focus?.();
+      } catch {}
+    };
+    run();
+    requestAnimationFrame(run);
+    setTimeout(run, 32);
   }, [disabled, isListening]);
 
   const isModelSheetControlled = typeof modelSheetVisible === 'boolean';
@@ -580,6 +586,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <Pressable
             style={styles.inputCard}
             onPressIn={focusComposer}
+            onPress={focusComposer}
             accessible={false}
           >
             {/* Top Text Input Area with Animated Typewriter Placeholder */}
@@ -1329,20 +1336,23 @@ const styles = StyleSheet.create({
   inlineModelPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 5.5,
     borderRadius: 9999,
-    backgroundColor: 'transparent',
-    maxWidth: 148,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    maxWidth: 168,
     flexShrink: 1,
   },
   inlineModelName: {
-    color: '#e4e4e7',
+    color: '#f4f4f5',
     fontSize: 12.5,
     fontWeight: '600',
-    maxWidth: 120,
+    maxWidth: 135,
     flexShrink: 1,
+    letterSpacing: -0.1,
   },
   rightActionsGroup: {
     flexDirection: 'row',

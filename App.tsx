@@ -28,6 +28,9 @@ import { DesktopSyncService } from './src/services/sync/DesktopSync';
 import { bootstrapApp } from './src/services/storage/AppBootstrap';
 import { ModelMetadata } from './src/types/model';
 import { colors } from './src/theme/colors';
+import { BrownAlertHost, installBrownAlertPatch } from './src/components/BrownAlert';
+
+installBrownAlertPatch();
 
 type ScreenType = 'onboarding' | 'chat' | 'modelStore' | 'settings' | 'desktopSync';
 
@@ -214,6 +217,7 @@ export default function App() {
     <ErrorBoundary>
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <BrownAlertHost />
 
         {currentScreen === 'onboarding' && (
           <OnboardingScreen onComplete={handleOnboardingComplete} />

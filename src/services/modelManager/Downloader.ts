@@ -69,13 +69,13 @@ export class ModelDownloader {
       .map((s) => s.modelId);
   }
 
-  private async fileExists(uri: string): Promise<boolean> {
+  private async fileExists(uri: string, minBytes = 10 * 1024 * 1024): Promise<boolean> {
     try {
       const FileSystem = require('expo-file-system');
       if (!FileSystem?.getInfoAsync) return false;
       const info = await FileSystem.getInfoAsync(uri);
       const size = Number(info?.size || 0);
-      return !!info?.exists && size > 1024;
+      return !!info?.exists && size >= minBytes;
     } catch {
       return false;
     }
@@ -107,7 +107,9 @@ export class ModelDownloader {
         }
         if (item.status !== 'downloaded') continue;
         if (isPlaceholderPath(item.localPath)) continue;
-        if (!(await this.fileExists(String(item.localPath)))) continue;
+        const catalogModel = findModelById(item.modelId);
+        const expectedMin = catalogModel?.sizeBytes ? Math.floor(catalogModel.sizeBytes * 0.75) : 50 * 1024 * 1024;
+        if (!(await this.fileExists(String(item.localPath), expectedMin))) continue;
         this.downloadStates.set(item.modelId, item);
       }
       await AsyncStorage.removeItem(LEGACY_DOWNLOADS_KEY);
@@ -370,10 +372,28 @@ export class ModelDownloader {
           return;
         }
 
+        if (result?.status && result.status >= 400) {
+          throw new Error(`Download failed with HTTP ${result.status}`);
+        }
+
+        // Verify file integrity and size on disk before marking downloaded
+        const fileInfo = await FileSystem.getInfoAsync(dest);
+        const actualBytes = Number(fileInfo?.size || 0);
+        const expectedMin = model.sizeBytes ? Math.floor(model.sizeBytes * 0.75) : 50 * 1024 * 1024;
+        if (!fileInfo?.exists || actualBytes < expectedMin) {
+          try {
+            await FileSystem.deleteAsync(dest, { idempotent: true });
+          } catch {}
+          throw new Error(
+            `Model file is incomplete (${(actualBytes / (1024 * 1024)).toFixed(1)} MB / ${(model.sizeBytes / (1024 * 1024)).toFixed(1)} MB). Tap retry to resume.`
+          );
+        }
+
         state.status = 'downloaded';
         state.progress = 100;
         state.localPath = result?.uri || dest;
         state.speedBytesPerSec = 0;
+        state.error = undefined;
         this.downloadStates.set(model.id, { ...state });
         this.resumables.delete(model.id);
         await this.clearResumable(model.id);

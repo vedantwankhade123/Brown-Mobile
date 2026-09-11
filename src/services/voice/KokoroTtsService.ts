@@ -233,14 +233,18 @@ async function downloadFile(
     attempts++;
     if (downloadCancelled) throw new Error('Download cancelled.');
     try {
-      const resumable = FileSystem.createDownloadResumable(url, dest, {
+      let finalUrl = url;
+      if (finalUrl.includes('huggingface.co') && !finalUrl.includes('download=true')) {
+        finalUrl = finalUrl.includes('?') ? `${finalUrl}&download=true` : `${finalUrl}?download=true`;
+      }
+      const resumable = FileSystem.createDownloadResumable(finalUrl, dest, {
         headers: { 'User-Agent': 'BrownAI-Mobile/1.0', 'Accept-Encoding': 'identity' },
       }, callback);
       activeResumable = resumable;
       const result = await resumable.downloadAsync();
       activeResumable = null;
       if (downloadCancelled) throw new Error('Download cancelled.');
-      if (!result || (result.status && result.status !== 200)) {
+      if (!result || (result.status && (result.status < 200 || result.status >= 400))) {
         throw new Error(`Failed to download ${label} (HTTP ${result?.status || 'error'}).`);
       }
       const info = await fileInfo(dest);

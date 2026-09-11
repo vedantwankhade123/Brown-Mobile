@@ -1,0 +1,136 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0). Leave empty to use package.json.'
+        required: false
+        default: ''
+      release_tag:
+        description: 'Release tag (e.g. v1.0.0). Leave empty to use v{version}.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK & NDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> $GITHUB_ENV
+          if [ ! -d "$ANDROID_SDK_ROOT/ndk/26.1.10909125" ]; then
+            echo "Installing NDK 26.1.10909125..."
+            yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125"
+          else
+            echo "NDK 26.1.10909125 is already available."
+          fi
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Run Tests & Typecheck
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Resolve Version & Tags
+        id: versioning
+        run: |
+          INPUT_VER="${{ github.event.inputs.version }}"
+          INPUT_TAG="${{ github.event.inputs.release_tag }}"
+          PKG_VER=$(node -p "require('./package.json').version")
+
+          if [ -n "$INPUT_VER" ]; then
+            VER=$(echo "$INPUT_VER" | sed 's/^v//')
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          else
+            VER="$PKG_VER"
+          fi
+
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="v${VER}"
+          fi
+
+          echo "VERSION=${VER}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+          echo "Resolved version: ${VER} (Tag: ${TAG})"
+
+      - name: Make Gradlew Executable
+        run: chmod +x android/gradlew
+
+      - name: Build Android Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m"
+          cd ..
+
+      - name: Package Release Assets
+        id: package_assets
+        run: |
+          mkdir -p dist
+          APK_PATH=$(find android/app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No APK found under android/app/build/outputs/apk/release"
+            exit 1
+          fi
+
+          echo "Found release APK at: $APK_PATH"
+          cp "$APK_PATH" "dist/Brown-AI-Mobile-v${VERSION}.apk"
+          cp "$APK_PATH" "dist/Brown-AI-Mobile.apk"
+
+          ls -lh dist/
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Brown-AI-Mobile-v${{ env.VERSION }}
+          path: dist/*.apk
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Brown AI Mobile ${{ env.RELEASE_TAG }}
+          files: |
+            dist/Brown-AI-Mobile-v${{ env.VERSION }}.apk
+            dist/Brown-AI-Mobile.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

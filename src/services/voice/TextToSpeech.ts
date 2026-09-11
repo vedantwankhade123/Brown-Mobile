@@ -12,7 +12,9 @@ const Speech = require('expo-speech') as {
   pause?: () => void;
   resume?: () => void;
   isSpeakingAsync?: () => Promise<boolean>;
-  getAvailableVoicesAsync?: () => Promise<Array<{ identifier: string; name?: string; language?: string }>>;
+  getAvailableVoicesAsync?: () => Promise<
+    Array<{ identifier: string; name?: string; language?: string }>
+  >;
 };
 
 export type TtsStatus = 'idle' | 'speaking' | 'paused';
@@ -45,8 +47,10 @@ function pickSystemVoice(
     .map((v) => {
       const name = `${v.name || ''} ${v.identifier || ''}`.toLowerCase();
       let score = 0;
-      if (wantFemale && /female|zira|jenny|aria|samantha|susan|hazel|emma|karen|moira|fiona|tessa/.test(name)) score += 8;
-      if (!wantFemale && /male|david|mark|guy|ryan|james|daniel|alex|fred|tom|aaron|gordon/.test(name)) score += 8;
+      if (wantFemale && /female|zira|jenny|aria|samantha|susan|hazel|emma|karen|moira|fiona|tessa/.test(name))
+        score += 8;
+      if (!wantFemale && /male|david|mark|guy|ryan|james|daniel|alex|fred|tom|aaron|gordon/.test(name))
+        score += 8;
       if (/enhanced|premium|neural|quality/.test(name)) score += 2;
       if (/en-us|en_us/.test((v.language || '').toLowerCase())) score += 1;
       return { id: v.identifier, score };
@@ -56,8 +60,8 @@ function pickSystemVoice(
 }
 
 /**
- * On-device TTS. Prefers real Kokoro ONNX (Heart / Michael). System speech is
- * last-resort fallback only when ONNX inference is unavailable.
+ * On-device TTS. Prefers real Kokoro ONNX (Heart / Michael).
+ * System speech is last-resort only when the native ORT module is not linked.
  */
 export class TextToSpeechService {
   private static status: TtsStatus = 'idle';
@@ -107,50 +111,63 @@ export class TextToSpeechService {
     this.status = 'speaking';
 
     const voiceId = await getActiveKokoroVoice();
+    const ortReady = await isKokoroOnnxRuntimeReady();
 
-    // 1) Prefer real Kokoro ONNX neural audio
-    try {
-      if (await isKokoroOnnxRuntimeReady()) {
+    // 1) Real Kokoro ONNX — required when ORT is linked
+    if (ortReady) {
+      try {
         const result = await synthesizeKokoroOnnx(cleaned, voiceId, this.rate);
         if (generation !== this.speakGeneration) return;
-        if (result?.uri) {
-          const { Audio } = require('expo-av');
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: result.uri },
-            { shouldPlay: true, rate: 1.0 }
-          );
-          if (generation !== this.speakGeneration) {
-            try {
-              await sound.stopAsync();
-              await sound.unloadAsync();
-            } catch {}
-            return;
-          }
-          this.activeSound = sound;
-          sound.setOnPlaybackStatusUpdate((status: any) => {
-            if (!status?.isLoaded) return;
-            if (status.didJustFinish || status.isPlaying === false && status.positionMillis >= (status.durationMillis || 0)) {
-              if (this.activeSound === sound) {
-                this.activeSound = null;
-                this.status = 'idle';
-                this.fullText = '';
-                const done = this.onDone;
-                this.onDone = undefined;
-                done?.();
-              }
-              sound.unloadAsync?.().catch(() => {});
-            }
-          });
+        if (!result?.uri) {
+          throw new Error('Kokoro ONNX returned no audio.');
+        }
+        const { Audio } = require('expo-av');
+        await Audio.setAudioModeAsync?.({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+        });
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: result.uri },
+          { shouldPlay: true, rate: 1.0 }
+        );
+        if (generation !== this.speakGeneration) {
+          try {
+            await sound.stopAsync();
+            await sound.unloadAsync();
+          } catch {}
           return;
         }
+        this.activeSound = sound;
+        sound.setOnPlaybackStatusUpdate((status: any) => {
+          if (!status?.isLoaded) return;
+          const finished =
+            status.didJustFinish ||
+            (status.isPlaying === false &&
+              status.durationMillis != null &&
+              status.positionMillis >= status.durationMillis - 32);
+          if (finished && this.activeSound === sound) {
+            this.activeSound = null;
+            this.status = 'idle';
+            this.fullText = '';
+            const done = this.onDone;
+            this.onDone = undefined;
+            done?.();
+            sound.unloadAsync?.().catch(() => {});
+          }
+        });
+        return;
+      } catch (err) {
+        console.warn('[Kokoro] ONNX synthesis failed, falling back to system speech:', err);
+        // Fall back to system speech rather than failing completely
       }
-    } catch (err) {
-      console.warn('[TTS] Kokoro ONNX playback failed, falling back to system speech:', (err as any)?.message || err);
     }
 
+    // 2) ORT not linked (Expo Go / missing native rebuild) — temporary system speech
+    console.warn(
+      '[TTS] onnxruntime-react-native not linked; using system speech until a native rebuild.'
+    );
     if (generation !== this.speakGeneration) return;
 
-    // 2) Last-resort system speech (must NOT be claimed as Kokoro neural)
     let voiceIdentifier: string | undefined;
     try {
       if (Speech.getAvailableVoicesAsync) {
@@ -223,10 +240,7 @@ export class TextToSpeechService {
     this.paused = false;
     this.fullText = '';
     if (clearDone) {
-      const done = this.onDone;
       this.onDone = undefined;
-      // Do not call done on forced stop — UI clears its own speaking state.
-      void done;
     }
   }
 
