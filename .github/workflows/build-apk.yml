@@ -14,6 +14,10 @@ on:
         description: 'Release tag (e.g. v1.0.0). Leave empty to use v{version}.'
         required: false
         default: ''
+      architectures:
+        description: 'Target architectures (default: arm64-v8a for modern phones; use arm64-v8a,armeabi-v7a for all phones)'
+        required: false
+        default: 'arm64-v8a'
 
 permissions:
   contents: write
@@ -91,10 +95,24 @@ jobs:
       - name: Make Gradlew Executable
         run: chmod +x android/gradlew
 
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-${{ github.ref_name }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+          max-size: 2G
+
       - name: Build Android Release APK
         run: |
+          TARGET_ARCH="${{ github.event.inputs.architectures || 'arm64-v8a' }}"
+          echo "Building release APK for architecture(s): $TARGET_ARCH"
           cd android
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m"
+          ./gradlew assembleRelease \
+            --parallel \
+            --build-cache \
+            -PreactNativeArchitectures="$TARGET_ARCH" \
+            -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseParallelGC"
           cd ..
 
       - name: Package Release Assets
