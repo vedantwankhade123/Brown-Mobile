@@ -11,4 +11,8 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# llama.rn
+-keep class com.rnllama.** { *; }
+
 # Add any project specific keep options here:
+
