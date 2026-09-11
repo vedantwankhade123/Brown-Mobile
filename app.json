@@ -2,7 +2,7 @@
   "expo": {
     "name": "Brown AI",
     "slug": "brown-mobile",
-    "version": "1.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./Assets/brown-b-white-logo.png",
     "userInterfaceStyle": "dark",
@@ -41,7 +41,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC"
       ],
-      "versionCode": 2
+      "versionCode": 3
     },
     "plugins": [
       "expo-font",
