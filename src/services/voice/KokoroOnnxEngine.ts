@@ -5,6 +5,7 @@
 import { Platform } from 'react-native';
 import { StoragePaths } from '../storage/StoragePaths';
 import type { KokoroVoiceId } from './KokoroTtsService';
+import { phonemizeAmerican, tokenizeKokoroPhonemes } from './KokoroPhonemizer';
 
 const KOKORO_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const HF = `https://huggingface.co/${KOKORO_MODEL_ID}/resolve/main`;
@@ -12,31 +13,73 @@ const HF = `https://huggingface.co/${KOKORO_MODEL_ID}/resolve/main`;
 export const KOKORO_HF_ASSETS = {
   model: {
     fileName: 'model_quantized.onnx',
-    url: `${HF}/onnx/model_quantized.onnx`,
+    url: `${HF}/onnx/model_quantized.onnx?download=true`,
     minBytes: 75 * 1024 * 1024,
   },
   voices: {
     af_heart: {
       fileName: 'af_heart.bin',
-      url: `${HF}/voices/af_heart.bin`,
+      url: `${HF}/voices/af_heart.bin?download=true`,
       minBytes: 400 * 1024,
     },
     am_michael: {
       fileName: 'am_michael.bin',
-      url: `${HF}/voices/am_michael.bin`,
+      url: `${HF}/voices/am_michael.bin?download=true`,
       minBytes: 400 * 1024,
     },
   },
   tokenizer: {
     fileName: 'tokenizer.json',
-    url: `${HF}/tokenizer.json`,
+    url: `${HF}/tokenizer.json?download=true`,
     minBytes: 1024,
   },
 } as const;
 
 let ortModule: any = null;
 let sessionPromise: Promise<any> | null = null;
-let vocabPromise: Promise<Record<string, number>> | null = null;
+
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const B64_LOOKUP = new Uint8Array(256);
+for (let i = 0; i < B64_CHARS.length; i++) {
+  B64_LOOKUP[B64_CHARS.charCodeAt(i)] = i;
+}
+
+function base64ToUint8Array(b64: string): Uint8Array {
+  const clean = b64.replace(/[^A-Za-z0-9+/]/g, '');
+  const len = clean.length;
+  const placeHolders = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  const bytesCount = Math.max(0, Math.floor((len * 3) / 4) - placeHolders);
+  const bytes = new Uint8Array(bytesCount);
+
+  let curByte = 0;
+  for (let i = 0; i < len; i += 4) {
+    const enc1 = B64_LOOKUP[clean.charCodeAt(i)];
+    const enc2 = B64_LOOKUP[clean.charCodeAt(i + 1)];
+    const enc3 = B64_LOOKUP[clean.charCodeAt(i + 2)];
+    const enc4 = B64_LOOKUP[clean.charCodeAt(i + 3)];
+
+    if (curByte < bytesCount) bytes[curByte++] = (enc1 << 2) | (enc2 >> 4);
+    if (curByte < bytesCount) bytes[curByte++] = ((enc2 & 15) << 4) | (enc3 >> 2);
+    if (curByte < bytesCount) bytes[curByte++] = ((enc3 & 3) << 6) | (enc4 & 63);
+  }
+  return bytes;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let result = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i += 3) {
+    const b1 = bytes[i];
+    const b2 = i + 1 < len ? bytes[i + 1] : 0;
+    const b3 = i + 2 < len ? bytes[i + 2] : 0;
+
+    result += B64_CHARS.charAt(b1 >> 2);
+    result += B64_CHARS.charAt(((b1 & 3) << 4) | (b2 >> 4));
+    result += i + 1 < len ? B64_CHARS.charAt(((b2 & 15) << 2) | (b3 >> 6)) : '=';
+    result += i + 2 < len ? B64_CHARS.charAt(b3 & 63) : '=';
+  }
+  return result;
+}
 
 async function getCacheDir(): Promise<string> {
   const models = await StoragePaths.getModelsDir();
@@ -48,6 +91,10 @@ async function getCacheDir(): Promise<string> {
 export async function isKokoroOnnxRuntimeReady(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   try {
+    const { NativeModules } = require('react-native');
+    if (!NativeModules?.Onnxruntime) {
+      return false;
+    }
     if (!ortModule) {
       ortModule = require('onnxruntime-react-native');
     }
@@ -57,68 +104,23 @@ export async function isKokoroOnnxRuntimeReady(): Promise<boolean> {
   }
 }
 
-async function loadVocab(cacheDir: string): Promise<Record<string, number>> {
-  if (vocabPromise) return vocabPromise;
-  vocabPromise = (async () => {
-    const FileSystem = require('expo-file-system');
-    const path = `${cacheDir}${KOKORO_HF_ASSETS.tokenizer.fileName}`;
-    const info = await FileSystem.getInfoAsync(path);
-    if (!info?.exists) {
-      // Minimal fallback phoneme → id map used by Kokoro tokenizer
-      return buildFallbackVocab();
-    }
-    try {
-      const raw = await FileSystem.readAsStringAsync(path);
-      const parsed = JSON.parse(raw);
-      const model = parsed?.model?.vocab || parsed?.vocab || {};
-      if (model && typeof model === 'object') return model as Record<string, number>;
-    } catch {}
-    return buildFallbackVocab();
-  })();
-  return vocabPromise;
-}
-
-function buildFallbackVocab(): Record<string, number> {
-  // Kokoro IPA-ish character vocab (subset). Enough for English fallbacks.
-  const chars =
-    ";:,.!?¡¿—…\"«»“”(){}[]$'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzàáâãäåæçèéêëìíîïñòóôõöøùúûüýÿāēīōūəɪʊɔɑæʃʒθðŋɹɾɫˈˌː ";
-  const vocab: Record<string, number> = { $: 0 };
-  let i = 1;
-  for (const ch of chars) {
-    if (!(ch in vocab)) vocab[ch] = i++;
-  }
-  return vocab;
-}
-
-/** Very light English → approx phoneme string (US). Real quality needs espeak; this keeps ONNX path alive. */
-function roughPhonemize(text: string): string {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s'.,!?-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function tokenizePhonemes(phonemes: string, vocab: Record<string, number>): number[] {
-  const ids: number[] = [0]; // BOS
-  for (const ch of phonemes) {
-    if (vocab[ch] != null) ids.push(vocab[ch]);
-    else if (ch === ' ') ids.push(vocab[' '] ?? 0);
-  }
-  ids.push(0); // EOS
-  return ids.slice(0, 512);
-}
-
-async function loadVoiceStyle(cacheDir: string, voiceId: KokoroVoiceId, tokenLen: number): Promise<Float32Array> {
+async function loadVoiceStyle(
+  cacheDir: string,
+  voiceId: KokoroVoiceId,
+  phonemeCount: number
+): Promise<Float32Array> {
   const FileSystem = require('expo-file-system');
   const asset = KOKORO_HF_ASSETS.voices[voiceId];
   const path = `${cacheDir}${asset.fileName}`;
-  const b64 = await FileSystem.readAsStringAsync(path, { encoding: FileSystem.EncodingType.Base64 });
-  const binary = globalThis.atob ? globalThis.atob(b64) : Buffer.from(b64, 'base64').toString('binary');
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const b64 = await FileSystem.readAsStringAsync(path, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bytes = base64ToUint8Array(b64);
   const all = new Float32Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 4));
-  const offset = 256 * Math.min(Math.max(tokenLen - 2, 0), 509);
+  // Style row keyed by phoneme length (without pad tokens), clamped to available rows
+  const rowCount = Math.floor(all.length / 256);
+  const row = Math.min(Math.max(phonemeCount, 0), Math.max(rowCount - 1, 0), 509);
+  const offset = row * 256;
   return all.slice(offset, offset + 256);
 }
 
@@ -127,8 +129,7 @@ async function getSession(cacheDir: string): Promise<any> {
   sessionPromise = (async () => {
     if (!ortModule) ortModule = require('onnxruntime-react-native');
     const modelPath = `${cacheDir}${KOKORO_HF_ASSETS.model.fileName}`;
-    // onnxruntime-react-native expects a filesystem path without file://
-    const path = modelPath.replace(/^file:\/\//, '');
+    const path = modelPath.replace(/^file:\/+/, '/');
     return ortModule.InferenceSession.create(path);
   })().catch((err: any) => {
     sessionPromise = null;
@@ -165,13 +166,86 @@ function floatToWavUri(samples: Float32Array, sampleRate: number, outPath: strin
     o += 2;
   }
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  const b64 = uint8ArrayToBase64(bytes);
+  return FileSystem.writeAsStringAsync(outPath, b64, {
+    encoding: FileSystem.EncodingType.Base64,
+  }).then(() => outPath);
+}
+
+function toInt64Data(ids: number[]): any {
+  // Prefer BigInt64Array when available (Hermes / modern JSI)
+  try {
+    if (typeof BigInt64Array !== 'undefined') {
+      return BigInt64Array.from(ids.map((n) => BigInt(n)));
+    }
+  } catch {}
+  // Fallback: some ORT builds accept number[] with int64 type
+  return ids;
+}
+
+async function synthesizeChunk(
+  cacheDir: string,
+  text: string,
+  voiceId: KokoroVoiceId,
+  speed: number
+): Promise<Float32Array> {
+  const phonemes = phonemizeAmerican(text);
+  const ids = tokenizeKokoroPhonemes(phonemes);
+  if (ids.length < 3) {
+    throw new Error('Kokoro phonemizer produced empty tokens for this text.');
   }
-  const b64 = globalThis.btoa ? globalThis.btoa(binary) : Buffer.from(bytes).toString('base64');
-  return FileSystem.writeAsStringAsync(outPath, b64, { encoding: FileSystem.EncodingType.Base64 }).then(() => outPath);
+
+  const phonemeCount = Math.max(ids.length - 2, 0);
+  const style = await loadVoiceStyle(cacheDir, voiceId, phonemeCount);
+  const session = await getSession(cacheDir);
+  const { Tensor } = ortModule;
+
+  const feeds: Record<string, any> = {
+    input_ids: new Tensor('int64', toInt64Data(ids), [1, ids.length]),
+    style: new Tensor('float32', style, [1, 256]),
+    speed: new Tensor('float32', Float32Array.from([Math.max(0.5, Math.min(2, speed))]), [1]),
+  };
+
+  const out = await session.run(feeds);
+  const waveform = out.waveform || out[Object.keys(out)[0]];
+  const data: Float32Array =
+    waveform?.data instanceof Float32Array
+      ? waveform.data
+      : new Float32Array(waveform?.data || []);
+
+  if (!data.length) throw new Error('Kokoro ONNX produced empty audio.');
+  return data;
+}
+
+/** Split long text into sentence-ish chunks that fit Kokoro's 510 phoneme budget. */
+function chunkTextForKokoro(text: string, maxChars = 220): string[] {
+  const cleaned = String(text || '').trim();
+  if (!cleaned) return [];
+  if (cleaned.length <= maxChars) return [cleaned];
+
+  const sentences = cleaned.match(/[^.!?…]+[.!?…]+\s*|[^.!?…]+$/g) || [cleaned];
+  const chunks: string[] = [];
+  let buf = '';
+  for (const s of sentences) {
+    const piece = s.trim();
+    if (!piece) continue;
+    if ((buf + ' ' + piece).trim().length <= maxChars) {
+      buf = (buf + ' ' + piece).trim();
+    } else {
+      if (buf) chunks.push(buf);
+      if (piece.length <= maxChars) {
+        buf = piece;
+      } else {
+        // Hard-split very long sentences
+        for (let i = 0; i < piece.length; i += maxChars) {
+          chunks.push(piece.slice(i, i + maxChars));
+        }
+        buf = '';
+      }
+    }
+  }
+  if (buf) chunks.push(buf);
+  return chunks;
 }
 
 export type KokoroOnnxResult = { uri: string; sampleRate: number };
@@ -189,7 +263,9 @@ export async function synthesizeKokoroOnnx(
   const cacheDir = await getCacheDir();
   const FileSystem = require('expo-file-system');
   const modelInfo = await FileSystem.getInfoAsync(`${cacheDir}${KOKORO_HF_ASSETS.model.fileName}`);
-  const voiceInfo = await FileSystem.getInfoAsync(`${cacheDir}${KOKORO_HF_ASSETS.voices[voiceId].fileName}`);
+  const voiceInfo = await FileSystem.getInfoAsync(
+    `${cacheDir}${KOKORO_HF_ASSETS.voices[voiceId].fileName}`
+  );
   if (!modelInfo?.exists || Number(modelInfo.size || 0) < KOKORO_HF_ASSETS.model.minBytes) {
     throw new Error('Kokoro ONNX model is missing or incomplete.');
   }
@@ -197,35 +273,28 @@ export async function synthesizeKokoroOnnx(
     throw new Error(`Kokoro voice ${voiceId} is missing. Re-download Heart & Michael.`);
   }
 
-  const vocab = await loadVocab(cacheDir);
-  const phonemes = roughPhonemize(text);
-  const ids = tokenizePhonemes(phonemes, vocab);
-  if (ids.length < 3) return null;
+  const chunks = chunkTextForKokoro(text);
+  if (!chunks.length) return null;
 
-  const style = await loadVoiceStyle(cacheDir, voiceId, ids.length);
-  const session = await getSession(cacheDir);
-  const { Tensor } = ortModule;
+  const sampleArrays: Float32Array[] = [];
+  for (const chunk of chunks) {
+    sampleArrays.push(await synthesizeChunk(cacheDir, chunk, voiceId, speed));
+  }
 
-  const feeds: Record<string, any> = {
-    input_ids: new Tensor('int64', BigInt64Array.from(ids.map((n) => BigInt(n))), [1, ids.length]),
-    style: new Tensor('float32', style, [1, 256]),
-    speed: new Tensor('float32', Float32Array.from([speed]), [1]),
-  };
-
-  const out = await session.run(feeds);
-  const waveform = out.waveform || out[Object.keys(out)[0]];
-  const data: Float32Array = waveform?.data instanceof Float32Array
-    ? waveform.data
-    : new Float32Array(waveform?.data || []);
-
-  if (!data.length) throw new Error('Kokoro ONNX produced empty audio.');
+  let total = 0;
+  for (const a of sampleArrays) total += a.length;
+  const merged = new Float32Array(total);
+  let offset = 0;
+  for (const a of sampleArrays) {
+    merged.set(a, offset);
+    offset += a.length;
+  }
 
   const outPath = `${cacheDir}tts-out-${Date.now()}.wav`;
-  const uri = await floatToWavUri(data, 24000, outPath);
+  const uri = await floatToWavUri(merged, 24000, outPath);
   return { uri, sampleRate: 24000 };
 }
 
 export function resetKokoroOnnxSession(): void {
   sessionPromise = null;
-  vocabPromise = null;
 }

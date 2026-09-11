@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingLeft: 6,
-    paddingRight: 14,
+    paddingRight: 18,
     paddingVertical: 4,
     borderRadius: 9999,
     backgroundColor: 'transparent',
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   },
   brandLeft: {
     justifyContent: 'center',
-    paddingRight: 2,
+    paddingRight: 6,
   },
   brandLogo: {
     width: 72,

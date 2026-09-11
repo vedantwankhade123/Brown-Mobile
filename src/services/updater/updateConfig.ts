@@ -1,12 +1,12 @@
 /**
  * GitHub Releases update configuration.
- * Public feed: https://github.com/vedantwankhade123/Brown-Releases
+ * Public feed: https://github.com/vedantwankhade123/Brown-Mobile
  */
 export const UPDATE_CONFIG = {
-  /** GitHub org or user that owns the releases repo */
+  /** GitHub org or user that owns the mobile repo */
   GITHUB_OWNER: 'vedantwankhade123',
-  /** Public repo that publishes desktop EXE + mobile APK release assets */
-  GITHUB_REPO: 'Brown-Releases',
+  /** Public repo that publishes mobile APK release assets */
+  GITHUB_REPO: 'Brown-Mobile',
   /** Prefer assets whose name matches this pattern (case-insensitive) */
   APK_NAME_HINTS: ['brown', 'mobile', 'android', '.apk'],
   /** AsyncStorage keys */

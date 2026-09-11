@@ -42,7 +42,6 @@ import { SoundService } from '../services/sound/SoundService';
 import { ChatMessage, ChatSession } from '../types/chat';
 import { ModelMetadata } from '../types/model';
 import { colors } from '../theme/colors';
-import { typography, spacing, borderRadius } from '../theme/typography';
 import { getContextualThinkingLabel, ANSWERING_PROMOTE_MS, GENERATING_PROMOTE_MS } from '../utils/thinkingLabel';
 import { generateSessionTitle, isDefaultSessionTitle } from '../utils/sessionTitle';
 import { copyTextToClipboard } from '../utils/clipboard';
@@ -232,11 +231,23 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleSelectModel = async (model: ModelMetadata) => {
     setActiveModel(model);
     try {
-      await engine.loadModel(model, {
+      const ok = await engine.loadModel(model, {
         contextSize: model.contextLength || 2048,
         threads: 4,
         useHardwareAcceleration: true,
       });
+      if (
+        !ok &&
+        (model.provider === 'device' ||
+          model.source === 'offline' ||
+          (!model.provider && model.source !== 'cloud' && model.source !== 'online'))
+      ) {
+        Alert.alert(
+          'Model Load Failed',
+          engine.getLastNativeError?.() ||
+            'On-device GGUF could not be loaded. Rebuild with llama.rn, or use a Cloud model.'
+        );
+      }
     } catch (err) {
       console.warn('[ChatScreen] Error switching model:', err);
     }
@@ -358,7 +369,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           topP: 0.9,
           contextSize: 2048,
           threads: 4,
-          systemPrompt: 'You are Brown Mobile, a helpful AI assistant. Answer clearly and directly like ChatGPT. Do not mention engines, models, or processing — just help the user.',
+          systemPrompt:
+            'You are Brown Mobile, a brilliant, highly capable AI assistant like ChatGPT. ' +
+            'Provide direct, beautifully formatted responses using Markdown. ' +
+            'Use structured Markdown tables for comparing items, organized bullet points and numbered steps for explanations, ' +
+            'and syntax-highlighted code blocks with language tags when showing code. ' +
+            'Never mention internal engines, models, or processing — speak directly, concisely, and helpfully to the user.',
           useHardwareAcceleration: true,
         },
         (token) => {
@@ -408,14 +424,40 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       clearTimeout(secondPromoteTimer);
       setIsGenerating(false);
       const friendlyMsg = err?.message || 'Failed to complete generation';
+      const isLoadFailure =
+        /could not be loaded|not found on device|llama\.rn|native module|rebuild/i.test(
+          friendlyMsg
+        );
+      // Don't leave engine errors as fake assistant chat content
       setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantMsgId
-            ? { ...m, content: `⚠️ ${friendlyMsg}`, isStreaming: false, statusLabel: undefined }
-            : m
-        )
+        isLoadFailure
+          ? prev.filter((m) => m.id !== assistantMsgId)
+          : prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    content: `Couldn’t finish that reply. ${friendlyMsg}`,
+                    isStreaming: false,
+                    statusLabel: undefined,
+                  }
+                : m
+            )
       );
-      Alert.alert('Inference Notice', friendlyMsg);
+      if (isLoadFailure) {
+        Alert.alert(
+          'On-Device Model Notice',
+          `${friendlyMsg}\n\nWould you like to select a Cloud AI model (Gemini, Groq, OpenAI) or switch models?`,
+          [
+            { text: 'Dismiss', style: 'cancel' },
+            {
+              text: 'Choose Model',
+              onPress: () => setModelSheetVisible(true),
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Inference Notice', friendlyMsg);
+      }
     }
   };
 
@@ -564,10 +606,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             }}
             onLayout={() => scheduleScrollToEnd(false)}
             removeClippedSubviews
-            windowSize={7}
-            maxToRenderPerBatch={6}
-            updateCellsBatchingPeriod={50}
-            initialNumToRender={10}
+            windowSize={9}
+            maxToRenderPerBatch={8}
+            updateCellsBatchingPeriod={40}
+            initialNumToRender={12}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="none"
           />
@@ -613,7 +655,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         activeModel={activeModel}
         isGenerating={isGenerating}
         isListening={isListening}
-        isSpeaking={isSpeaking}
         modelSheetVisible={modelSheetVisible}
         onModelSheetVisibleChange={setModelSheetVisible}
       />
@@ -713,23 +754,5 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 740,
     alignSelf: 'center',
-  },
-  waveformContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceSubtle,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
-    width: '100%',
-    maxWidth: 740,
-    alignSelf: 'center',
-  },
-  waveformLabel: {
-    color: colors.accentWhite,
-    fontSize: typography.fontSize.xs,
-    fontWeight: '600',
   },
 });

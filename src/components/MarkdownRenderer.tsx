@@ -44,11 +44,20 @@ function isTableStart(lines: string[], index: number): boolean {
   return splitTableRow(header).length > 0;
 }
 
-/** Recursive inline markdown: bold, italic, strike, code, links */
+function parseAlignments(sepLine: string): Array<'left' | 'center' | 'right'> {
+  return splitTableRow(sepLine).map((cell) => {
+    const c = cell.trim();
+    if (c.startsWith(':') && c.endsWith(':')) return 'center';
+    if (c.endsWith(':')) return 'right';
+    return 'left';
+  });
+}
+
+/** Recursive inline markdown: bold, italic, strike, code, math, links */
 function renderInline(text: string, keyPrefix = 'i'): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const pattern =
-    /(`[^`]+`|\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\*[^*\n]+?\*|_[^_\n]+?_|\[([^\]]+)\]\(([^)]+)\))/g;
+    /(`[^`]+`|\$\$[^$\n]+?\$\$|\$[^$\n]+?\$|\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\*[^*\n]+?\*|_[^_\n]+?_|\[([^\]]+)\]\(([^)]+)\))/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -68,6 +77,18 @@ function renderInline(text: string, keyPrefix = 'i'): React.ReactNode[] {
       nodes.push(
         <Text key={key} style={styles.inlineCode}>
           {token.slice(1, -1)}
+        </Text>
+      );
+    } else if (token.startsWith('$$')) {
+      nodes.push(
+        <Text key={key} style={styles.mathBlock}>
+          {token.slice(2, -2).trim()}
+        </Text>
+      );
+    } else if (token.startsWith('$') && token.length > 1) {
+      nodes.push(
+        <Text key={key} style={styles.inlineMath}>
+          {token.slice(1, -1).trim()}
         </Text>
       );
     } else if (token.startsWith('**') || token.startsWith('__')) {
@@ -178,6 +199,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
     const pushTable = (startIndex: number): number => {
       const headerCells = splitTableRow(lines[startIndex]);
+      const sepLine = lines[startIndex + 1] || '';
+      const alignments = parseAlignments(sepLine);
       let i = startIndex + 2; // skip separator
       const rows: string[][] = [];
 
@@ -205,7 +228,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
       const header = normalize(headerCells);
       const body = rows.map(normalize);
-      const minColWidth = Math.max(88, Math.min(140, Math.floor(280 / colCount)));
+      const minColWidth = Math.max(96, Math.min(160, Math.floor(320 / Math.max(colCount, 1))));
 
       out.push(
         <ScrollView
@@ -223,11 +246,22 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   style={[
                     styles.tableCell,
                     styles.tableHeaderCell,
-                    { minWidth: minColWidth, maxWidth: 220 },
+                    {
+                      minWidth: minColWidth,
+                      maxWidth: 240,
+                      alignItems:
+                        alignments[cIdx] === 'center'
+                          ? 'center'
+                          : alignments[cIdx] === 'right'
+                            ? 'flex-end'
+                            : 'flex-start',
+                    },
                     cIdx === colCount - 1 && styles.tableCellLast,
                   ]}
                 >
-                  <Text style={styles.tableHeaderText}>{renderInline(cell, `th-${startIndex}-${cIdx}`)}</Text>
+                  <Text style={[styles.tableHeaderText, { textAlign: alignments[cIdx] || 'left' }]}>
+                    {renderInline(cell, `th-${startIndex}-${cIdx}`)}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -241,12 +275,23 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     key={`td-${rIdx}-${cIdx}`}
                     style={[
                       styles.tableCell,
-                      { minWidth: minColWidth, maxWidth: 220 },
+                      {
+                        minWidth: minColWidth,
+                        maxWidth: 240,
+                        alignItems:
+                          alignments[cIdx] === 'center'
+                            ? 'center'
+                            : alignments[cIdx] === 'right'
+                              ? 'flex-end'
+                              : 'flex-start',
+                      },
                       cIdx === colCount - 1 && styles.tableCellLast,
                       rIdx === body.length - 1 && styles.tableCellBottom,
                     ]}
                   >
-                    <Text style={styles.tableCellText}>{renderInline(cell, `td-${startIndex}-${rIdx}-${cIdx}`)}</Text>
+                    <Text style={[styles.tableCellText, { textAlign: alignments[cIdx] || 'left' }]}>
+                      {renderInline(cell, `td-${startIndex}-${rIdx}-${cIdx}`)}
+                    </Text>
                   </View>
                 ))}
               </View>
@@ -509,6 +554,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 5,
+    overflow: 'hidden',
+  },
+  mathBlock: {
+    color: '#93c5fd',
+    fontFamily: typography.fontFamily.mono,
+    fontSize: 14,
+    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginVertical: 4,
+    overflow: 'hidden',
+  },
+  inlineMath: {
+    color: '#93c5fd',
+    fontFamily: typography.fontFamily.mono,
+    fontSize: 13.5,
+    fontStyle: 'italic',
+    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   codeBlockWrapper: {

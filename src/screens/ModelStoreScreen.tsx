@@ -163,7 +163,15 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
 
   const handleSelectModel = async (model: ModelMetadata) => {
     try {
-      await engine.loadModel(model);
+      const ok = await engine.loadModel(model);
+      if (!ok) {
+        Alert.alert(
+          'Load Failed',
+          engine.getLastNativeError?.() ||
+            'Could not load this GGUF. Rebuild the app with llama.rn linked, or pick a Cloud model.'
+        );
+        return;
+      }
       setActiveModel(model);
       onModelActivated(model);
       Alert.alert('Model Activated', `${model.name} is ready to chat.`);

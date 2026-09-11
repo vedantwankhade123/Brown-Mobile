@@ -399,7 +399,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 accessibilityLabel="Scan QR Code"
               >
                 <Text style={styles.desktopSyncQrText}>Scan QR</Text>
-                <QrCodeIcon size={16} color="#ffffff" />
+                <QrCodeIcon size={18} color="#ffffff" />
               </TouchableOpacity>
             </View>
 
@@ -928,8 +928,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     borderRadius: 12,
     paddingLeft: 10,
-    paddingRight: 4,
-    paddingVertical: 3,
+    paddingRight: 6,
+    paddingVertical: 4,
   },
   desktopSyncLeft: {
     flexDirection: 'row',
@@ -940,15 +940,15 @@ const styles = StyleSheet.create({
   desktopSyncQrBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
     backgroundColor: '#2563eb',
     borderRadius: 9999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   desktopSyncQrText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
   footerIconBox: {

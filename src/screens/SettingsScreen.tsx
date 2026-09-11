@@ -1098,7 +1098,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const handleSelectModelFromSettings = async (model: ModelMetadata) => {
     try {
       setSelectedModelId(model.id);
-      await LlamaEngine.getInstance().loadModel(model);
+      const engine = LlamaEngine.getInstance();
+      const ok = await engine.loadModel(model);
+      if (!ok) {
+        Alert.alert(
+          'Activation Error',
+          engine.getLastNativeError?.() ||
+            'Could not load this model. For on-device GGUFs, rebuild with llama.rn linked.'
+        );
+        return;
+      }
       Alert.alert('Model Activated', `${model.name} is now your active model.`);
     } catch (err: any) {
       Alert.alert('Activation Error', err?.message || 'Could not activate model.');
