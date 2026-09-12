@@ -1,8 +1,8 @@
-# Brown AI Mobile — Sovereign On-Device AI Companion
+# Brown AI Mobile — Sovereign On-Device AI Companion (Android)
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-0078D4?logo=android)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.2-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
+[![Platform](https://img.shields.io/badge/Platform-Android%2010%2B-3DDC84?logo=android&logoColor=white)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
@@ -15,7 +15,9 @@
   <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with documentation and direct downloads.
 </p>
 
-**Brown AI Mobile** is an autonomous, privacy-first, on-device AI conversational assistant engineered for **Android** and **iOS**. It runs quantized Small Language Models (SLMs) completely offline on your smartphone's silicon, delivering high-speed conversational reasoning, dynamic thinking statuses, encrypted local memories, and seamless local Wi-Fi pairing with the Brown Windows Desktop application.
+**Brown AI Mobile** is an autonomous, privacy-first, on-device AI conversational assistant engineered exclusively for **Android** (Android 10+). It runs quantized Small Language Models (SLMs) completely offline on your smartphone's silicon, delivering high-speed conversational reasoning, dynamic thinking statuses, encrypted local memories, and seamless local Wi-Fi pairing with the Brown Windows Desktop application.
+
+> **Note on Platform Support**: Brown AI Mobile is built **strictly for Android devices**. iOS or other mobile operating systems are not supported.
 
 ---
 
@@ -25,9 +27,9 @@
 - **🔄 Dynamic Thinking & Reasoning States**: Contextual, live status progression indicators ("Thinking...", "Searching knowledge...", "Analyzing prompt...") so you always know what the model is processing.
 - **🛡️ Air-Gapped Zero-Telemetry**: Your prompts, conversation histories, and voice notes never leave your device.
 - **📦 In-App GGUF Model Manager**: One-tap model browser with RAM tier recommendations, device storage metering, and background chunked downloading.
-- **🔐 Encrypted SQLite & SecureStore**: Conversation threads and sensitive API keys are encrypted on-device via Android Keystore and iOS Keychain.
+- **🔐 Encrypted SQLite & SecureStore**: Conversation threads and sensitive API keys are encrypted on-device via Android Keystore and AES-256 local vaults.
 - **🎙️ Sovereign Voice Mode**: Offline voice recording, Whisper speech recognition, and neural TTS synthesis.
-- **🖥️ Desktop Wi-Fi Sync**: Zero-config local network pairing using secure PIN codes to synchronize chats and memory with your Brown Desktop workstation.
+- **🖥️ Desktop Wi-Fi Sync**: Zero-config local network pairing using secure PIN codes to synchronize chats and memory with your Brown Windows Desktop workstation.
 - **☁️ Hybrid Cloud Parity (Optional)**: Optional connectors for OpenAI, Claude, DeepSeek, Groq, and custom endpoints when external models are needed.
 
 ---
@@ -84,7 +86,7 @@ mobile/
 ### Prerequisites
 - **Node.js**: v18 or v20 LTS
 - **npm** or **yarn**
-- **Android Studio** (for local Android builds) or **Xcode** (macOS only, for iOS)
+- **Android Studio & Android SDK (API 30+)** (for local Android emulator and native builds)
 
 ### Installation & Development
 ```bash
@@ -118,10 +120,20 @@ npm run typecheck
 
 ---
 
+## 👨‍💻 Developer & Ownership
+
+- **Lead Architect & Developer**: **Vedant Wankhade** (Full Stack Developer)
+- **Portfolio**: [https://vedantwankhade.netlify.app/](https://vedantwankhade.netlify.app/)
+- **LinkedIn**: [https://www.linkedin.com/in/vedant-wankhade123](https://www.linkedin.com/in/vedant-wankhade123)
+- **GitHub Profile**: [https://github.com/vedantwankhade123](https://github.com/vedantwankhade123)
+- **Email**: `vedantwankhade47@gmail.com`
+
+---
+
 ## 📄 License & Intellectual Property
 
 Brown AI Mobile is **Proprietary & Confidential Software**. All Rights Reserved.
 
 - Copyright (c) 2026 Vedant Wankhade.
 - Website: [https://usebrown.online](https://usebrown.online)
-- Inquiries: `contact@usebrown.online`
+- Official Support & Inquiries: `contact@usebrown.online`
