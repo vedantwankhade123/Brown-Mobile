@@ -154,7 +154,7 @@ const HoverableSettingsRow: React.FC<{
           justifyContent: 'space-between',
           paddingVertical: 15,
           paddingHorizontal: 16,
-          borderRadius: 12,
+          borderRadius: 33,
         },
         isHovered && { backgroundColor: 'rgba(255, 255, 255, 0.06)' },
       ]}
@@ -281,6 +281,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     isConnected: false,
     deviceName: '',
   });
+  const [whisperStatus, setWhisperStatus] = useState<{ checked: boolean; ready: boolean }>({
+    checked: false,
+    ready: false,
+  });
+
+  useEffect(() => {
+    if (currentView !== 'sounds') return;
+    if (!desktopSyncStatus.isConnected) {
+      setWhisperStatus({ checked: false, ready: false });
+      return;
+    }
+    let alive = true;
+    DesktopSyncService.getInstance()
+      .getDesktopSttStatus()
+      .then((s) => {
+        if (alive) setWhisperStatus({ checked: true, ready: !!s.ok && !!s.ready });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentView, desktopSyncStatus.isConnected]);
 
   const chatRepo = new ChatRepository();
 
@@ -2185,12 +2206,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.pageCardGroup}>
               <Text style={styles.sectionCardTitle}>Voice input</Text>
               <Text style={styles.sectionCardSubtitle}>
-                Built-in on-device neural speech recognition for the mic button. No API key required.
+                The mic button records on this phone and transcribes with Whisper on your paired
+                Brown PC — audio never leaves your Wi-Fi network.
               </Text>
 
               <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Speech Engine</Text>
-                <Text style={styles.fullPageRowValue}>Ultron Whisper.cpp (Local)</Text>
+                <Text style={styles.fullPageRowLabel}>Whisper engine</Text>
+                <Text style={styles.fullPageRowValue}>
+                  {!desktopSyncStatus.isConnected
+                    ? 'Pair Brown Desktop'
+                    : whisperStatus.ready
+                      ? 'Ready on your PC'
+                      : whisperStatus.checked
+                        ? 'Warming up on your PC…'
+                        : 'Checking…'}
+                </Text>
               </View>
 
               <View style={styles.fullPageDetailRow}>
@@ -2992,7 +3022,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={styles.iosProfileName}>{userName}</Text>
                 <Text style={styles.iosProfileSubtitle}>{userEmail || 'vedantwankhade47@gmail.com'}</Text>
               </View>
-              <ChevronRightIcon size={18} color="#8e8e93" />
+              <ChevronRightIcon size={18} color="#5c5c66" />
             </TouchableOpacity>
           )}
 
@@ -3015,66 +3045,56 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
             )}
 
-          {/* Categorized Settings Cards Groups matching iOS Design */}
-          {settingsGroups.map((group) => {
-            const visibleItems = group.items.filter(
-              (item) =>
-                !searchQuery.trim() ||
-                item.title.toLowerCase().includes(searchQuery.toLowerCase())
-            );
+          {/* Settings options — every row its own independent card */}
+          {(() => {
+            const flatItems = settingsGroups
+              .flatMap((g) => g.items)
+              .filter(
+                (item) =>
+                  !searchQuery.trim() ||
+                  item.title.toLowerCase().includes(searchQuery.toLowerCase())
+              );
+            return flatItems.map((item) => (
+              <View key={item.id} style={styles.singleOptionCard}>
+                <HoverableSettingsRow onPress={item.action}>
+                  <View style={styles.cleanMenuLeft}>
+                    <View style={styles.menuIconTile}>
+                      {renderItemIcon(item.iconType, '#ffffff')}
+                    </View>
+                    <Text style={styles.cleanMenuTitle}>{item.title}</Text>
+                  </View>
 
-            if (visibleItems.length === 0) return null;
-
-            return (
-              <View key={group.id} style={styles.menuGroupContainer}>
-                <View style={styles.groupCardContainer}>
-                  {visibleItems.map((item, idx) => {
-                    const isLast = idx === visibleItems.length - 1;
-                    return (
-                      <React.Fragment key={item.id}>
-                        <HoverableSettingsRow onPress={item.action}>
-                          <View style={styles.cleanMenuLeft}>
-                            {renderItemIcon(item.iconType, item.iconColor)}
-                            <Text style={styles.cleanMenuTitle}>{item.title}</Text>
-                          </View>
-
-                          <View style={styles.cleanMenuRight}>
-                            {/* Stacked Hugging Face + Gemini logos for Models */}
-                            {item.id === 'models' && (
-                              <View style={styles.modelsLogoStack}>
-                                <View style={styles.modelsStackedLogo1}>
-                                  <HuggingFaceLogo size={15} />
-                                </View>
-                                <View style={styles.modelsStackedLogo2}>
-                                  <Image
-                                    source={require('../../Assets/gemini-logo.png')}
-                                    style={styles.geminiStackedImage}
-                                    resizeMode="contain"
-                                  />
-                                </View>
-                              </View>
-                            )}
-                            {item.detail ? (
-                              <Text style={styles.iosRowDetailText} numberOfLines={1}>
-                                {item.detail}
-                              </Text>
-                            ) : null}
-                            <ChevronRightIcon size={16} color="#8e8e93" />
-                          </View>
-                        </HoverableSettingsRow>
-
-                        {!isLast && <View style={styles.cleanMenuDivider} />}
-                      </React.Fragment>
-                    );
-                  })}
-                </View>
+                  <View style={styles.cleanMenuRight}>
+                    {/* Stacked Hugging Face + Gemini logos for Models */}
+                    {item.id === 'models' && (
+                      <View style={styles.modelsLogoStack}>
+                        <View style={styles.modelsStackedLogo1}>
+                          <HuggingFaceLogo size={15} />
+                        </View>
+                        <View style={styles.modelsStackedLogo2}>
+                          <Image
+                            source={require('../../Assets/gemini-logo.png')}
+                            style={styles.geminiStackedImage}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      </View>
+                    )}
+                    {item.detail ? (
+                      <Text style={styles.iosRowDetailText} numberOfLines={1}>
+                        {item.detail}
+                      </Text>
+                    ) : null}
+                    <ChevronRightIcon size={16} color="#5c5c66" />
+                  </View>
+                </HoverableSettingsRow>
               </View>
-            );
-          })}
+            ));
+          })()}
 
           {/* Also Available On - Platform Download Links */}
           <View style={styles.menuGroupContainer}>
-            <Text style={styles.alsoAvailableHeading}>Also Available On</Text>
+            <Text style={styles.alsoAvailableHeading}>ALSO AVAILABLE ON</Text>
             <View style={styles.platformButtonsGrid}>
               {otherPlatforms.map((platform) => (
                 <TouchableOpacity
@@ -3199,12 +3219,13 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   settingsTitleText: {
     color: '#ffffff',
-    fontSize: 19,
+    fontSize: 22,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: -0.4,
     marginLeft: 4,
   },
   fullscreenBackdrop: {
@@ -3261,7 +3282,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   menuGroupContainer: {
-    marginBottom: 8,
+    marginBottom: 18,
   },
   menuGroupHeaderRow: {
     flexDirection: 'row',
@@ -3269,12 +3290,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     paddingHorizontal: 4,
     gap: 8,
-  },
-  menuGroupSectionTitle: {
-    color: '#8e8e93',
-    fontSize: 12.5,
-    fontWeight: '600',
-    letterSpacing: -0.1,
   },
   menuGroupBadge: {
     backgroundColor: '#ef4444',
@@ -3290,18 +3305,18 @@ const styles = StyleSheet.create({
   iosProfileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#212121',
-    borderRadius: 20,
-    padding: 14,
-    marginBottom: 8,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   iosAvatarCircle: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#303030',
+    backgroundColor: '#295294',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
@@ -3327,11 +3342,19 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   groupCardContainer: {
-    backgroundColor: '#212121',
-    borderRadius: 20,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     overflow: 'hidden',
+  },
+  singleOptionCard: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 33,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    overflow: 'hidden',
+    marginBottom: 10,
   },
   cleanMenuRow: {
     flexDirection: 'row',
@@ -3343,8 +3366,17 @@ const styles = StyleSheet.create({
   cleanMenuLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
     flex: 1,
+  },
+  menuIconTile: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
   },
   cleanMenuIconBox: {
     width: 24,
@@ -3355,9 +3387,9 @@ const styles = StyleSheet.create({
   },
   cleanMenuTitle: {
     color: '#ffffff',
-    fontSize: 15.5,
+    fontSize: 16,
     fontWeight: '500',
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
   cleanMenuRight: {
     flexDirection: 'row',
@@ -3365,7 +3397,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   iosRowDetailText: {
-    color: '#8e8e93',
+    color: '#98989e',
     fontSize: 14,
     fontWeight: '400',
   },
@@ -3382,7 +3414,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#212121',
+    borderColor: '#1c1c1e',
     zIndex: 2,
   },
   modelsStackedLogo2: {
@@ -3393,7 +3425,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: '#212121',
+    borderColor: '#1c1c1e',
     marginLeft: -8,
     zIndex: 1,
   },
@@ -3403,8 +3435,8 @@ const styles = StyleSheet.create({
   },
   cleanMenuDivider: {
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginLeft: 60,
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+    marginLeft: 62,
   },
   pageCardGroup: {
     backgroundColor: '#1A1A1A',
@@ -4431,11 +4463,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   alsoAvailableHeading: {
-    color: '#ffffff',
-    fontSize: 13,
+    color: '#8e8e93',
+    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.2,
-    marginBottom: 8,
+    letterSpacing: 0.9,
+    marginBottom: 10,
     textAlign: 'center',
     paddingHorizontal: 4,
   },

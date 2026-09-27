@@ -1,0 +1,16 @@
+{
+  "name": "brown-recorder",
+  "version": "1.0.0",
+  "description": "16 kHz mono PCM WAV recorder for Whisper STT (Android AudioRecord / iOS AVAudioRecorder)",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "expo": {
+    "modules": [
+      {
+        "name": "BrownRecorder",
+        "android": "expo.modules.brownrecorder.BrownRecorderModule",
+        "apple": "BrownRecorderModule"
+      }
+    ]
+  }
+}

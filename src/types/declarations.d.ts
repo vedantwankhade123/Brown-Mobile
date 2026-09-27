@@ -32,6 +32,9 @@ declare module 'react-native' {
   export const Text: any;
   export const StyleSheet: {
     create<T extends Record<string, any>>(styles: T): T;
+    absoluteFill: Record<string, any>;
+    absoluteFillObject: Record<string, any>;
+    flatten(style: any): Record<string, any> | undefined;
   };
   export const TouchableOpacity: any;
   export const Pressable: any;
@@ -57,6 +60,9 @@ declare module 'react-native' {
     alert: (title: string, message?: string, buttons?: any[]) => void;
   };
   export const ProgressBarAndroid: any;
+  export const PanResponder: {
+    create(config: any): { panHandlers: any };
+  };
 }
 
 declare module '@react-native-async-storage/async-storage' {

@@ -168,27 +168,13 @@ export class DesktopSyncService {
         found.push(device);
       }
     }
-
-    if (found.length === 0) {
-      found.push({
-        id: 'ULTRON-WIN-7842',
-        name: 'Ultron Desktop (awaiting Wi-Fi)',
-        ipAddress: '10.0.2.2',
-        port: SYNC_PORT,
-        version: '1.0.0',
-        isPaired: this.status.isConnected,
-        lastSeen: Date.now(),
-        syncId: 'ULTRON-WIN-7842',
-        isFallback: true,
-      });
-    }
     return found;
   }
 
   async connectBySyncId(syncId: string): Promise<DesktopInstance | null> {
     const needle = syncId.trim().toUpperCase();
     const devices = await this.scanLocalNetwork();
-    return devices.find((d) => (d.syncId || d.id).toUpperCase() === needle) || devices[0] || null;
+    return devices.find((d) => (d.syncId || d.id).toUpperCase() === needle) || null;
   }
 
   private async getMobileDeviceName(): Promise<string> {
@@ -205,25 +191,24 @@ export class DesktopSyncService {
   async requestPairing(desktop: DesktopInstance): Promise<PairingSession> {
     const devName = await this.getMobileDeviceName();
     const clientPlatform = Platform.OS === 'ios' ? 'ios' : 'android';
+    let res: Response;
     try {
-      const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/request`, {
+      res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceName: devName, platform: clientPlatform }),
       });
-      const data = await res.json();
-      if (data && data.requestId) {
-        this.pairing = { requestId: data.requestId, desktop, expiresIn: data.expiresIn || 60 };
-        return this.pairing;
-      }
-    } catch {}
-
-    this.pairing = {
-      requestId: 'local-dev',
-      desktop,
-      expiresIn: 60,
-    };
-    return this.pairing;
+    } catch {
+      throw new Error(
+        `Could not reach ${desktop.name || 'the desktop'} at ${desktop.ipAddress}. Check both devices are on the same Wi-Fi and Brown Desktop is open.`
+      );
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.requestId) {
+      this.pairing = { requestId: data.requestId, desktop, expiresIn: data.expiresIn || 120 };
+      return this.pairing;
+    }
+    throw new Error(data?.error || 'Desktop rejected the pairing request');
   }
 
   private async markPaired(desktop: DesktopInstance, token: string): Promise<void> {
@@ -255,6 +240,47 @@ export class DesktopSyncService {
     this.status.reauthReason = undefined;
     this.pairing = null;
     this.notify();
+    this.startHealthLoop();
+    // Pre-warm desktop Whisper so the first voice message isn't slow.
+    this.warmDesktopStt();
+  }
+
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
+
+  private startHealthLoop(): void {
+    this.stopHealthLoop();
+    this.healthTimer = setInterval(() => {
+      this.healthCheck().catch(() => {});
+    }, 30 * 1000);
+  }
+
+  private stopHealthLoop(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+  }
+
+  private async healthCheck(): Promise<void> {
+    const desktop = this.status.activeDesktop;
+    const token = this.status.authToken;
+    if (!desktop || !token) return;
+    const session = await this.validateSession(desktop, token);
+    if (session.ok) {
+      if (!this.status.isConnected) {
+        this.status.isConnected = true;
+        this.status.needsReauth = false;
+        this.status.reauthReason = undefined;
+        this.notify();
+      }
+      return;
+    }
+    if (this.status.isConnected || !this.status.needsReauth) {
+      this.status.isConnected = false;
+      this.status.needsReauth = true;
+      this.status.reauthReason = session.reason || 'Desktop unreachable';
+      this.notify();
+    }
   }
 
   async getPairedHistory(): Promise<PairedDesktopHistoryItem[]> {
@@ -280,46 +306,48 @@ export class DesktopSyncService {
     this.status.syncInProgress = true;
     this.notify();
 
-    const requestId = this.pairing?.requestId;
+    const fail = (message: string): never => {
+      this.status.syncInProgress = false;
+      this.notify();
+      throw new Error(message);
+    };
+
+    // Only reuse a pairing session started against this exact desktop.
+    const requestId =
+      this.pairing && this.pairing.desktop?.ipAddress === desktop.ipAddress
+        ? this.pairing.requestId
+        : undefined;
     const devName = await this.getMobileDeviceName();
     const clientPlatform = Platform.OS === 'ios' ? 'ios' : 'android';
+    let res: Response;
     try {
-      const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/verify`, {
+      res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId, code: pin.trim().toUpperCase(), deviceName: devName, platform: clientPlatform }),
       });
-      const data = await res.json();
-      if (data && data.ok && data.token) {
-        await this.markPaired(desktop, data.token);
-        if (data.desktop?.geminiApiKey || data.profile?.geminiApiKey) {
-          await SecureStore.setItem(
-            'gemini_api_key',
-            data.profile?.geminiApiKey || data.desktop.geminiApiKey
-          );
-        } else {
-          await this.inheritGeminiKey();
-        }
-        await this.detectProfileConflict(data.profile);
-        this.status.syncedThreadsCount = 1;
-        this.notify();
-        return true;
-      }
-      if (data && (data.error === 'Invalid pairing code' || data.error === 'Pairing code expired')) {
-        this.status.syncInProgress = false;
-        this.notify();
-        throw new Error(data.error);
-      }
-    } catch (err: any) {
-      if (err?.message === 'Invalid pairing code' || err?.message === 'Pairing code expired') {
-        throw err;
-      }
+    } catch {
+      return fail(
+        `Could not reach ${desktop.name || 'the desktop'} at ${desktop.ipAddress}:${desktop.port}. Check both devices are on the same Wi-Fi and Brown Desktop is open.`
+      );
     }
-
-    await this.markPaired(desktop, `dev-${Date.now()}`);
-    this.status.syncedThreadsCount = 1;
-    this.notify();
-    return true;
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.ok && data?.token) {
+      await this.markPaired(desktop, data.token);
+      if (data.desktop?.geminiApiKey || data.profile?.geminiApiKey) {
+        await SecureStore.setItem(
+          'gemini_api_key',
+          data.profile?.geminiApiKey || data.desktop.geminiApiKey
+        );
+      } else {
+        await this.inheritGeminiKey();
+      }
+      await this.detectProfileConflict(data.profile);
+      this.status.syncedThreadsCount = 1;
+      this.notify();
+      return true;
+    }
+    return fail(data?.error || 'Pairing failed — generate a new code or QR on the PC');
   }
 
   private emptyProfile(): UltronRemoteProfile {
@@ -570,6 +598,46 @@ export class DesktopSyncService {
     return text;
   }
 
+  async warmDesktopStt(): Promise<void> {
+    try {
+      await this.authorizedJson('/stt/warmup', { method: 'POST', body: '{}' });
+    } catch {}
+  }
+
+  async getDesktopSttStatus(): Promise<{ ok: boolean; ready?: boolean; error?: string }> {
+    try {
+      return await this.authorizedJson('/stt/status');
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Desktop unreachable' };
+    }
+  }
+
+  /** Upload a 16-bit PCM WAV (base64) and get Whisper's transcript from the PC. */
+  async transcribeAudio(wavBase64: string): Promise<string> {
+    const desktop = this.status.activeDesktop;
+    if (!desktop || !this.status.authToken) {
+      throw new Error('Pair with Brown Desktop to use voice input — Whisper runs on your PC.');
+    }
+    let data: any;
+    try {
+      data = await this.authorizedJson('/stt', {
+        method: 'POST',
+        body: JSON.stringify({ audio: wavBase64 }),
+      });
+    } catch (err: any) {
+      if (/network request failed|could not connect/i.test(String(err?.message || ''))) {
+        throw new Error(
+          `Could not reach Brown Desktop (${desktop.ipAddress}). Open Brown Desktop and try again.`
+        );
+      }
+      throw err;
+    }
+    if (!data?.ok) {
+      throw new Error(data?.error || 'Desktop could not transcribe the recording');
+    }
+    return String(data.text || '');
+  }
+
   getPairedBaseUrl(): string | null {
     const d = this.status.activeDesktop;
     if (!d) return null;
@@ -620,6 +688,7 @@ export class DesktopSyncService {
     }
     await SecureStore.deleteItem(TOKEN_KEY);
     await SecureStore.deleteItem(DESKTOP_KEY);
+    this.stopHealthLoop();
     this.status.isConnected = false;
     this.status.activeDesktop = undefined;
     this.status.authToken = undefined;

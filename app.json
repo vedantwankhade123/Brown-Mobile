@@ -17,6 +17,7 @@
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Brown requires speech recognition for voice AI conversations.",
         "NSMicrophoneUsageDescription": "Brown requires microphone access to enable voice queries.",
+        "NSCameraUsageDescription": "Brown uses the camera to scan the pairing QR code shown in Brown Desktop.",
         "NSLocalNetworkUsageDescription": "Brown requires local network access to synchronize with your desktop instance.",
         "NSLocationWhenInUseUsageDescription": "Brown uses your exact location for accurate weather, time zone, and local assistant queries."
       }
@@ -29,6 +30,7 @@
       "package": "com.brown.mobile",
       "permissions": [
         "RECORD_AUDIO",
+        "CAMERA",
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
@@ -47,6 +49,12 @@
       "expo-font",
       "./plugins/withLlamaRN.js",
       "onnxruntime-react-native",
+      [
+        "expo-camera",
+        {
+          "cameraUsageDescription": "Brown uses the camera to scan the pairing QR code shown in Brown Desktop."
+        }
+      ],
       [
         "expo-location",
         {

@@ -250,6 +250,19 @@ function chunkTextForKokoro(text: string, maxChars = 220): string[] {
 
 export type KokoroOnnxResult = { uri: string; sampleRate: number };
 
+/** Remove previously synthesized tts-out-*.wav files so the cache can't grow forever. */
+async function cleanupTempAudio(cacheDir: string): Promise<void> {
+  try {
+    const FileSystem = require('expo-file-system');
+    const entries = await FileSystem.readDirectoryAsync(cacheDir);
+    for (const name of entries) {
+      if (name.startsWith('tts-out-') && name.endsWith('.wav')) {
+        FileSystem.deleteAsync(`${cacheDir}${name}`, { idempotent: true }).catch(() => {});
+      }
+    }
+  } catch {}
+}
+
 /**
  * Run Kokoro q8 ONNX and write a temporary WAV for expo-av playback.
  */
@@ -291,6 +304,7 @@ export async function synthesizeKokoroOnnx(
   }
 
   const outPath = `${cacheDir}tts-out-${Date.now()}.wav`;
+  await cleanupTempAudio(cacheDir);
   const uri = await floatToWavUri(merged, 24000, outPath);
   return { uri, sampleRate: 24000 };
 }

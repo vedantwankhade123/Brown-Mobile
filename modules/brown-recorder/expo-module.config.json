@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["BrownRecorderModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.brownrecorder.BrownRecorderModule"]
+  }
+}

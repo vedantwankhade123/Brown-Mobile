@@ -24,6 +24,16 @@ export const MenuIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPr
   </Svg>
 );
 
+/** ChatGPT-style menu glyph: three rounded squares + one circle */
+export const GridMenuIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPrimary, strokeWidth = 2 }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+    <Rect x="3.2" y="3.2" width="7.2" height="7.2" rx="2.4" />
+    <Rect x="13.6" y="3.2" width="7.2" height="7.2" rx="2.4" />
+    <Rect x="3.2" y="13.6" width="7.2" height="7.2" rx="2.4" />
+    <Circle cx="17.2" cy="17.2" r="3.6" />
+  </Svg>
+);
+
 export const ChatIcon: React.FC<IconProps> = ({ size = 20, color = colors.textPrimary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -143,10 +153,15 @@ export const ChevronDownIcon: React.FC<IconProps> = ({ size = 12, color = colors
   </Svg>
 );
 
+export const ChevronUpIcon: React.FC<IconProps> = ({ size = 12, color = colors.textMuted }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Polyline points="18 15 12 9 6 15" />
+  </Svg>
+);
+
 export const BackArrowIcon: React.FC<IconProps> = ({ size = 18, color = colors.accentWhite, strokeWidth = 2 }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <Line x1="19" y1="12" x2="5" y2="12" />
-    <Polyline points="12 19 5 12 12 5" />
+    <Polyline points="15 18 9 12 15 6" />
   </Svg>
 );
 
@@ -154,6 +169,13 @@ export const RightArrowIcon: React.FC<IconProps> = ({ size = 18, color = colors.
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Line x1="5" y1="12" x2="19" y2="12" />
     <Polyline points="12 5 19 12 12 19" />
+  </Svg>
+);
+
+export const ArrowUpRightIcon: React.FC<IconProps> = ({ size = 18, color = colors.accentWhite }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Line x1="7" y1="17" x2="17" y2="7" />
+    <Polyline points="8 7 17 7 17 16" />
   </Svg>
 );
 
