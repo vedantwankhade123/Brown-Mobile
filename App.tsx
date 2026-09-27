@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as NavigationBar from 'expo-navigation-bar';
 import {
   useFonts,
   Outfit_300Light,
@@ -158,6 +160,14 @@ export default function App() {
   const [syncInitialScan, setSyncInitialScan] = useState<boolean>(false);
 
   useEffect(() => {
+    if (Platform.OS === 'android') {
+      // Extend behind the system navigation bar so the app gradient fills that area.
+      // Bar is tinted with the gradient's terminal blue (#101e40) so it matches even
+      // when edge-to-edge isn't honored (e.g. Expo Go), instead of showing white/black.
+      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => {});
+      NavigationBar.setBackgroundColorAsync('#101e40').catch(() => {});
+      NavigationBar.setButtonStyleAsync('light').catch(() => {});
+    }
     (async () => {
       await bootstrapApp();
       await checkOnboardingStatus();
@@ -214,6 +224,7 @@ export default function App() {
   }
 
   return (
+    <SafeAreaProvider>
     <ErrorBoundary>
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="#000000" />
@@ -266,6 +277,7 @@ export default function App() {
         )}
       </SafeAreaView>
     </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }
 

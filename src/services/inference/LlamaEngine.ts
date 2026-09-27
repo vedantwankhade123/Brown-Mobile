@@ -158,7 +158,6 @@ export class LlamaEngine implements ILlamaService {
       if (!hasTurbo && !hasLegacy && !hasJsi) {
         this.lastNativeError =
           'Native llama.rn binary is not linked. This happens when running in Expo Go. Run "npx expo run:android" or install a prebuilt APK to run local GGUF models.';
-        console.warn('[LlamaEngine] initNativeContext:', this.lastNativeError);
         return false;
       }
 
@@ -184,7 +183,9 @@ export class LlamaEngine implements ILlamaService {
       this.lastNativeError = isMissingNative
         ? 'Native llama.rn binary is not linked. This happens when running in Expo Go. Run "npx expo run:android" or install a prebuilt APK to run local GGUF models.'
         : (err?.message || 'Failed to load GGUF model.');
-      console.warn('[LlamaEngine] initNativeContext failed:', this.lastNativeError);
+      if (!isMissingNative) {
+        console.warn('[LlamaEngine] initNativeContext failed:', this.lastNativeError);
+      }
       return false;
     }
   }

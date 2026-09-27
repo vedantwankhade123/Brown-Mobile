@@ -9,8 +9,10 @@ import {
   SafeAreaView,
   StatusBar,
   Alert,
+  Animated,
   Image,
 } from 'react-native';
+import { PencilIcon, CodeIcon, SparklesIcon, DocumentIcon, ArrowUpRightIcon } from '../components/Icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { MessageInput } from '../components/MessageInput';
@@ -20,6 +22,7 @@ import { LlamaEngine } from '../services/inference/LlamaEngine';
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService } from '../services/storage/ConsentService';
 import { ModelDownloader } from '../services/modelManager/Downloader';
+import { fetchAvailableChatModels } from '../services/modelManager/AvailableChatModels';
 import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog';
 import { getCachedGeminiModels } from '../services/inference/GeminiClient';
 import { getConfiguredCloudModels } from '../services/inference/CloudProviders';
@@ -52,6 +55,86 @@ interface ChatScreenProps {
   onOpenDesktopSync: (options?: { scan?: boolean }) => void;
 }
 
+type QuickAction = {
+  id: string;
+  label: string;
+  desc: string;
+  draft: string;
+  Icon: React.FC<{ size?: number; color?: string }>;
+};
+
+const QUICK_ACTIONS: QuickAction[] = [
+  { id: 'write', label: 'Write or edit', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:', Icon: PencilIcon },
+  { id: 'code', label: 'Fix some code', desc: 'Explain, debug and improve', draft: 'Explain what this code does and fix any problems:', Icon: CodeIcon },
+  { id: 'summarize', label: 'Summarize', desc: 'Condense long content', draft: 'Summarize the key points of this text:', Icon: DocumentIcon },
+  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh ideas and angles', draft: 'Help me brainstorm ideas about:', Icon: SparklesIcon },
+];
+
+/** One quick-start list row — rises into place on mount and dips under the finger */
+const QuickActionCard: React.FC<{
+  action: QuickAction;
+  delay: number;
+  onPress: () => void;
+}> = ({ action, delay, onPress }) => {
+  const enter = useRef(new Animated.Value(0)).current;
+  const press = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: 420,
+      delay,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const pressIn = () =>
+    Animated.timing(press, { toValue: 0.97, duration: 110, useNativeDriver: true }).start();
+  const pressOut = () =>
+    Animated.timing(press, { toValue: 1, duration: 170, useNativeDriver: true }).start();
+
+  const { label, desc, Icon } = action;
+
+  return (
+    <Animated.View
+      style={[
+        styles.quickCardShell,
+        {
+          opacity: enter,
+          transform: [
+            { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+            { scale: press },
+          ],
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={styles.quickCard}
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        activeOpacity={1}
+        accessibilityLabel={label}
+      >
+        <View style={styles.quickCardTile}>
+          <Icon size={16} color="#ffffff" />
+        </View>
+        <View style={styles.quickCardTextCol}>
+          <Text style={styles.quickCardTitle} numberOfLines={1}>
+            {label}
+          </Text>
+          <Text style={styles.quickCardDesc} numberOfLines={1}>
+            {desc}
+          </Text>
+        </View>
+        <View style={styles.quickCardArrow}>
+          <ArrowUpRightIcon size={14} color="#111111" />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
 export const ChatScreen: React.FC<ChatScreenProps> = ({
   onOpenModelStore,
   onOpenSettings,
@@ -67,8 +150,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [ttsPaused, setTtsPaused] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [userName, setUserName] = useState<string>('');
-  const [modelSheetVisible, setModelSheetVisible] = useState(false);
+  const [greetingName, setGreetingName] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelMetadata[]>([]);
+  const [draftText, setDraftText] = useState<string | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<AppUpdateInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [kokoroDownloading, setKokoroDownloading] = useState(false);
@@ -80,6 +164,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const engine = LlamaEngine.getInstance();
   const chatRepo = useRef(new ChatRepository()).current;
   const downloader = ModelDownloader.getInstance();
+  // The active chat object + whether it has been written to disk yet.
+  // Empty chats are kept in memory only and persisted on the first message,
+  // so a fresh "New chat" the user never types into never shows up in History.
+  const currentSessionRef = useRef<ChatSession | null>(null);
+  const sessionSavedRef = useRef<boolean>(false);
 
   const scheduleScrollToEnd = useCallback((animated = true) => {
     if (scrollToEndTimer.current) clearTimeout(scrollToEndTimer.current);
@@ -99,12 +188,32 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   useEffect(() => {
     initApp();
-    loadUserProfile();
     checkUpdatesOnLaunch();
     return () => {
       if (scrollToEndTimer.current) clearTimeout(scrollToEndTimer.current);
     };
   }, []);
+
+  // Greeting first-name for the empty canvas
+  useEffect(() => {
+    ConsentService.getLatestConsent()
+      .then((consent) => {
+        const full = (consent?.fullName || '').trim();
+        if (full) setGreetingName(full.split(/\s+/)[0]);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Header model menu list — refreshed on launch, model switch and menu open
+  const refreshModels = useCallback(async () => {
+    try {
+      setModels(await fetchAvailableChatModels(activeModel));
+    } catch {}
+  }, [activeModel]);
+
+  useEffect(() => {
+    refreshModels();
+  }, [refreshModels]);
 
   const checkUpdatesOnLaunch = async () => {
     try {
@@ -163,29 +272,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
   };
 
-  const loadUserProfile = async () => {
-    try {
-      const consent = await ConsentService.getLatestConsent();
-      if (consent && consent.fullName && consent.fullName.trim().length > 0) {
-        const first = consent.fullName.trim().split(' ')[0];
-        setUserName(first);
-      }
-    } catch {}
-  };
-
-  const getGreetingText = () => {
-    const hour = new Date().getHours();
-    let salutation = 'Good day';
-    if (hour < 12) {
-      salutation = 'Good morning';
-    } else if (hour < 17) {
-      salutation = 'Good afternoon';
-    } else {
-      salutation = 'Good evening';
-    }
-    return userName ? `${salutation}, ${userName}` : salutation;
-  };
-
   const initApp = async () => {
     await downloader.whenReady();
     const installed = getInstalledDeviceModels(downloader.getDownloadedIds());
@@ -222,10 +308,28 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const createNewChat = async () => {
-    const session = await chatRepo.createSession('New Chat', activeModel?.id || 'none');
+    const now = Date.now();
+    const session: ChatSession = {
+      id: 'session_' + Math.random().toString(36).substring(2, 11),
+      title: 'New Chat',
+      modelId: activeModel?.id || 'none',
+      createdAt: now,
+      updatedAt: now,
+      messageCount: 0,
+      lastMessagePreview: '',
+    };
+    currentSessionRef.current = session;
+    sessionSavedRef.current = false;
     setCurrentSessionId(session.id);
-    setSessions((prev) => [session, ...prev]);
     setMessages([]);
+  };
+
+  const handleQuickAction = async (draft: string) => {
+    setIsSidebarOpen(false);
+    if (messages.length > 0) {
+      await createNewChat();
+    }
+    setDraftText(draft);
   };
 
   const handleSelectModel = async (model: ModelMetadata) => {
@@ -255,6 +359,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const loadSession = async (sessionId: string) => {
     setCurrentSessionId(sessionId);
+    const session =
+      sessions.find((s) => s.id === sessionId) || (await chatRepo.getSessionById(sessionId));
+    currentSessionRef.current = session || null;
+    sessionSavedRef.current = true;
     const msgs = await chatRepo.getMessagesForSession(sessionId);
     setMessages(msgs);
   };
@@ -287,6 +395,13 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       return;
     }
 
+    // Persist the chat to history only now that it actually has content,
+    // so a fresh empty "New chat" never leaves a stub in History.
+    if (!sessionSavedRef.current && currentSessionRef.current) {
+      await chatRepo.upsertSession(currentSessionRef.current);
+      sessionSavedRef.current = true;
+    }
+
     // Add User message
     const userMsg: ChatMessage = {
       id: 'msg_' + Date.now(),
@@ -301,18 +416,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     await chatRepo.addMessage(userMsg);
 
     // Auto-title the chat from the first meaningful user prompt
-    const currentSession = sessions.find((s) => s.id === currentSessionId);
+    const currentSession = currentSessionRef.current;
     if (currentSession && isDefaultSessionTitle(currentSession.title)) {
       const autoTitle = generateSessionTitle(text);
       if (autoTitle && !isDefaultSessionTitle(autoTitle)) {
-        await chatRepo.upsertSession({
-          ...currentSession,
-          title: autoTitle,
-          updatedAt: Date.now(),
-        });
-        setSessions(await chatRepo.getAllSessions());
+        const titled = { ...currentSession, title: autoTitle, updatedAt: Date.now() };
+        await chatRepo.upsertSession(titled);
+        currentSessionRef.current = titled;
       }
     }
+    setSessions(await chatRepo.getAllSessions());
 
     // Prepare assistant streaming placeholder — dynamic contextual status (Thinking/Searching/Analyzing → Answering)
     const assistantMsgId = 'msg_ast_' + Date.now();
@@ -450,8 +563,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           [
             { text: 'Dismiss', style: 'cancel' },
             {
-              text: 'Choose Model',
-              onPress: () => setModelSheetVisible(true),
+              text: 'Manage Models',
+              onPress: () => onOpenModelStore(),
             },
           ]
         );
@@ -502,17 +615,23 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         },
         onError: () => setIsListening(false),
       });
-    } catch {
+    } catch (err: any) {
       setIsListening(false);
+      Alert.alert('Voice Input', err?.message || 'Could not start voice input.');
     }
   };
 
   const handleVoiceCommit = async () => {
     if (!isListening) return;
-    const text = await SpeechToTextService.stopListening();
-    setIsListening(false);
-    if (text?.trim()) {
-      setVoiceInsertText(text.trim());
+    try {
+      const text = await SpeechToTextService.stopListening();
+      if (text?.trim()) {
+        setVoiceInsertText(text.trim());
+      }
+    } catch (err: any) {
+      Alert.alert('Voice Input', err?.message || 'Could not transcribe the recording.');
+    } finally {
+      setIsListening(false);
     }
   };
 
@@ -578,19 +697,52 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+      <StatusBar barStyle="light-content" backgroundColor="#111111" />
+
+      {/* Background: desktop session-column gradient (dark → navy blue) */}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['#111111', '#111111', '#10131c', '#101e40']}
+        locations={[0, 0.2, 0.54, 1]}
+        start={{ x: 0.15, y: 0 }}
+        end={{ x: 0.4, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(41,82,148,0)', 'rgba(41,82,148,0.28)']}
+        start={{ x: 0.5, y: 0.55 }}
+        end={{ x: 0.7, y: 1.15 }}
+        style={StyleSheet.absoluteFill}
+      />
 
       <View style={styles.chatBody}>
-        {/* Chat Messages or Centered New Chat Greeting Canvas */}
+        {/* Chat messages, or an empty canvas on a fresh chat */}
         {messages.length === 0 ? (
-          <View style={styles.emptyWelcomeContainer}>
-            <Image
-              source={require('../../Assets/brown-white-wordmark.png')}
-              style={styles.emptyWelcomeLogo}
-              resizeMode="contain"
-            />
-            <Text style={styles.emptyWelcomeTitle}>{getGreetingText()}</Text>
-            <Text style={styles.emptyWelcomeSubtitle}>How can Brown assist you today?</Text>
+          <View style={styles.emptyCanvas}>
+            <View style={styles.logoWrap}>
+              <Image
+                source={require('../../Assets/brown-white-wordmark.png')}
+                style={styles.canvasLogo}
+                resizeMode="contain"
+              />
+            </View>
+            <View style={styles.greetingBlock}>
+              <Text style={styles.greetingMuted}>
+                {greetingName ? `Hi ${greetingName},` : 'Hi there,'}
+              </Text>
+              <Text style={styles.greetingBold}>How can I help you today?</Text>
+            </View>
+            <View style={styles.quickList}>
+              {QUICK_ACTIONS.map((action, i) => (
+                <QuickActionCard
+                  key={action.id}
+                  action={action}
+                  delay={220 + i * 80}
+                  onPress={() => setDraftText(action.draft)}
+                />
+              ))}
+            </View>
           </View>
         ) : (
           <FlatList
@@ -619,7 +771,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         {messages.length > 0 && (
           <LinearGradient
             pointerEvents="none"
-            colors={['#000000', 'rgba(0,0,0,0.92)', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0)']}
+            colors={['#111111', 'rgba(17,17,17,0.92)', 'rgba(17,17,17,0.55)', 'rgba(17,17,17,0)']}
             locations={[0, 0.35, 0.7, 1]}
             style={styles.topFade}
           />
@@ -637,6 +789,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             updateAvailable={Boolean(pendingUpdate?.available)}
             updateVersion={pendingUpdate?.latestVersion || null}
             onOpenUpdate={() => setShowUpdateModal(true)}
+            models={models}
+            activeModel={activeModel}
+            onSelectModel={handleSelectModel}
+            onOpenModelStore={onOpenModelStore}
+            onMenuOpen={refreshModels}
           />
         </View>
       </View>
@@ -650,13 +807,11 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onVoiceCancel={handleVoiceCancel}
         voiceInsertText={voiceInsertText}
         onVoiceInsertConsumed={() => setVoiceInsertText(null)}
-        onOpenModelStore={onOpenModelStore}
-        onSelectModel={handleSelectModel}
+        draftText={draftText}
+        onDraftConsumed={() => setDraftText(null)}
         activeModel={activeModel}
         isGenerating={isGenerating}
         isListening={isListening}
-        modelSheetVisible={modelSheetVisible}
-        onModelSheetVisibleChange={setModelSheetVisible}
       />
 
       {/* Sidebar Drawer */}
@@ -668,6 +823,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onNewChat={createNewChat}
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
+        onQuickAction={handleQuickAction}
         onOpenSync={onOpenDesktopSync}
         onOpenSettings={() => {
           setIsSidebarOpen(false);
@@ -697,7 +853,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#111111',
     overflow: 'visible',
   },
   chatBody: {
@@ -720,33 +876,95 @@ const styles = StyleSheet.create({
     height: 88,
     zIndex: 20,
   },
-  emptyWelcomeContainer: {
+  emptyCanvas: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
     paddingBottom: 40,
-    paddingTop: 56,
+    paddingHorizontal: 24,
   },
-  emptyWelcomeLogo: {
-    width: 115,
-    height: 33,
-    marginBottom: 8,
-    resizeMode: 'contain',
+  logoWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
   },
-  emptyWelcomeTitle: {
+  canvasLogo: {
+    width: 78,
+    height: 74,
+  },
+  greetingBlock: {
+    alignItems: 'center',
+    marginBottom: 26,
+  },
+  greetingMuted: {
+    color: '#8e8e93',
+    fontSize: 26,
+    fontWeight: '500',
+    letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  greetingBold: {
     color: '#ffffff',
     fontSize: 26,
     fontWeight: '700',
-    letterSpacing: -0.6,
+    letterSpacing: -0.5,
     textAlign: 'center',
-    marginBottom: 8,
+    marginTop: 2,
   },
-  emptyWelcomeSubtitle: {
-    color: '#a1a1aa',
-    fontSize: 15,
-    fontWeight: '400',
-    textAlign: 'center',
+  quickList: {
+    width: '100%',
+    alignSelf: 'stretch',
+    gap: 12,
+  },
+  quickCardShell: {
+    width: '100%',
+  },
+  quickCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+    minHeight: 66,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#212121',
+  },
+  quickCardTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    flexShrink: 0,
+  },
+  quickCardTextCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  quickCardTitle: {
+    color: '#ffffff',
+    fontSize: 15.5,
+    fontWeight: '600',
+    letterSpacing: -0.2,
+  },
+  quickCardDesc: {
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 12.5,
+    lineHeight: 16,
+  },
+  quickCardArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   listContent: {
     paddingTop: 64,

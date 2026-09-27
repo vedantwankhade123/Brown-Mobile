@@ -10,36 +10,21 @@ import {
   Platform,
   Alert,
   Animated,
-  ScrollView,
-  Modal,
 } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
-import { colors } from '../theme/colors';
-import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   MicIcon,
   ArrowUpIcon,
   StopIcon,
   PauseIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
   PlusIcon,
-  CheckIcon,
   DocumentIcon,
   ImageIcon,
-  LaptopIcon,
-  CpuIcon,
-  SearchIcon,
-  SlidersIcon,
   CloseIcon,
 } from './Icons';
 import { ModelMetadata } from '../types/model';
-import { buildAvailableChatModels } from '../services/modelManager/ModelCatalog';
-import { ModelDownloader } from '../services/modelManager/Downloader';
-import { DesktopSyncService } from '../services/sync/DesktopSync';
-import { getCachedGeminiModels, getGeminiApiKey, discoverGeminiModels } from '../services/inference/GeminiClient';
-import { getConfiguredCloudModels } from '../services/inference/CloudProviders';
 import { AudioWaveform } from './AudioWaveform';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface MessageInputProps {
   onSendMessage: (text: string) => void;
@@ -52,26 +37,14 @@ interface MessageInputProps {
   /** External dictate text (from STT commit) — merged into the input once */
   voiceInsertText?: string | null;
   onVoiceInsertConsumed?: () => void;
-  onPlusPress?: () => void;
-  onOpenModelStore?: () => void;
-  onSelectModel?: (model: ModelMetadata) => void;
+  /** Quick-action draft: replaces the input and focuses it once */
+  draftText?: string | null;
+  onDraftConsumed?: () => void;
   activeModel?: ModelMetadata | null;
   isGenerating: boolean;
   isListening: boolean;
   disabled?: boolean;
-  /** Controlled model sheet visibility (opened from chat input model pill). */
-  modelSheetVisible?: boolean;
-  onModelSheetVisibleChange?: (visible: boolean) => void;
 }
-
-const PLACEHOLDER_PROMPTS = [
-  'Ask Brown (100% Offline)...',
-  'Summarize a PDF or document...',
-  'Brainstorm ideas or code...',
-  'Draft a private email or message...',
-  'Analyze notes completely on-device...',
-  'Ask anything with zero telemetry...',
-];
 
 function modelSupportsImages(model?: ModelMetadata | null): boolean {
   if (!model) return false;
@@ -88,66 +61,6 @@ function modelSupportsDocuments(model?: ModelMetadata | null): boolean {
   return true;
 }
 
-/** White circular spinner ring around the red stop button while generating. */
-const GeneratingSpinnerRing: React.FC = () => {
-  const spin = useRef(new Animated.Value(0)).current;
-  const size = 40;
-  const strokeWidth = 2.5;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-
-  useEffect(() => {
-    spin.setValue(0);
-    const loop = Animated.loop(
-      Animated.timing(spin, {
-        toValue: 1,
-        duration: 850,
-        useNativeDriver: true,
-      })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [spin]);
-
-  const rotate = spin.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.spinnerRingWrap,
-        {
-          transform: [{ rotate }],
-        },
-      ]}
-    >
-      <Svg width={size} height={size}>
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="rgba(255,255,255,0.18)"
-          strokeWidth={strokeWidth}
-          fill="none"
-        />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke="#ffffff"
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={`${circumference * 0.28} ${circumference}`}
-          strokeLinecap="round"
-        />
-      </Svg>
-    </Animated.View>
-  );
-};
-
 export const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
   onStopGeneration,
@@ -156,26 +69,19 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   onVoiceCancel,
   voiceInsertText = null,
   onVoiceInsertConsumed,
-  onPlusPress,
-  onOpenModelStore,
-  onSelectModel,
+  draftText = null,
+  onDraftConsumed,
   activeModel,
   isGenerating,
   isListening,
   disabled = false,
-  modelSheetVisible,
-  onModelSheetVisibleChange,
 }) => {
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
   const [inputHeight, setInputHeight] = useState(36);
-  const [internalModelSheetOpen, setInternalModelSheetOpen] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [hoveredOption, setHoveredOption] = useState<string | null>(null);
-  const [hoveredModelId, setHoveredModelId] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<ModelMetadata[]>([]);
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const lastSentAtRef = useRef(0);
   const lastSentTextRef = useRef('');
   const textInputRef = useRef<any>(null);
@@ -193,20 +99,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     setTimeout(run, 32);
   }, [disabled, isListening]);
 
-  const isModelSheetControlled = typeof modelSheetVisible === 'boolean';
-  const isModelSheetOpen = isModelSheetControlled
-    ? Boolean(modelSheetVisible)
-    : internalModelSheetOpen;
-
-  const setModelSheetOpen = (visible: boolean) => {
-    if (onModelSheetVisibleChange) {
-      onModelSheetVisibleChange(visible);
-    }
-    if (!isModelSheetControlled) {
-      setInternalModelSheetOpen(visible);
-    }
-  };
-
   // Insert dictated text into the composer for review (do not auto-send)
   useEffect(() => {
     const insert = (voiceInsertText || '').trim();
@@ -215,16 +107,28 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       const base = prev.trim();
       return base ? `${base} ${insert}` : insert;
     });
-    setInputHeight(36);
     onVoiceInsertConsumed?.();
   }, [voiceInsertText]);
+
+  // Quick-action draft replaces the composer content and focuses it
+  useEffect(() => {
+    const draft = (draftText || '').trim();
+    if (!draft) return;
+    setText(draft);
+    setShowAttachMenu(false);
+    setTimeout(() => {
+      try {
+        textInputRef.current?.focus?.();
+      } catch {}
+    }, 60);
+    onDraftConsumed?.();
+  }, [draftText]);
 
   useEffect(() => {
     let timer: any = null;
     if (isListening) {
       setRecordingSeconds(0);
       setShowAttachMenu(false);
-      setModelSheetOpen(false);
       timer = setInterval(() => {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
@@ -245,61 +149,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   // Smooth Animations for attachment menu
   const attachAnim = useRef(new Animated.Value(0)).current;
 
-  // Typewriter Placeholder Animation State
-  const [placeholderIndex, setPlaceholderIndex] = useState(0);
-  const [subIndex, setSubIndex] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-
-  const loadAvailableModels = async () => {
-    const downloader = ModelDownloader.getInstance();
-    await downloader.whenReady();
-    const downloadedIds = downloader.getDownloadedIds();
-    let hasGeminiKey = false;
-    let geminiModels: ModelMetadata[] = [];
-    try {
-      const key = await getGeminiApiKey();
-      hasGeminiKey = !!key;
-      if (key) {
-        geminiModels = await getCachedGeminiModels();
-        if (!geminiModels.length) {
-          geminiModels = await discoverGeminiModels(key);
-        }
-      }
-    } catch {}
-    let ollamaTags: Array<{ name: string; size?: number }> = [];
-    try {
-      const sync = DesktopSyncService.getInstance();
-      if (sync.getStatus().isConnected) {
-        ollamaTags = await sync.fetchOllamaModels();
-      }
-    } catch {}
-    let cloudModels: ModelMetadata[] = [];
-    try {
-      cloudModels = await getConfiguredCloudModels();
-    } catch {}
-    setAvailableModels(
-      buildAvailableChatModels({
-        downloadedIds,
-        hasGeminiKey,
-        ollamaTags,
-        geminiModels,
-        cloudModels,
-        activeModel,
-        allowEmpty: true,
-      })
-    );
-  };
-
   useEffect(() => {
-    loadAvailableModels();
-  }, [activeModel?.id]);
-  useEffect(() => {
-    if ((isModelSheetOpen || showAttachMenu) && Platform.OS === 'web' && typeof window !== 'undefined') {
-      const handleGlobalClick = () => {
-        setModelSheetOpen(false);
-        setShowAttachMenu(false);
-      };
+    if (showAttachMenu && Platform.OS === 'web' && typeof window !== 'undefined') {
+      const handleGlobalClick = () => setShowAttachMenu(false);
       const timer = setTimeout(() => {
         window.addEventListener('click', handleGlobalClick);
       }, 50);
@@ -308,16 +160,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         window.removeEventListener('click', handleGlobalClick);
       };
     }
-  }, [isModelSheetOpen, showAttachMenu]);
-
-  useEffect(() => {
-    if (isModelSheetOpen) {
-      loadAvailableModels();
-    } else {
-      setHoveredModelId(null);
-      setModelSearchQuery('');
-    }
-  }, [isModelSheetOpen]);
+  }, [showAttachMenu]);
 
   useEffect(() => {
     if (showAttachMenu) {
@@ -336,51 +179,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [showAttachMenu]);
 
-  useEffect(() => {
-    // Don't thrash re-renders while the user is trying to focus/type
-    if (text.length > 0 || isListening || isComposerFocused) return;
-
-    if (isPaused) {
-      const pauseTimeout = setTimeout(() => {
-        setIsPaused(false);
-        setIsDeleting(true);
-      }, 1800); // 1.8s hold on full phrase
-      return () => clearTimeout(pauseTimeout);
-    }
-
-    if (isDeleting) {
-      if (subIndex === 0) {
-        setIsDeleting(false);
-        setPlaceholderIndex((prev) => (prev + 1) % PLACEHOLDER_PROMPTS.length);
-        const breakTimeout = setTimeout(() => {}, 300);
-        return () => clearTimeout(breakTimeout);
-      }
-      const deleteTimeout = setTimeout(() => {
-        setSubIndex((prev) => prev - 1);
-      }, 25);
-      return () => clearTimeout(deleteTimeout);
-    }
-
-    // Typing mode
-    const currentPrompt = PLACEHOLDER_PROMPTS[placeholderIndex];
-    if (subIndex >= currentPrompt.length) {
-      setIsPaused(true);
-      return;
-    }
-
-    const typeTimeout = setTimeout(() => {
-      setSubIndex((prev) => prev + 1);
-    }, 55);
-    return () => clearTimeout(typeTimeout);
-  }, [subIndex, isDeleting, isPaused, placeholderIndex, text.length, isListening, isComposerFocused]);
-
   const displayedPlaceholder = isListening
     ? 'Listening to voice...'
     : text.length > 0
     ? ''
-    : isComposerFocused
-    ? 'Ask Brown…'
-    : PLACEHOLDER_PROMPTS[placeholderIndex].substring(0, subIndex);
+    : 'Ask anything';
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -430,7 +233,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleContentSizeChange = (e: any) => {
     const rawHeight = e?.nativeEvent?.contentSize?.height || 36;
-    const newHeight = Math.max(36, Math.min(110, rawHeight));
+    const newHeight = Math.max(36, Math.min(132, rawHeight));
     setInputHeight(newHeight);
   };
 
@@ -488,90 +291,18 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const canAttachDoc = modelSupportsDocuments(activeModel);
   const canAttachImg = modelSupportsImages(activeModel);
 
-  const filteredModels = availableModels.filter((m) => {
-    if (!modelSearchQuery.trim()) return true;
-    return (m.name || m.id).toLowerCase().includes(modelSearchQuery.trim().toLowerCase());
-  });
-
-  const offlineModels = filteredModels.filter((m) => {
-    const prov = (m.provider || m.source || '').toLowerCase();
-    return prov !== 'gemini' && prov !== 'cloud' && m.source !== 'cloud';
-  });
-
-  const cloudModels = filteredModels.filter((m) => {
-    const prov = (m.provider || m.source || '').toLowerCase();
-    return prov === 'gemini' || prov === 'cloud' || m.source === 'cloud';
-  });
-
-  const closeModelSheet = () => {
-    setModelSheetOpen(false);
-    setModelSearchQuery('');
-  };
-
-  const openModelSheet = () => {
-    setShowAttachMenu(false);
-    setModelSheetOpen(true);
-    loadAvailableModels();
-  };
-
-  const renderModelItem = (m: ModelMetadata) => {
-    const isSelected = activeModel?.id === m.id || activeModel?.name === m.name;
-    const isHovered = hoveredModelId === m.id;
-    const supportsImg = modelSupportsImages(m);
-
-    return (
-      <TouchableOpacity
-        key={m.id}
-        style={[
-          styles.sheetModelItem,
-          (isSelected || isHovered) && styles.sheetModelItemSelected,
-        ]}
-        onPress={() => {
-          if (onSelectModel) {
-            onSelectModel(m);
-          }
-          closeModelSheet();
-        }}
-        activeOpacity={0.7}
-        {...(Platform.OS === 'web'
-          ? ({
-              onMouseEnter: () => setHoveredModelId(m.id),
-              onMouseLeave: () => setHoveredModelId(null),
-            } as any)
-          : {})}
-      >
-        <View style={styles.dropdownItemLeft}>
-          <View style={styles.sheetModelTextCol}>
-            <Text
-              style={[styles.dropdownModelTitle, isSelected && styles.dropdownModelTitleSelected]}
-              numberOfLines={1}
-            >
-              {m.name}
-            </Text>
-            <Text style={styles.sheetModelMeta} numberOfLines={1}>
-              {[
-                m.source === 'cloud' || m.provider === 'gemini' ? 'Cloud' : 'On-device',
-                supportsImg ? 'Images' : null,
-                m.capabilities?.documents !== false ? 'Files' : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </Text>
-          </View>
-        </View>
-
-        {isSelected && <CheckIcon size={16} color="#ffffff" />}
-      </TouchableOpacity>
-    );
-  };
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       style={styles.keyboardContainer}
     >
-      <View style={styles.outerWrapper}>
+      <View
+        style={[
+          styles.outerWrapper,
+          Platform.OS === 'android' && { paddingBottom: 18 + insets.bottom },
+        ]}
+      >
         <View style={styles.container}>
           {/* Full Screen Dismissal Backdrop for Outside Taps (attachments only) */}
           {showAttachMenu && (
@@ -589,364 +320,235 @@ export const MessageInput: React.FC<MessageInputProps> = ({
             onPress={focusComposer}
             accessible={false}
           >
-            {/* Top Text Input Area with Animated Typewriter Placeholder */}
-            <TextInput
-              ref={textInputRef}
-              style={[
-                styles.textInput,
-                { height: inputHeight },
-                Platform.OS === 'web' ? ({
-                  outline: 'none',
-                  outlineStyle: 'none',
-                  outlineWidth: 0,
-                  boxShadow: 'none',
-                  border: 'none',
-                } as any) : {},
-              ]}
-              value={text}
-              onChangeText={handleTextChange}
-              onContentSizeChange={handleContentSizeChange}
-              onKeyPress={handleKeyPress}
-              onSubmitEditing={handleSend}
-              onFocus={() => {
-                setIsComposerFocused(true);
-                setShowAttachMenu(false);
-              }}
-              onBlur={() => setIsComposerFocused(false)}
-              blurOnSubmit={false}
-              returnKeyType="send"
-              placeholder={displayedPlaceholder}
-              placeholderTextColor="#71717a"
-              multiline
-              showsVerticalScrollIndicator={false}
-              maxLength={4000}
-              editable={!disabled && !isListening}
-              showSoftInputOnFocus
-              caretHidden={false}
-            />
+              <TextInput
+                ref={textInputRef}
+                style={[
+                  styles.textInput,
+                  { height: inputHeight },
+                  Platform.OS === 'web' ? ({
+                    outline: 'none',
+                    outlineStyle: 'none',
+                    outlineWidth: 0,
+                    boxShadow: 'none',
+                    border: 'none',
+                  } as any) : {},
+                ]}
+                value={text}
+                onChangeText={handleTextChange}
+                onContentSizeChange={handleContentSizeChange}
+                onKeyPress={handleKeyPress}
+                onSubmitEditing={handleSend}
+                onFocus={() => setShowAttachMenu(false)}
+                blurOnSubmit={false}
+                returnKeyType="send"
+                placeholder={displayedPlaceholder}
+                placeholderTextColor="#9ca3af"
+                multiline
+                showsVerticalScrollIndicator={false}
+                maxLength={4000}
+                editable={!disabled && !isListening}
+                showSoftInputOnFocus
+                caretHidden={false}
+              />
 
-            {/* Bottom Action Controls Row */}
-            <View style={styles.bottomControlsRow}>
-              {/* Left: Plus (+ model when not listening) */}
-              <View style={styles.leftActionsGroup}>
-                <View style={styles.plusBtnAnchor}>
-                  {showAttachMenu && !isListening && (
-                    <Animated.View
-                      style={[
-                        styles.attachContextMenu,
-                        {
-                          opacity: attachAnim,
-                          transform: [
-                            {
-                              translateY: attachAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [6, 0],
-                              }),
-                            },
-                          ],
-                        },
-                      ]}
-                    >
-                      <TouchableOpacity
+              {/* Bottom Action Controls Row */}
+              <View style={styles.bottomControlsRow}>
+                <View style={styles.leftActionsGroup}>
+                  <View style={styles.plusBtnAnchor}>
+                    {showAttachMenu && !isListening && (
+                      <Animated.View
                         style={[
-                          styles.contextMenuItem,
-                          !canAttachDoc && styles.contextMenuItemDisabled,
-                          hoveredOption === 'doc' && canAttachDoc && styles.contextMenuItemHovered,
+                          styles.attachContextMenu,
+                          {
+                            opacity: attachAnim,
+                            transform: [
+                              {
+                                translateY: attachAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [6, 0],
+                                }),
+                              },
+                            ],
+                          },
                         ]}
-                        onPress={() => {
-                          if (!canAttachDoc) {
-                            Alert.alert(
-                              'Files not supported',
-                              `The current model (${activeModel?.name || 'Selected Model'}) does not support document attachments.`
-                            );
-                            return;
-                          }
-                          handleAttachFile('doc');
-                        }}
-                        activeOpacity={canAttachDoc ? 0.7 : 1}
-                        {...(Platform.OS === 'web'
-                          ? ({
-                              onMouseEnter: () => setHoveredOption('doc'),
-                              onMouseLeave: () => setHoveredOption(null),
-                            } as any)
-                          : {})}
                       >
-                        <View style={[styles.contextMenuIconBox, hoveredOption === 'doc' && canAttachDoc && { backgroundColor: 'rgba(59, 130, 246, 0.22)' }]}>
-                          <DocumentIcon size={16} color={canAttachDoc ? (hoveredOption === 'doc' ? '#93c5fd' : '#60a5fa') : '#52525b'} />
-                        </View>
-                        <Text style={[styles.contextMenuText, !canAttachDoc && styles.contextMenuTextDisabled, hoveredOption === 'doc' && canAttachDoc && styles.contextMenuTextHovered]}>
-                          Add Files
-                        </Text>
-                        {canAttachDoc ? (
-                          <ChevronRightIcon
-                            size={14}
-                            color={hoveredOption === 'doc' ? '#ffffff' : '#71717a'}
-                          />
-                        ) : (
-                          <View style={styles.disabledBadge}>
-                            <Text style={styles.disabledBadgeText}>Unavailable</Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.contextMenuItem,
+                            !canAttachDoc && styles.contextMenuItemDisabled,
+                            hoveredOption === 'doc' && canAttachDoc && styles.contextMenuItemHovered,
+                          ]}
+                          onPress={() => {
+                            if (!canAttachDoc) {
+                              Alert.alert(
+                                'Files not supported',
+                                `The current model (${activeModel?.name || 'Selected Model'}) does not support document attachments.`
+                              );
+                              return;
+                            }
+                            handleAttachFile('doc');
+                          }}
+                          activeOpacity={canAttachDoc ? 0.7 : 1}
+                          {...(Platform.OS === 'web'
+                            ? ({
+                                onMouseEnter: () => setHoveredOption('doc'),
+                                onMouseLeave: () => setHoveredOption(null),
+                              } as any)
+                            : {})}
+                        >
+                          <View style={[styles.contextMenuIconBox, hoveredOption === 'doc' && canAttachDoc && { backgroundColor: 'rgba(59, 130, 246, 0.22)' }]}>
+                            <DocumentIcon size={16} color={canAttachDoc ? (hoveredOption === 'doc' ? '#93c5fd' : '#60a5fa') : '#52525b'} />
                           </View>
-                        )}
-                      </TouchableOpacity>
+                          <Text style={[styles.contextMenuText, !canAttachDoc && styles.contextMenuTextDisabled, hoveredOption === 'doc' && canAttachDoc && styles.contextMenuTextHovered]}>
+                            Add Files
+                          </Text>
+                          {canAttachDoc ? (
+                            <ChevronRightIcon
+                              size={14}
+                              color={hoveredOption === 'doc' ? '#ffffff' : '#71717a'}
+                            />
+                          ) : (
+                            <View style={styles.disabledBadge}>
+                              <Text style={styles.disabledBadgeText}>Unavailable</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={[
-                          styles.contextMenuItem,
-                          !canAttachImg && styles.contextMenuItemDisabled,
-                          hoveredOption === 'img' && canAttachImg && styles.contextMenuItemHovered,
-                        ]}
-                        onPress={() => {
-                          if (canAttachImg) {
-                            handleAttachFile('img');
-                          } else {
-                            Alert.alert(
-                              'Images not supported',
-                              `The current model (${activeModel?.name || 'Selected Model'}) does not accept images. Switch to a vision model (e.g. Gemini) to analyze photos.`
-                            );
-                          }
-                        }}
-                        activeOpacity={canAttachImg ? 0.7 : 1}
-                        {...(Platform.OS === 'web'
-                          ? ({
-                              onMouseEnter: () => setHoveredOption('img'),
-                              onMouseLeave: () => setHoveredOption(null),
-                            } as any)
-                          : {})}
-                      >
-                        <View style={[styles.contextMenuIconBox, hoveredOption === 'img' && canAttachImg && { backgroundColor: 'rgba(16, 185, 129, 0.22)' }]}>
-                          <ImageIcon size={16} color={canAttachImg ? (hoveredOption === 'img' ? '#6ee7b7' : '#34d399') : '#52525b'} />
-                        </View>
-                        <Text style={[styles.contextMenuText, !canAttachImg && styles.contextMenuTextDisabled, hoveredOption === 'img' && canAttachImg && styles.contextMenuTextHovered]}>
-                          Add Image
-                        </Text>
-                        {canAttachImg ? (
-                          <ChevronRightIcon
-                            size={14}
-                            color={hoveredOption === 'img' ? '#ffffff' : '#71717a'}
-                          />
-                        ) : (
-                          <View style={styles.disabledBadge}>
-                            <Text style={styles.disabledBadgeText}>No vision</Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.contextMenuItem,
+                            !canAttachImg && styles.contextMenuItemDisabled,
+                            hoveredOption === 'img' && canAttachImg && styles.contextMenuItemHovered,
+                          ]}
+                          onPress={() => {
+                            if (canAttachImg) {
+                              handleAttachFile('img');
+                            } else {
+                              Alert.alert(
+                                'Images not supported',
+                                `The current model (${activeModel?.name || 'Selected Model'}) does not accept images. Switch to a vision model (e.g. Gemini) to analyze photos.`
+                              );
+                            }
+                          }}
+                          activeOpacity={canAttachImg ? 0.7 : 1}
+                          {...(Platform.OS === 'web'
+                            ? ({
+                                onMouseEnter: () => setHoveredOption('img'),
+                                onMouseLeave: () => setHoveredOption(null),
+                              } as any)
+                            : {})}
+                        >
+                          <View style={[styles.contextMenuIconBox, hoveredOption === 'img' && canAttachImg && { backgroundColor: 'rgba(16, 185, 129, 0.22)' }]}>
+                            <ImageIcon size={16} color={canAttachImg ? (hoveredOption === 'img' ? '#6ee7b7' : '#34d399') : '#52525b'} />
                           </View>
-                        )}
-                      </TouchableOpacity>
-                    </Animated.View>
-                  )}
+                          <Text style={[styles.contextMenuText, !canAttachImg && styles.contextMenuTextDisabled, hoveredOption === 'img' && canAttachImg && styles.contextMenuTextHovered]}>
+                            Add Image
+                          </Text>
+                          {canAttachImg ? (
+                            <ChevronRightIcon
+                              size={14}
+                              color={hoveredOption === 'img' ? '#ffffff' : '#71717a'}
+                            />
+                          ) : (
+                            <View style={styles.disabledBadge}>
+                              <Text style={styles.disabledBadgeText}>No vision</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      </Animated.View>
+                    )}
 
-                  <TouchableOpacity
-                    style={styles.plusActionIconBtn}
-                    onPress={() => {
-                      if (isListening) return;
-                      setShowAttachMenu(!showAttachMenu);
-                      setModelSheetOpen(false);
-                    }}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Add tool or attachment"
-                  >
-                    <PlusIcon size={23} color="#d4d4d8" />
-                  </TouchableOpacity>
-                </View>
-
-                {!isListening ? (
-                  <TouchableOpacity
-                    style={styles.inlineModelPill}
-                    onPress={() => {
-                      setShowAttachMenu(false);
-                      setModelSheetOpen(true);
-                    }}
-                    activeOpacity={0.75}
-                    accessibilityLabel="Select Model"
-                  >
-                    <Text style={styles.inlineModelName} numberOfLines={1}>
-                      {activeModel?.name?.trim() || 'Model'}
-                    </Text>
-                    <ChevronDownIcon size={11} color="#a1a1aa" />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-
-              {/* Center: mic recording UI fills space between plus and send */}
-              {isListening ? (
-                <View style={styles.voiceRecordingCenter}>
-                  <View style={styles.voiceRecordingPill}>
                     <TouchableOpacity
-                      style={styles.voicePillCircleBtn}
-                      onPress={() => (onVoiceCommit || onVoicePress)()}
-                      activeOpacity={0.8}
-                      accessibilityLabel="Stop and insert speech as text"
+                      style={styles.plusActionIconBtn}
+                      onPress={() => {
+                        if (isListening) return;
+                        setShowAttachMenu(!showAttachMenu);
+                      }}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Add tool or attachment"
                     >
-                      <PauseIcon size={13} color="#ffffff" />
+                      <PlusIcon size={16} color="#ffffff" />
                     </TouchableOpacity>
-
-                    <View style={styles.voiceVisualizerWrapper}>
-                      <AudioWaveform isActive={true} barCount={5} barColor="rgba(255, 255, 255, 0.7)" maxHeight={16} />
-                      <Text style={styles.voiceListeningText} numberOfLines={1}>
-                        Listening…
-                      </Text>
-                    </View>
-
-                    <View style={styles.voicePillRight}>
-                      <Text style={styles.voiceTimerText}>
-                        {formatTimer(recordingSeconds)}
-                      </Text>
-                      <TouchableOpacity
-                        style={styles.voicePillCancelBtn}
-                        onPress={() => (onVoiceCancel || onVoicePress)()}
-                        activeOpacity={0.7}
-                        accessibilityLabel="Cancel recording"
-                      >
-                        <CloseIcon size={12} color="#94a3b8" />
-                      </TouchableOpacity>
-                    </View>
                   </View>
                 </View>
-              ) : (
-                <View style={styles.controlsSpacer} />
-              )}
 
-              {/* Right: Mic (when idle) + Send */}
-              <View style={styles.rightActionsGroup}>
-                {!isListening ? (
-                  <TouchableOpacity
-                    style={styles.plainActionIconBtn}
-                    onPress={onVoicePress}
-                    activeOpacity={0.7}
-                    disabled={disabled}
-                    accessibilityLabel="Voice Mode"
-                  >
-                    <MicIcon size={20} color="#d4d4d8" />
-                  </TouchableOpacity>
-                ) : null}
+                {/* Center: mic recording UI fills space between plus and mic */}
+                {isListening ? (
+                  <View style={styles.voiceRecordingCenter}>
+                    <View style={styles.voiceRecordingPill}>
+                      <TouchableOpacity
+                        style={styles.voicePillCircleBtn}
+                        onPress={() => (onVoiceCommit || onVoicePress)()}
+                        activeOpacity={0.8}
+                        accessibilityLabel="Stop and insert speech as text"
+                      >
+                        <PauseIcon size={13} color="#ffffff" />
+                      </TouchableOpacity>
 
-                {isGenerating ? (
-                  <TouchableOpacity
-                    style={styles.stopActionBtn}
-                    onPress={onStopGeneration}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Stop Generation"
-                  >
-                    <GeneratingSpinnerRing />
-                    <View style={styles.stopIconInner}>
-                      <StopIcon size={14} color="#ef4444" />
+                      <View style={styles.voiceVisualizerWrapper}>
+                        <AudioWaveform isActive={true} barCount={5} barColor="rgba(255, 255, 255, 0.7)" maxHeight={16} />
+                        <Text style={styles.voiceListeningText} numberOfLines={1}>
+                          Listening…
+                        </Text>
+                      </View>
+
+                      <View style={styles.voicePillRight}>
+                        <Text style={styles.voiceTimerText}>
+                          {formatTimer(recordingSeconds)}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.voicePillCancelBtn}
+                          onPress={() => (onVoiceCancel || onVoicePress)()}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Cancel recording"
+                        >
+                          <CloseIcon size={12} color="#94a3b8" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </TouchableOpacity>
+                  </View>
                 ) : (
-                  <TouchableOpacity
-                    style={[
-                      styles.sendActionBtn,
-                      hasText && !disabled && styles.sendActionBtnActive,
-                      !hasText || disabled ? styles.sendBtnDisabled : null,
-                    ]}
-                    onPress={handleSend}
-                    disabled={!hasText || disabled || isListening}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Send Message"
-                  >
-                    <ArrowUpIcon
-                      size={21}
-                      color={hasText && !disabled && !isListening ? '#111113' : '#71717a'}
-                    />
-                  </TouchableOpacity>
+                  <View style={styles.controlsSpacer} />
                 )}
+
+                <View style={styles.rightActionsGroup}>
+                  {!isListening ? (
+                    <TouchableOpacity
+                      style={styles.plainActionIconBtn}
+                      onPress={onVoicePress}
+                      activeOpacity={0.7}
+                      disabled={disabled}
+                      accessibilityLabel="Voice Mode"
+                    >
+                      <MicIcon size={16} color="#ffffff" />
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {isGenerating ? (
+                    <TouchableOpacity
+                      style={styles.sendCircleBtn}
+                      onPress={onStopGeneration}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Stop Generation"
+                    >
+                      <StopIcon size={15} color="#ffffff" />
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.sendCircleBtn, !hasText && styles.sendCircleBtnIdle]}
+                      onPress={handleSend}
+                      disabled={!hasText || disabled || isListening}
+                      activeOpacity={0.7}
+                      accessibilityLabel="Send Message"
+                    >
+                      <ArrowUpIcon size={16} color="#ffffff" />
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
-            </View>
-          </Pressable>
+            </Pressable>
         </View>
       </View>
-
-      {/* Model selection bottom sheet */}
-      <Modal
-        visible={isModelSheetOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={closeModelSheet}
-      >
-        <View style={styles.sheetRoot}>
-          <TouchableOpacity
-            style={styles.sheetBackdrop}
-            activeOpacity={1}
-            onPress={closeModelSheet}
-          />
-          <View style={styles.modelSheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Select model</Text>
-
-            <View style={styles.modelDropdownSearchContainer}>
-              <SearchIcon size={14} color="rgba(255, 255, 255, 0.45)" />
-              <TextInput
-                style={[
-                  styles.modelDropdownSearchInput,
-                  Platform.OS === 'web'
-                    ? ({
-                        outline: 'none',
-                        outlineStyle: 'none',
-                        boxShadow: 'none',
-                        border: 'none',
-                      } as any)
-                    : {},
-                ]}
-                value={modelSearchQuery}
-                onChangeText={setModelSearchQuery}
-                placeholder="Search models"
-                placeholderTextColor="rgba(255, 255, 255, 0.4)"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {modelSearchQuery.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => setModelSearchQuery('')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <CloseIcon size={12} color="#71717a" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <ScrollView
-              style={styles.sheetScroll}
-              contentContainerStyle={styles.dropdownList}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {filteredModels.length === 0 ? (
-                <View style={styles.dropdownEmptyContainer}>
-                  <Text style={styles.dropdownEmptyText}>
-                    {modelSearchQuery.trim()
-                      ? 'No matching models found.'
-                      : 'No models installed yet.'}
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  {offlineModels.length > 0 && (
-                    <Text style={styles.modelSectionTitle}>Offline Models</Text>
-                  )}
-                  {offlineModels.map((m) => renderModelItem(m))}
-
-                  {cloudModels.length > 0 && (
-                    <Text style={styles.modelSectionTitle}>Cloud Models</Text>
-                  )}
-                  {cloudModels.map((m) => renderModelItem(m))}
-                </>
-              )}
-            </ScrollView>
-
-            {onOpenModelStore && (
-              <TouchableOpacity
-                style={styles.dropdownFooterBtn}
-                onPress={() => {
-                  closeModelSheet();
-                  onOpenModelStore();
-                }}
-                activeOpacity={0.7}
-              >
-                <SlidersIcon size={15} color="#ffffff" />
-                <Text style={styles.dropdownFooterText}>Manage models</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -980,98 +582,6 @@ const styles = StyleSheet.create({
     right: -1000,
     zIndex: 30,
     backgroundColor: 'transparent',
-  },
-  modelDropdownCard: {
-    position: 'absolute',
-    bottom: 38,
-    width: '100%',
-    left: 0,
-    right: 0,
-    backgroundColor: '#212121',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 10,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.85,
-    shadowRadius: 24,
-    elevation: 24,
-    zIndex: 50,
-  },
-  modelPickerWrap: {
-    position: 'relative',
-    zIndex: 50,
-    alignSelf: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-    overflow: 'visible',
-    maxWidth: '72%',
-  },
-  sheetRoot: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheetBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-  },
-  modelSheet: {
-    backgroundColor: '#141416',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 18,
-    maxHeight: '72%',
-  },
-  sheetHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-    marginBottom: 12,
-  },
-  sheetTitle: {
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-    marginBottom: 12,
-  },
-  sheetScroll: {
-    maxHeight: 360,
-    flexGrow: 0,
-  },
-  sheetModelItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 14,
-    backgroundColor: 'transparent',
-    minHeight: 52,
-  },
-  sheetModelItemSelected: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  sheetModelTextCol: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  sheetModelMeta: {
-    color: '#71717a',
-    fontSize: 11.5,
-    fontWeight: '500',
   },
   plusBtnAnchor: {
     position: 'relative',
@@ -1144,159 +654,27 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
-  modelDropdownSearchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 36,
-    borderRadius: 9999,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 10,
-    marginBottom: 4,
-  },
-  modelDropdownSearchInput: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 12.5,
-    fontWeight: '400',
-    marginLeft: 7,
-    paddingVertical: 0,
-    height: '100%',
-  },
-  dropdownList: {
-    gap: 2,
-    paddingBottom: 2,
-  },
-  dropdownScroll: {
-    maxHeight: 220,
-    flexGrow: 0,
-  },
-  modelSectionTitle: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: '#71717a',
-    letterSpacing: 0.2,
-  },
-  dropdownEmptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-  },
-  dropdownEmptyText: {
-    color: '#71717a',
-    fontSize: 12.5,
-    textAlign: 'center',
-  },
-  dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    backgroundColor: 'transparent',
-    minHeight: 36,
-  },
-  dropdownItemSelected: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  dropdownItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-    minWidth: 0,
-  },
-  voiceDock: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#282828',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  voiceDockLabel: {
-    color: '#d4d4d8',
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  dropdownModelTitle: {
-    color: '#f4f4f5',
-    fontSize: 13,
-    fontWeight: '600',
-    flex: 1,
-  },
-  dropdownModelTitleSelected: {
-    color: '#ffffff',
-  },
-  dropdownFooterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
-    paddingTop: 8,
-    paddingBottom: 4,
-    paddingHorizontal: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 8,
-  },
-  dropdownFooterText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  modelHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  modelPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 9999,
-    backgroundColor: '#1a1a1d',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    maxWidth: 168,
-  },
-  modelName: {
-    color: '#ffffff',
-    fontSize: 12.5,
-    fontWeight: '600',
-    maxWidth: 112,
-    flexShrink: 1,
-  },
   inputCard: {
-    backgroundColor: '#212124',
-    borderRadius: 26,
-    paddingHorizontal: 14,
-    paddingTop: 12,
+    backgroundColor: '#212121',
+    borderRadius: 30,
+    paddingHorizontal: 16,
+    paddingTop: 14,
     paddingBottom: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    minHeight: 82,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     justifyContent: 'space-between',
     zIndex: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 12,
   },
   textInput: {
     color: '#ffffff',
-    fontSize: 16.5,
+    fontSize: 17,
     paddingVertical: 0,
-    paddingHorizontal: 0,
+    paddingHorizontal: 2,
     lineHeight: 23,
     textAlignVertical: 'top',
   },
@@ -1304,15 +682,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 6,
+    marginTop: 4,
     paddingTop: 2,
   },
   leftActionsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 8,
     marginLeft: 0,
-    paddingLeft: 4,
     flexShrink: 0,
   },
   controlsSpacer: {
@@ -1326,69 +703,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   plusActionIconBtn: {
-    width: 34,
-    height: 34,
+    width: 36,
+    height: 36,
+    borderRadius: 9999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderWidth: 0,
+  },
+  plainActionIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 9999,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
     borderWidth: 0,
-  },
-  inlineModelPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 5.5,
-    borderRadius: 9999,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    maxWidth: 168,
-    flexShrink: 1,
-  },
-  inlineModelName: {
-    color: '#f4f4f5',
-    fontSize: 12.5,
-    fontWeight: '600',
-    maxWidth: 135,
-    flexShrink: 1,
-    letterSpacing: -0.1,
   },
   rightActionsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
+    flexShrink: 0,
   },
-  actionIconBtn: {
-    width: 34,
-    height: 34,
+  sendCircleBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
+    backgroundColor: '#295294',
+    flexShrink: 0,
   },
-  outlinedActionIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 9999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#242426',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-  },
-  plainActionIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 9999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-  },
-  actionIconBtnListening: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderColor: 'rgba(248, 113, 113, 0.55)',
+  sendCircleBtnIdle: {
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
   },
   voiceRecordingPill: {
     flexDirection: 'row',
@@ -1453,46 +801,5 @@ const styles = StyleSheet.create({
     height: 18,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  sendActionBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 9999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-  },
-  sendActionBtnActive: {
-    backgroundColor: '#f4f4f5',
-  },
-  sendBtnDisabled: {
-    opacity: 0.5,
-  },
-  stopActionBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 9999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    position: 'relative',
-  },
-  stopIconInner: {
-    width: 28,
-    height: 28,
-    borderRadius: 9999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    zIndex: 2,
-  },
-  spinnerRingWrap: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1,
   },
 });

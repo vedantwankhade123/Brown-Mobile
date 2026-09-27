@@ -157,17 +157,15 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   const handleConnectById = async () => {
     const id = syncIdInput.trim().toUpperCase();
     if (!id) return;
-    const device: DesktopInstance = {
-      id,
-      name: id,
-      ipAddress: '127.0.0.1',
-      port: 49200,
-      version: '1.0.0',
-      isPaired: false,
-      lastSeen: Date.now(),
-      syncId: id,
-    };
-    await beginPairing(device);
+    const match = await syncService.connectBySyncId(id);
+    if (!match) {
+      Alert.alert(
+        'Desktop not found',
+        `No Brown Desktop "${id}" responded on this Wi-Fi. Open Brown Desktop, tap Generate QR (or Generate Pair Code) in the top bar, and make sure both devices use the same network.`
+      );
+      return;
+    }
+    await beginPairing(match);
   };
 
   const handlePair = async () => {
@@ -192,6 +190,25 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
     setAwaitingCode(false);
     setSelectedDevice(null);
     setPinCode('');
+  };
+
+  const pairFromQr = async (device: DesktopInstance, code: string) => {
+    setSelectedDevice(device);
+    setPinCode(code);
+    try {
+      await syncService.pairWithDesktop(device, code);
+      setAwaitingCode(false);
+      setSelectedDevice(null);
+      setPinCode('');
+      const conflict = syncService.getPendingProfileConflict();
+      if (conflict) {
+        setProfileConflict(conflict);
+      } else {
+        Alert.alert('Paired', `Connected to ${device.name}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Pairing Failed', err?.message || 'Could not complete pairing with the desktop');
+    }
   };
 
   const handleQrScanned = async (rawCode: string) => {
@@ -219,10 +236,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
             lastSeen: Date.now(),
             syncId: devId,
           };
-          setSelectedDevice(device);
-          setPinCode(code);
-          await syncService.pairWithDesktop(device, code);
-          Alert.alert('Paired', `Connected to ${name}`);
+          await pairFromQr(device, code);
           return;
         }
       }
@@ -232,10 +246,12 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
     if (clean.includes('code=') || clean.includes('syncId=')) {
       const codeMatch = clean.match(/[?&]code=([A-Za-z0-9]+)/i);
       const ipMatch = clean.match(/[?&]ip=([0-9.]+)/i);
+      const portMatch = clean.match(/[?&]port=([0-9]+)/i);
       const idMatch = clean.match(/[?&]syncId=([A-Za-z0-9-]+)/i);
 
       const code = codeMatch ? codeMatch[1].toUpperCase() : '';
       const ip = ipMatch ? ipMatch[1] : '';
+      const port = portMatch ? parseInt(portMatch[1], 10) : 49200;
       const devId = idMatch ? idMatch[1] : 'Desktop';
 
       if (ip && code) {
@@ -243,16 +259,13 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
           id: devId,
           name: devId,
           ipAddress: ip,
-          port: 49200,
+          port,
           version: '1.0.0',
           isPaired: false,
           lastSeen: Date.now(),
           syncId: devId,
         };
-        setSelectedDevice(device);
-        setPinCode(code);
-        await syncService.pairWithDesktop(device, code);
-        Alert.alert('Paired', `Connected to ${device.name}`);
+        await pairFromQr(device, code);
         return;
       }
     }
@@ -277,20 +290,18 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
       return;
     }
 
-    // 4. Sync ID format (BROWN-WIN-... or ULTRON-WIN-...)
+    // 4. Sync ID format (BROWN-... or ULTRON-...)
     if (upper.startsWith('BROWN-') || upper.startsWith('ULTRON-')) {
       setSyncIdInput(upper);
-      const device: DesktopInstance = {
-        id: upper,
-        name: upper,
-        ipAddress: '127.0.0.1',
-        port: 49200,
-        version: '1.0.0',
-        isPaired: false,
-        lastSeen: Date.now(),
-        syncId: upper,
-      };
-      await beginPairing(device);
+      const match = await syncService.connectBySyncId(upper);
+      if (match) {
+        await beginPairing(match);
+      } else {
+        Alert.alert(
+          'Desktop not found',
+          `No Brown Desktop "${upper}" responded on this Wi-Fi. Open Brown Desktop and tap Generate QR, then scan it.`
+        );
+      }
       return;
     }
 

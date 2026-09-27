@@ -8,10 +8,9 @@ import {
   ScrollView,
   SafeAreaView,
   Animated,
-  Image,
-  Platform,
   Modal,
   Alert,
+  PanResponder,
 } from 'react-native';
 import { ChatSession } from '../types/chat';
 import { colors } from '../theme/colors';
@@ -24,11 +23,16 @@ import {
   PencilIcon,
   SparklesIcon,
   DocumentIcon,
+  CodeIcon,
+  ChatIcon,
   MoreVerticalIcon,
+  ArrowUpRightIcon,
   QrCodeIcon,
 } from './Icons';
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService } from '../services/storage/ConsentService';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface DrawerSidebarProps {
   isOpen: boolean;
@@ -40,40 +44,20 @@ interface DrawerSidebarProps {
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onOpenSync: (options?: { scan?: boolean }) => void;
   onOpenSettings?: () => void;
+  /** Start a fresh chat pre-filled with a starter prompt */
+  onQuickAction?: (draft: string) => void;
   onClose: () => void;
 }
 
-/**
- * Sidebar toggle/collapse icon matching desktop
- */
-const SidebarToggleIcon: React.FC<{ size?: number; color?: string }> = ({
-  size = 18,
-  color = '#ffffff',
-}) => (
-  <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderWidth: 1.5,
-        borderColor: color,
-        borderRadius: 4,
-        position: 'relative',
-      }}
-    >
-      <View
-        style={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          right: Math.round(size * 0.35),
-          width: 1.5,
-          backgroundColor: color,
-        }}
-      />
-    </View>
-  </View>
-);
+/** Quick-start cards shown in the horizontal rail */
+const QUICK_CARDS = [
+  { id: 'write', label: 'Write', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:', Icon: PencilIcon },
+  { id: 'code', label: 'Code', desc: 'Explain, debug and improve code', draft: 'Explain what this code does and fix any problems:', Icon: CodeIcon },
+  { id: 'summarize', label: 'Summarize', desc: 'Condense long content to key points', draft: 'Summarize the key points of this text:', Icon: SparklesIcon },
+  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh angles and options', draft: 'Help me brainstorm ideas about:', Icon: ChatIcon },
+  { id: 'explain', label: 'Explain', desc: 'Break down complex topics clearly', draft: 'Explain this topic in simple terms:', Icon: DocumentIcon },
+  { id: 'translate', label: 'Translate', desc: 'Translate between any languages', draft: 'Translate the following text:', Icon: ArrowUpRightIcon },
+];
 
 /**
  * Formats conversation titles so the first letter of each word is in uppercase
@@ -94,18 +78,156 @@ function formatConversationTitle(rawTitle: string): string {
     .join(' ');
 }
 
-/**
- * Formats timestamps like "Aug 20 at 1:05 AM"
- */
-function formatSessionDate(timestamp?: number): string {
-  if (!timestamp) return 'Recently';
-  const date = new Date(timestamp);
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const month = monthNames[date.getMonth()];
-  const day = date.getDate();
-  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-  return `${month} ${day} at ${timeStr}`;
-}
+const SWIPE_MAX = 132;
+const SWIPE_THRESHOLD = 62;
+
+/** History row: tap to open, ⋯ / long-press for rename+delete, swipe left to delete */
+const SwipeableHistoryRow: React.FC<{
+  title: string;
+  isActive: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  onSelect: () => void;
+  onOpenActions: () => void;
+  onDelete: () => void;
+}> = ({ title, isActive, isFirst, isLast, onSelect, onOpenActions, onDelete }) => {
+  const dragX = useRef(new Animated.Value(0)).current;
+  const exitAnim = useRef(new Animated.Value(0)).current;
+  const deleteRef = useRef(onDelete);
+  deleteRef.current = onDelete;
+
+  const springBack = () =>
+    Animated.spring(dragX, {
+      toValue: 0,
+      friction: 5.5,
+      tension: 70,
+      useNativeDriver: false,
+    }).start();
+
+  const commitDelete = () =>
+    Animated.parallel([
+      Animated.spring(dragX, { toValue: -SWIPE_MAX, friction: 7, tension: 90, useNativeDriver: false }),
+      Animated.timing(exitAnim, { toValue: 1, duration: 190, useNativeDriver: false }),
+    ]).start(() => {
+      deleteRef.current();
+      exitAnim.setValue(0);
+      dragX.setValue(0);
+    });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_: any, g: any) =>
+        Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.3,
+      onMoveShouldSetPanResponderCapture: (_: any, g: any) =>
+        Math.abs(g.dx) > 8 && Math.abs(g.dx) > Math.abs(g.dy) * 1.3,
+      onPanResponderMove: (_: any, g: any) => {
+        let x = g.dx;
+        if (x > 0) {
+          x = x / 3; // soft rubber-band if the user drags right
+        }
+        dragX.setValue(Math.max(-SWIPE_MAX, Math.min(0, x)));
+      },
+      onPanResponderRelease: (_: any, g: any) => {
+        if (g.dx <= -SWIPE_THRESHOLD) {
+          commitDelete();
+        } else {
+          springBack();
+        }
+      },
+      onPanResponderTerminate: () => {
+        springBack();
+      },
+      onPanResponderReject: () => {
+        springBack();
+      },
+    })
+  ).current;
+
+  const restColor = isActive ? 'rgba(41, 82, 148, 0.22)' : 'rgba(0, 0, 0, 0)';
+
+  // Content tracks the finger 1:1 for a connected, responsive feel.
+  const translateX = dragX.interpolate({
+    inputRange: [-SWIPE_MAX, 0],
+    outputRange: [-SWIPE_MAX, 0],
+    extrapolate: 'clamp',
+  });
+  const backgroundColor = dragX.interpolate({
+    inputRange: [-SWIPE_MAX, -SWIPE_MAX * 0.35, 0],
+    outputRange: ['rgba(220, 38, 38, 1)', 'rgba(220, 38, 38, 0.55)', restColor],
+    extrapolate: 'clamp',
+  });
+  const contentOpacity = dragX.interpolate({
+    inputRange: [-SWIPE_MAX, -SWIPE_THRESHOLD, 0],
+    outputRange: [0, 0.25, 1],
+    extrapolate: 'clamp',
+  });
+  const deleteOpacity = dragX.interpolate({
+    inputRange: [-SWIPE_MAX, -SWIPE_THRESHOLD, -14, 0],
+    outputRange: [1, 1, 0.35, 0],
+    extrapolate: 'clamp',
+  });
+  const deleteScale = dragX.interpolate({
+    inputRange: [-SWIPE_MAX, 0],
+    outputRange: [1, 0.7],
+    extrapolate: 'clamp',
+  });
+  // Exit: fade + a little extra momentum once the delete commits.
+  const rowOpacity = exitAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const rowScale = exitAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] });
+
+  return (
+    <Animated.View
+      style={[
+        styles.historyRow,
+        !isLast && styles.historyRowGap,
+        {
+          borderTopLeftRadius: isFirst ? 13 : 0,
+          borderTopRightRadius: isFirst ? 13 : 0,
+          borderBottomLeftRadius: isLast ? 13 : 0,
+          borderBottomRightRadius: isLast ? 13 : 0,
+          opacity: rowOpacity,
+          transform: [{ scale: rowScale }],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <Animated.View style={[styles.historyRowReveal, { backgroundColor }]} pointerEvents="none" />
+      <Animated.View style={{ transform: [{ translateX }] }}>
+        <View style={styles.historyRowContent}>
+          <TouchableOpacity
+            style={styles.historyTitleTouch}
+            onPress={onSelect}
+            onLongPress={onOpenActions}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.historyTitleText} numberOfLines={1}>
+              {title}
+            </Text>
+          </TouchableOpacity>
+          <Animated.View style={[styles.historyMenuWrap, { opacity: contentOpacity }]}>
+            <TouchableOpacity
+              style={styles.historyMenuBtn}
+              onPress={onOpenActions}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityLabel="Chat options"
+            >
+              <MoreVerticalIcon size={18} color="#8e8e93" />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Animated.View>
+      <Animated.View
+        style={[styles.historyDeleteHint, { opacity: deleteOpacity, transform: [{ scale: deleteScale }] }]}
+        pointerEvents="none"
+      >
+        <Text style={styles.historyDeleteText}>Delete</Text>
+        <TrashIcon size={16} color="#ffffff" />
+      </Animated.View>
+    </Animated.View>
+  );
+};
 
 export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   isOpen,
@@ -117,24 +239,23 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   onRenameSession,
   onOpenSync,
   onOpenSettings,
+  onQuickAction,
   onClose,
 }) => {
+  const insets = useSafeAreaInsets();
   const closedDrawerOffset = -10000;
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
-  const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
-  const [hoveredSpotlightId, setHoveredSpotlightId] = useState<string | null>(null);
+  const [isSearchActive, setIsSearchActive] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(null);
   const [sessionActionTarget, setSessionActionTarget] = useState<{ id: string; title: string } | null>(null);
   const [sessionToRename, setSessionToRename] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [userName, setUserName] = useState('Om Patil');
-  const [userInitials, setUserInitials] = useState('OP');
-  const [isSidebarScrolled, setIsSidebarScrolled] = useState(false);
+  const [userName, setUserName] = useState('You');
+  const [userInitials, setUserInitials] = useState('B');
 
   const slideAnim = useRef(new Animated.Value(closedDrawerOffset)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const spotlightFadeAnim = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef<any>(null);
 
   // Load user profile name & initials
   useEffect(() => {
@@ -148,7 +269,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             .join('')
             .substring(0, 2)
             .toUpperCase();
-          setUserInitials(initials || 'OP');
+          setUserInitials(initials || 'B');
         }
       })
       .catch(() => {});
@@ -157,66 +278,25 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   useEffect(() => {
     if (isOpen) {
       Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 240,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 240,
-          useNativeDriver: true,
-        }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 240, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 240, useNativeDriver: true }),
       ]).start();
     } else {
-      setIsSpotlightOpen(false);
+      setIsSearchActive(false);
       setSearchQuery('');
-      setHoveredSessionId(null);
       Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: closedDrawerOffset,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 180,
-          useNativeDriver: true,
-        }),
+        Animated.timing(slideAnim, { toValue: closedDrawerOffset, duration: 180, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
       ]).start();
     }
   }, [isOpen]);
-
-  useEffect(() => {
-    if (isSpotlightOpen) {
-      Animated.timing(spotlightFadeAnim, {
-        toValue: 1,
-        duration: 180,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(spotlightFadeAnim, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isSpotlightOpen]);
 
   if (!isOpen && (fadeAnim as any)._value === 0) return null;
 
   const handleClose = () => {
     Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: closedDrawerOffset,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 180,
-        useNativeDriver: true,
-      }),
+      Animated.timing(slideAnim, { toValue: closedDrawerOffset, duration: 180, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
     ]).start(() => {
       onClose();
     });
@@ -231,166 +311,236 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     );
   });
 
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const recentSessions = filteredSessions.filter((s) => (s.updatedAt || s.createdAt) >= sevenDaysAgo);
-  const olderSessions = filteredSessions.filter((s) => (s.updatedAt || s.createdAt) < sevenDaysAgo);
+  const inSearchMode = isSearchActive || searchQuery.trim().length > 0;
+
+  const closeSearch = () => {
+    setIsSearchActive(false);
+    setSearchQuery('');
+    searchInputRef.current?.blur();
+  };
+
+  const renderHistoryRow = (item: ChatSession, index?: number, arr?: ChatSession[]) => {
+    const isActive = item.id === activeSessionId;
+    const isFirst = !arr || index === undefined || index === 0;
+    const isLast = !arr || index === undefined || index === arr.length - 1;
+    const formattedTitle = formatConversationTitle(item.title);
+    return (
+      <SwipeableHistoryRow
+        key={item.id}
+        title={formattedTitle}
+        isActive={isActive}
+        isFirst={isFirst}
+        isLast={isLast}
+        onSelect={() => {
+          onSelectSession(item.id);
+          handleClose();
+        }}
+        onOpenActions={() => setSessionActionTarget({ id: item.id, title: formattedTitle })}
+        onDelete={() => onDeleteSession(item.id)}
+      />
+    );
+  };
 
   return (
     <View style={styles.overlay} pointerEvents={isOpen ? 'auto' : 'none'}>
       {/* Backdrop */}
       <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-        <TouchableOpacity
-          style={styles.backdropTouch}
-          onPress={handleClose}
-          activeOpacity={1}
-        />
+        <TouchableOpacity style={styles.backdropTouch} onPress={handleClose} activeOpacity={1} />
       </Animated.View>
 
-      {/* Sliding Drawer Container (#111113 Background) */}
-      <Animated.View
-        style={[
-          styles.drawerContainer,
-          {
-            transform: [{ translateX: slideAnim }],
-          },
-        ]}
-      >
+      {/* Sliding Drawer */}
+      <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
+        {/* Background: same desktop session-column gradient as the chat screen */}
+        <LinearGradient
+          pointerEvents="none"
+          colors={['#111111', '#111111', '#10131c', '#101e40']}
+          locations={[0, 0.2, 0.54, 1]}
+          start={{ x: 0.15, y: 0 }}
+          end={{ x: 0.4, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
         <SafeAreaView style={styles.drawerInner}>
-          <View style={styles.drawerBody}>
-            {/* Recent Conversations List — scrolls behind sticky header */}
-            <ScrollView
-              style={styles.sessionsList}
-              contentContainerStyle={styles.sessionsListContent}
-              showsVerticalScrollIndicator={false}
-              onScroll={(e: any) => {
-                const y = e?.nativeEvent?.contentOffset?.y || 0;
-                setIsSidebarScrolled(y > 8);
-              }}
-              scrollEventThrottle={16}
-            >
-              <Text style={styles.recentSectionTitle}>Recent Conversations</Text>
-              {sessions.length === 0 ? (
+          <ScrollView
+            style={styles.sessionsList}
+            contentContainerStyle={styles.drawerScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Top row: profile avatar (→ Settings) + New chat */}
+            <View style={styles.topBar}>
+              <TouchableOpacity
+                style={styles.avatarBtn}
+                onPress={() => {
+                  if (onOpenSettings) {
+                    onOpenSettings();
+                    handleClose();
+                  }
+                }}
+                activeOpacity={0.8}
+                accessibilityLabel={userName}
+              >
+                <Text style={styles.avatarText}>{userInitials}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.newChatPill}
+                onPress={() => {
+                  onNewChat();
+                  handleClose();
+                }}
+                activeOpacity={0.8}
+              >
+                <PencilIcon size={16} color="#ffffff" />
+                <Text style={styles.newChatPillText}>New chat</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Hero */}
+            <Text style={styles.heroTitle}>
+              Ask anything,{'\n'}build everything.
+            </Text>
+
+            {/* Search — inline */}
+            <View style={styles.searchRow}>
+              <View style={styles.searchPill}>
+                <SearchIcon size={18} color="#8e8e93" />
+                <TextInput
+                  ref={searchInputRef}
+                  style={styles.searchInput}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search chats"
+                  placeholderTextColor="#8e8e93"
+                  onFocus={() => setIsSearchActive(true)}
+                  returnKeyType="search"
+                  autoCorrect={false}
+                />
+                {searchQuery.length > 0 ? (
+                  <TouchableOpacity style={styles.searchClearBtn} onPress={() => setSearchQuery('')} activeOpacity={0.7}>
+                    <CloseIcon size={16} color="#8e8e93" />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {inSearchMode ? (
+                <TouchableOpacity style={styles.searchCancelBtn} onPress={closeSearch} activeOpacity={0.7}>
+                  <Text style={styles.searchCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {inSearchMode ? (
+              filteredSessions.length === 0 ? (
                 <View style={styles.emptyState}>
-                  <Text style={styles.emptyText}>No saved chats yet.</Text>
+                  <Text style={styles.emptyText}>No matching chats found.</Text>
                 </View>
               ) : (
-                sessions.map((item: ChatSession) => {
-                  const isActive = item.id === activeSessionId;
-                  const isHovered = item.id === hoveredSessionId;
-                  const formattedTitle = formatConversationTitle(item.title);
-                  const formattedDate = formatSessionDate(item.updatedAt || item.createdAt);
-                  const hoverHandlers =
-                    Platform.OS === 'web'
-                      ? ({
-                          onMouseEnter: () => setHoveredSessionId(item.id),
-                          onMouseLeave: () => setHoveredSessionId(null),
-                        } as any)
-                      : {};
-                  return (
+                <View style={[styles.historyGroup, { marginTop: 16 }]}>
+                  <ScrollView
+                    style={styles.historyGroupScroll}
+                    contentContainerStyle={styles.historyGroupInner}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={false}
+                    overScrollMode="never"
+                  >
+                    {filteredSessions.map(renderHistoryRow)}
+                  </ScrollView>
+                </View>
+              )
+            ) : (
+              <>
+                {/* Quick-start cards */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.cardsRow}
+                >
+                  {QUICK_CARDS.map(({ id, label, desc, draft, Icon }) => (
                     <TouchableOpacity
-                      key={item.id}
-                      style={[
-                        styles.sessionItem,
-                        (isActive || isHovered) && styles.sessionItemActive,
-                      ]}
+                      key={id}
+                      style={styles.quickCard}
+                      activeOpacity={0.8}
                       onPress={() => {
-                        onSelectSession(item.id);
+                        if (onQuickAction) {
+                          onQuickAction(draft);
+                        } else {
+                          onNewChat();
+                        }
                         handleClose();
                       }}
-                      activeOpacity={0.8}
-                      {...hoverHandlers}
+                      accessibilityLabel={label}
                     >
-                      <View style={styles.sessionContent}>
-                        <Text style={[styles.sessionTitle, isActive && styles.sessionTitleActive]} numberOfLines={1}>
-                          {formattedTitle}
+                      <LinearGradient
+                        colors={['#111111', '#10131c', '#101e40']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View style={styles.quickCardHead}>
+                        <View style={styles.quickCardIcon}>
+                          <Icon size={16} color="#ffffff" />
+                        </View>
+                        <Text style={styles.quickCardLabel} numberOfLines={1}>
+                          {label}
                         </Text>
                       </View>
-
-                      <TouchableOpacity
-                        style={styles.sessionMoreBtn}
-                        onPress={(e: any) => {
-                          e?.stopPropagation?.();
-                          setSessionActionTarget({ id: item.id, title: formattedTitle });
-                        }}
-                        activeOpacity={0.65}
-                        accessibilityLabel={`Chat options for ${formattedTitle}`}
-                      >
-                        <MoreVerticalIcon size={20} color="#ffffff" />
-                      </TouchableOpacity>
+                      <Text style={styles.quickCardDesc} numberOfLines={3}>
+                        {desc}
+                      </Text>
+                      <View style={styles.quickCardArrow}>
+                        <ArrowUpRightIcon size={14} color="#111111" />
+                      </View>
                     </TouchableOpacity>
-                  );
-                })
-              )}
-            </ScrollView>
+                  ))}
+                </ScrollView>
 
-            {/* Sticky header overlay — chats scroll behind */}
-            <View style={styles.drawerHeaderOverlay} pointerEvents="box-none">
-              <View style={styles.drawerHeader}>
-                <View style={styles.topBrandBar}>
-                  <View style={[styles.brandPill, isSidebarScrolled && styles.sidebarScrolledPill]}>
-                    <Image
-                      source={require('../../Assets/brown-white-wordmark.png')}
-                      style={styles.brandLogo}
-                      resizeMode="contain"
-                    />
+                {/* History */}
+                <View style={styles.historyHeaderRow}>
+                  <Text style={styles.historyHeaderTitle}>History</Text>
+                </View>
+
+                {sessions.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>No saved chats yet.</Text>
                   </View>
+                ) : (
+                  <View style={styles.historyGroup}>
+                    <ScrollView
+                      style={styles.historyGroupScroll}
+                      contentContainerStyle={styles.historyGroupInner}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={false}
+                      overScrollMode="never"
+                    >
+                      {sessions.map(renderHistoryRow)}
+                    </ScrollView>
+                  </View>
+                )}
+              </>
+            )}
+          </ScrollView>
 
-                  <TouchableOpacity
-                    style={[styles.collapseSidebarBtn, isSidebarScrolled && styles.sidebarScrolledPill]}
-                    onPress={handleClose}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Collapse sidebar"
-                  >
-                    <SidebarToggleIcon size={22} color="#ffffff" />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.headerActionsStack}>
-                  <TouchableOpacity
-                    style={[styles.newChatPill, isSidebarScrolled && styles.sidebarScrolledPill]}
-                    onPress={() => {
-                      onNewChat();
-                      handleClose();
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <PencilIcon size={20} color="#ffffff" />
-                    <Text style={styles.newChatPillText}>New chat</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.searchChatsRow, isSidebarScrolled && styles.sidebarScrolledPill]}
-                    onPress={() => setIsSpotlightOpen(true)}
-                    activeOpacity={0.7}
-                  >
-                    <SearchIcon size={20} color="#ffffff" />
-                    <Text style={styles.searchChatsText}>Search chats</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Bottom Footer with Connection & User Profile */}
-          <View style={styles.drawerFooter}>
-            {/* Connection Row with Scan QR Option on Right */}
-            <View style={styles.desktopSyncCard}>
+          {/* Connect PC — persistent footer, always visible while history scrolls */}
+          <View style={[styles.connectRow, { marginBottom: 14 + insets.bottom }]}>
+            <LinearGradient
+              colors={['#111111', '#10131c', '#101e40']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.connectCapsule}
+            >
               <TouchableOpacity
-                style={styles.desktopSyncLeft}
+                style={styles.connectCapsuleMain}
                 onPress={() => {
                   onOpenSync();
                   handleClose();
                 }}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
+                accessibilityLabel="Connect PC"
               >
-                <View style={styles.footerIconBox}>
-                  <LaptopIcon size={20} color="#ffffff" />
-                </View>
-                <Text style={styles.desktopSyncBtnText}>Connection</Text>
+                <LaptopIcon size={18} color="#ffffff" />
+                <Text style={styles.connectCapsuleText}>Connect PC</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
-                style={styles.desktopSyncQrBtn}
+                style={styles.connectCapsuleQr}
                 onPress={() => {
                   onOpenSync({ scan: true });
                   handleClose();
@@ -398,36 +548,19 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 activeOpacity={0.7}
                 accessibilityLabel="Scan QR Code"
               >
-                <Text style={styles.desktopSyncQrText}>Scan QR</Text>
                 <QrCodeIcon size={18} color="#ffffff" />
               </TouchableOpacity>
-            </View>
-
-            {/* User Profile Bar */}
+            </LinearGradient>
             <TouchableOpacity
-              style={styles.userProfileBar}
+              style={styles.connectCapsuleSettings}
               onPress={() => {
-                if (onOpenSettings) {
-                  onOpenSettings();
-                  handleClose();
-                }
+                if (onOpenSettings) onOpenSettings();
+                handleClose();
               }}
               activeOpacity={0.7}
+              accessibilityLabel="Settings"
             >
-              <View style={styles.userProfileLeft}>
-                <View style={styles.userAvatarBadge}>
-                  <Text style={styles.userAvatarInitials}>{userInitials}</Text>
-                </View>
-                <Text style={styles.userNameText} numberOfLines={1}>
-                  {userName}
-                </Text>
-              </View>
-
-              {onOpenSettings && (
-                <View style={styles.settingsGearBtn}>
-                  <SettingsIcon size={22} color="#ffffff" />
-                </View>
-              )}
+              <SettingsIcon size={18} color="#ffffff" />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -511,150 +644,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         </TouchableOpacity>
       </Modal>
 
-      {/* Spotlight Search Modal */}
-      <Modal
-        visible={isSpotlightOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsSpotlightOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.spotlightModalOverlay}
-          activeOpacity={1}
-          onPress={() => setIsSpotlightOpen(false)}
-        >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={styles.spotlightCard}
-            onPress={() => {}}
-          >
-            <View style={styles.spotlightInputRow}>
-              <SearchIcon size={18} color="#a1a1aa" />
-              <TextInput
-                style={[
-                  styles.spotlightSearchInput,
-                  Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {},
-                ]}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search conversations..."
-                placeholderTextColor="#71717a"
-                autoFocus
-              />
-              <TouchableOpacity
-                style={styles.spotlightCloseIconBtn}
-                onPress={() => setIsSpotlightOpen(false)}
-                activeOpacity={0.7}
-              >
-                <CloseIcon size={16} color="#a1a1aa" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.spotlightResultsScroll} showsVerticalScrollIndicator={false}>
-              {recentSessions.length > 0 && (
-                <View style={styles.spotlightSectionBlock}>
-                  <Text style={styles.spotlightSectionTitle}>Last 7 days</Text>
-                  {recentSessions.map((item) => {
-                    const isHovered = hoveredSpotlightId === item.id;
-                    const formattedTitle = formatConversationTitle(item.title);
-                    const formattedDate = formatSessionDate(item.updatedAt || item.createdAt);
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[
-                          styles.spotlightResultItem,
-                          isHovered && styles.spotlightResultItemHovered,
-                        ]}
-                        onPress={() => {
-                          setIsSpotlightOpen(false);
-                          onSelectSession(item.id);
-                          handleClose();
-                        }}
-                        activeOpacity={0.7}
-                        {...(Platform.OS === 'web'
-                          ? ({
-                              onMouseEnter: () => setHoveredSpotlightId(item.id),
-                              onMouseLeave: () => setHoveredSpotlightId(null),
-                            } as any)
-                          : {})}
-                      >
-                        <View style={styles.spotlightItemIconBox}>
-                          <DocumentIcon size={17} color="#60a5fa" />
-                        </View>
-                        <View style={styles.spotlightItemTextCol}>
-                          <View style={styles.spotlightItemHeaderRow}>
-                            <Text style={styles.spotlightItemTitle} numberOfLines={1}>
-                              {formattedTitle}
-                            </Text>
-                            <Text style={styles.spotlightItemDate}>{formattedDate}</Text>
-                          </View>
-                          <Text style={styles.spotlightItemPreview} numberOfLines={1}>
-                            {item.lastMessagePreview || 'No messages in this chat yet'}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              {olderSessions.length > 0 && (
-                <View style={styles.spotlightSectionBlock}>
-                  <Text style={styles.spotlightSectionTitle}>Older</Text>
-                  {olderSessions.map((item) => {
-                    const isHovered = hoveredSpotlightId === item.id;
-                    const formattedTitle = formatConversationTitle(item.title);
-                    const formattedDate = formatSessionDate(item.updatedAt || item.createdAt);
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[
-                          styles.spotlightResultItem,
-                          isHovered && styles.spotlightResultItemHovered,
-                        ]}
-                        onPress={() => {
-                          setIsSpotlightOpen(false);
-                          onSelectSession(item.id);
-                          handleClose();
-                        }}
-                        activeOpacity={0.7}
-                        {...(Platform.OS === 'web'
-                          ? ({
-                              onMouseEnter: () => setHoveredSpotlightId(item.id),
-                              onMouseLeave: () => setHoveredSpotlightId(null),
-                            } as any)
-                          : {})}
-                      >
-                        <View style={styles.spotlightItemIconBox}>
-                          <SparklesIcon size={16} color="#c084fc" />
-                        </View>
-                        <View style={styles.spotlightItemTextCol}>
-                          <View style={styles.spotlightItemHeaderRow}>
-                            <Text style={styles.spotlightItemTitle} numberOfLines={1}>
-                              {formattedTitle}
-                            </Text>
-                            <Text style={styles.spotlightItemDate}>{formattedDate}</Text>
-                          </View>
-                          <Text style={styles.spotlightItemPreview} numberOfLines={1}>
-                            {item.lastMessagePreview || 'No messages in this chat yet'}
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              {filteredSessions.length === 0 && (
-                <View style={styles.spotlightEmptyBox}>
-                  <Text style={styles.spotlightEmptyText}>No matching conversations found.</Text>
-                </View>
-              )}
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
       {/* Delete Chat Confirmation Modal Dialog */}
       <Modal
         visible={!!sessionToDelete}
@@ -667,11 +656,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           activeOpacity={1}
           onPress={() => setSessionToDelete(null)}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            style={styles.confirmModalCard}
-            onPress={() => {}}
-          >
+          <TouchableOpacity activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
             <View style={styles.confirmModalHeader}>
               <View style={styles.confirmModalIconBox}>
                 <TrashIcon size={18} color="#ef4444" />
@@ -735,7 +720,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: '100%',
     height: '100%',
-    backgroundColor: '#000000',
+    backgroundColor: '#111111',
     borderRightWidth: 1,
     borderRightColor: '#1a1a1a',
     shadowColor: '#000',
@@ -746,127 +731,246 @@ const styles = StyleSheet.create({
   },
   drawerInner: {
     flex: 1,
-    display: 'flex',
     flexDirection: 'column',
     justifyContent: 'space-between',
-    backgroundColor: '#000000',
-  },
-  drawerBody: {
-    flex: 1,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  drawerHeaderOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-  },
-  drawerHeader: {
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 10 : 16,
-    paddingBottom: 12,
     backgroundColor: 'transparent',
   },
-  topBrandBar: {
+  sessionsList: {
+    flex: 1,
+  },
+  drawerScrollContent: {
+    paddingTop: 6,
+    paddingBottom: 20,
+  },
+
+  /* Top row */
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 14,
+    paddingHorizontal: 16,
+    paddingTop: 6,
+    paddingBottom: 2,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  brandPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 9999,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  brandLogo: {
-    width: 68,
-    height: 19,
-    resizeMode: 'contain',
-  },
-  brandTitle: {
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: -0.2,
-  },
-  collapseSidebarBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+  avatarBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#295294',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'transparent',
   },
-  sidebarScrolledPill: {
-    backgroundColor: '#212121',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  headerActionsStack: {
-    flexDirection: 'column',
-    gap: 2,
+  avatarText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   newChatPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 9999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: 'transparent',
+    backgroundColor: '#1c1c1e',
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   newChatPillText: {
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '600',
   },
-  searchChatsRow: {
+
+  /* Hero */
+  heroTitle: {
+    color: '#ffffff',
+    fontSize: 30,
+    fontWeight: '700',
+    lineHeight: 37,
+    letterSpacing: -0.7,
+    paddingHorizontal: 16,
+    marginTop: 20,
+  },
+
+  /* Search */
+  searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    borderRadius: 9999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'transparent',
+    marginHorizontal: 16,
+    marginTop: 18,
   },
-  searchChatsText: {
-    color: '#ffffff',
-    fontSize: 17.5,
-    fontWeight: '500',
-  },
-  sessionsList: {
+  searchPill: {
     flex: 1,
-    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    height: 50,
+    paddingHorizontal: 18,
+    borderRadius: 9999,
+    backgroundColor: '#282828',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  sessionsListContent: {
-    paddingTop: 148,
-    paddingBottom: 16,
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    margin: 0,
+    paddingVertical: 0,
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+    letterSpacing: -0.2,
   },
-  recentSectionTitle: {
-    color: '#9ca3af',
-    fontSize: 15.5,
+  searchClearBtn: {
+    padding: 4,
+  },
+  searchCancelBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+  },
+  searchCancelText: {
+    color: '#8e8e93',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  historyGroup: {
+    marginHorizontal: 16,
+    marginTop: 8,
+  },
+  historyGroupScroll: {
+    flexGrow: 0,
+    maxHeight: 300,
+  },
+  historyGroupInner: {
+    paddingBottom: 5,
+  },
+
+  /* Quick cards */
+  cardsRow: {
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 22,
+    paddingBottom: 4,
+  },
+  quickCard: {
+    width: 150,
+    height: 176,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: '#10131c',
+    borderWidth: 1,
+    borderColor: 'rgba(129, 166, 228, 0.16)',
+    justifyContent: 'flex-start',
+    overflow: 'hidden',
+  },
+  quickCardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  quickCardIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  quickCardLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '600',
+    lineHeight: 22,
+    letterSpacing: -0.2,
+  },
+  quickCardDesc: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 12,
+  },
+  quickCardArrow: {
+    alignSelf: 'flex-start',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 'auto',
+  },
+
+  /* History */
+  historyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginTop: 28,
+    marginBottom: 6,
+  },
+  historyHeaderTitle: {
+    color: '#ffffff',
+    fontSize: 18,
     fontWeight: '700',
     letterSpacing: 0.2,
-    marginTop: 18,
-    marginBottom: 8,
-    paddingHorizontal: 12,
+  },
+  historyRow: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  historyRowGap: {
+    marginBottom: 4,
+  },
+  historyRowReveal: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  historyRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  historyTitleTouch: {
+    flex: 1,
+    minWidth: 0,
+  },
+  historyTitleText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  historyMenuWrap: {
+    flexShrink: 0,
+  },
+  historyMenuBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyDeleteHint: {
+    position: 'absolute',
+    right: 18,
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  historyDeleteText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   emptyState: {
     paddingVertical: 32,
@@ -876,255 +980,66 @@ const styles = StyleSheet.create({
     color: '#d4d4d8',
     fontSize: 16,
   },
-  sessionItem: {
+
+  /* Connect PC capsule + separate Settings button (footer row) */
+  connectRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'transparent',
-    borderRadius: 12,
-    marginBottom: 2,
-    paddingHorizontal: 12,
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 10,
+  },
+  connectCapsule: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 50,
+    paddingLeft: 16,
+    paddingRight: 7,
+    borderRadius: 9999,
+    borderWidth: 1,
+    borderColor: 'rgba(129, 166, 228, 0.18)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  connectCapsuleMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
     paddingVertical: 10,
   },
-  sessionItemActive: {
-    backgroundColor: 'transparent',
-  },
-  sessionContent: {
-    flex: 1,
-    marginRight: 6,
-  },
-  sessionTitle: {
-    color: '#ffffff',
-    fontSize: 17.5,
-    fontWeight: '500',
-  },
-  sessionTitleActive: {
-    color: '#ffffff',
-    fontWeight: '700',
-  },
-  sessionDate: {
-    color: '#a1a1aa',
-    fontSize: 13.5,
-    marginTop: 2,
-  },
-  sessionMoreBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  drawerFooter: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 12,
-    backgroundColor: '#000000',
-    gap: 2,
-  },
-  desktopSyncCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 12,
-    paddingLeft: 10,
-    paddingRight: 6,
-    paddingVertical: 4,
-  },
-  desktopSyncLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  desktopSyncQrBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: '#2563eb',
-    borderRadius: 9999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  desktopSyncQrText: {
+  connectCapsuleText: {
     color: '#ffffff',
     fontSize: 15,
-    fontWeight: '700',
-  },
-  footerIconBox: {
-    width: 26,
-    height: 26,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  desktopSyncBtnText: {
-    color: '#ffffff',
-    fontSize: 17,
     fontWeight: '600',
+    letterSpacing: -0.2,
   },
-  userProfileBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  userProfileLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-    minWidth: 0,
-  },
-  userAvatarBadge: {
+  connectCapsuleQr: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#303030',
+    backgroundColor: '#295294',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 8,
   },
-  userAvatarInitials: {
-    color: '#ffffff',
-    fontSize: 14.5,
-    fontWeight: '700',
-  },
-  userNameText: {
-    color: '#ffffff',
-    fontSize: 17.5,
-    fontWeight: '600',
-    flex: 1,
-  },
-  settingsGearBtn: {
-    width: 28,
-    height: 28,
+  connectCapsuleSettings: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(129, 166, 228, 0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  /* Spotlight Search Modal Styles */
-  spotlightModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  spotlightCard: {
-    width: '100%',
-    maxWidth: 540,
-    backgroundColor: '#212121',
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 20,
-    maxHeight: '85%',
-  },
-  spotlightInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 8,
-  },
-  spotlightSearchInput: {
-    flex: 1,
-    color: '#ffffff',
-    fontSize: 15,
-    marginLeft: 10,
-    paddingVertical: 0,
-  },
-  spotlightCloseIconBtn: {
-    padding: 4,
-  },
-  spotlightNewChatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#303030',
-    borderRadius: 9999,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  spotlightNewChatText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  spotlightResultsScroll: {
-    maxHeight: 380,
-  },
-  spotlightSectionBlock: {
-    marginTop: 12,
-  },
-  spotlightSectionTitle: {
-    color: '#71717a',
-    fontSize: 11.5,
-    fontWeight: '600',
-    marginBottom: 6,
-    paddingHorizontal: 4,
-  },
-  spotlightResultItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 4,
-  },
-  spotlightResultItemHovered: {
-    backgroundColor: '#27272a',
-  },
-  spotlightItemIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  spotlightItemTextCol: {
-    flex: 1,
-  },
-  spotlightItemHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  spotlightItemTitle: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-    flex: 1,
-    marginRight: 8,
-  },
-  spotlightItemDate: {
-    color: '#71717a',
-    fontSize: 11,
-  },
-  spotlightItemPreview: {
-    color: '#a1a1aa',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  spotlightEmptyBox: {
-    paddingVertical: 32,
-    alignItems: 'center',
-  },
-  spotlightEmptyText: {
-    color: '#71717a',
-    fontSize: 13,
-  },
+  /* Confirm / action modals */
   confirmModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.72)',

@@ -475,6 +475,9 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               style={currentStep === 0 ? styles.getStartedLogoImg : styles.logoImg}
               resizeMode="contain"
             />
+            {currentStep === 0 && (
+              <Text style={styles.onboardingBrandText}>Brown</Text>
+            )}
 
           {/* Step 0: Welcome */}
           {currentStep === 0 && (
@@ -1333,9 +1336,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   getStartedLogoImg: {
-    width: 54,
-    height: 54,
-    marginBottom: 14,
+    width: 64,
+    height: 64,
+    marginBottom: 2,
+  },
+  onboardingBrandText: {
+    fontSize: 26,
+    fontWeight: '400',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    marginBottom: 16,
   },
   logoImg: {
     width: 96,
