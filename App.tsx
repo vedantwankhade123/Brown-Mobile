@@ -1,3 +1,4 @@
+import './src/utils/animatedPolyfill';
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import {
   View,

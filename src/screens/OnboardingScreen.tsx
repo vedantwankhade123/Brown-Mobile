@@ -33,6 +33,7 @@ import {
   ChevronDownIcon,
   SpeakerIcon,
 } from '../components/Icons';
+import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { ConsentService } from '../services/storage/ConsentService';
 
@@ -466,15 +467,15 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             ]}
           >
             {/* Logo Image */}
-            <Image
-              source={
-                currentStep === 0
-                  ? require('../../Assets/brown-b-white-logo.png')
-                  : require('../../Assets/brown-white-wordmark.png')
-              }
-              style={currentStep === 0 ? styles.getStartedLogoImg : styles.logoImg}
-              resizeMode="contain"
-            />
+            {currentStep === 0 ? (
+              <BrownLogoAnimation size={64} style={styles.getStartedLogoImg} />
+            ) : (
+              <Image
+                source={require('../../Assets/Brown-white.png')}
+                style={styles.logoImg}
+                resizeMode="contain"
+              />
+            )}
             {currentStep === 0 && (
               <Text style={styles.onboardingBrandText}>Brown</Text>
             )}
@@ -1342,6 +1343,7 @@ const styles = StyleSheet.create({
   },
   onboardingBrandText: {
     fontSize: 26,
+    fontFamily: 'Outfit_400Regular',
     fontWeight: '400',
     color: '#ffffff',
     letterSpacing: -0.5,

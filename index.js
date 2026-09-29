@@ -1,3 +1,4 @@
+import './src/utils/animatedPolyfill';
 import { registerRootComponent } from 'expo';
 import App from './App';
 

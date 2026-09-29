@@ -10,9 +10,13 @@ import {
   StatusBar,
   Alert,
   Animated,
-  Image,
+  Easing,
+  Keyboard,
+  Platform,
+  Pressable,
 } from 'react-native';
-import { PencilIcon, CodeIcon, SparklesIcon, DocumentIcon, ArrowUpRightIcon } from '../components/Icons';
+import { ArrowUpRightIcon } from '../components/Icons';
+import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ChatBubble } from '../components/ChatBubble';
 import { MessageInput } from '../components/MessageInput';
@@ -41,6 +45,7 @@ import {
   wasVersionDismissed,
 } from '../services/updater/GitHubUpdateService';
 import { UpdatePromptModal } from '../components/UpdatePromptModal';
+import { notifyUpdateAvailable } from '../services/NotificationService';
 import { SoundService } from '../services/sound/SoundService';
 import { ChatMessage, ChatSession } from '../types/chat';
 import { ModelMetadata } from '../types/model';
@@ -60,14 +65,13 @@ type QuickAction = {
   label: string;
   desc: string;
   draft: string;
-  Icon: React.FC<{ size?: number; color?: string }>;
 };
 
 const QUICK_ACTIONS: QuickAction[] = [
-  { id: 'write', label: 'Write or edit', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:', Icon: PencilIcon },
-  { id: 'code', label: 'Fix some code', desc: 'Explain, debug and improve', draft: 'Explain what this code does and fix any problems:', Icon: CodeIcon },
-  { id: 'summarize', label: 'Summarize', desc: 'Condense long content', draft: 'Summarize the key points of this text:', Icon: DocumentIcon },
-  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh ideas and angles', draft: 'Help me brainstorm ideas about:', Icon: SparklesIcon },
+  { id: 'write', label: 'Write or edit', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:' },
+  { id: 'code', label: 'Fix some code', desc: 'Explain, debug and improve', draft: 'Explain what this code does and fix any problems:' },
+  { id: 'summarize', label: 'Summarize', desc: 'Condense long content', draft: 'Summarize the key points of this text:' },
+  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh ideas and angles', draft: 'Help me brainstorm ideas about:' },
 ];
 
 /** One quick-start list row — rises into place on mount and dips under the finger */
@@ -82,8 +86,9 @@ const QuickActionCard: React.FC<{
   useEffect(() => {
     Animated.timing(enter, {
       toValue: 1,
-      duration: 420,
+      duration: 360,
       delay,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, []);
@@ -93,7 +98,7 @@ const QuickActionCard: React.FC<{
   const pressOut = () =>
     Animated.timing(press, { toValue: 1, duration: 170, useNativeDriver: true }).start();
 
-  const { label, desc, Icon } = action;
+  const { label, desc } = action;
 
   return (
     <Animated.View
@@ -116,9 +121,6 @@ const QuickActionCard: React.FC<{
         activeOpacity={1}
         accessibilityLabel={label}
       >
-        <View style={styles.quickCardTile}>
-          <Icon size={16} color="#ffffff" />
-        </View>
         <View style={styles.quickCardTextCol}>
           <Text style={styles.quickCardTitle} numberOfLines={1}>
             {label}
@@ -156,6 +158,69 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [pendingUpdate, setPendingUpdate] = useState<AppUpdateInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [kokoroDownloading, setKokoroDownloading] = useState(false);
+  const [keyboardUp, setKeyboardUp] = useState(false);
+  const kbAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const show = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hide = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = Keyboard.addListener(show, () => setKeyboardUp(true));
+    const onHide = Keyboard.addListener(hide, () => setKeyboardUp(false));
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(kbAnim, {
+      toValue: keyboardUp ? 1 : 0,
+      duration: keyboardUp ? 240 : 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [keyboardUp]);
+
+  // Fluid scale & position transitions for Logo & Greeting
+  const brandScale = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.85],
+  });
+  const brandTranslateY = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -6],
+  });
+  const logoMargin = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 12],
+  });
+  const greetingMargin = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [26, 8],
+  });
+
+  // Smooth collapse, fade & slide transitions for Quick Actions
+  const cardsHeight = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [320, 0],
+  });
+  const cardsOpacity = kbAnim.interpolate({
+    inputRange: [0, 0.45, 1],
+    outputRange: [1, 0, 0],
+  });
+  const cardsTranslateY = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 20],
+  });
+  const cardsScale = kbAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.95],
+  });
+
+  const dismissComposer = useCallback(() => {
+    Keyboard.dismiss();
+    setKeyboardUp(false);
+  }, []);
 
   const isSpeaking = Boolean(speakingMessageId) && !ttsPaused;
 
@@ -222,6 +287,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       if (!info.available) return;
       if (await wasVersionDismissed(info.latestVersion)) return;
       setPendingUpdate(info);
+      notifyUpdateAvailable(info);
     } catch {
       // Silent on launch — Settings has manual check
     }
@@ -297,14 +363,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       });
     }
 
-    const allSessions = await chatRepo.getAllSessions();
-    setSessions(allSessions);
-
-    if (allSessions.length > 0) {
-      loadSession(allSessions[0].id);
-    } else {
-      createNewChat();
-    }
+    setSessions(await chatRepo.getAllSessions());
+    createNewChat();
   };
 
   const createNewChat = async () => {
@@ -720,29 +780,58 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         {/* Chat messages, or an empty canvas on a fresh chat */}
         {messages.length === 0 ? (
           <View style={styles.emptyCanvas}>
-            <View style={styles.logoWrap}>
-              <Image
-                source={require('../../Assets/brown-white-wordmark.png')}
-                style={styles.canvasLogo}
-                resizeMode="contain"
-              />
-            </View>
-            <View style={styles.greetingBlock}>
-              <Text style={styles.greetingMuted}>
-                {greetingName ? `Hi ${greetingName},` : 'Hi there,'}
-              </Text>
-              <Text style={styles.greetingBold}>How can I help you today?</Text>
-            </View>
-            <View style={styles.quickList}>
-              {QUICK_ACTIONS.map((action, i) => (
-                <QuickActionCard
-                  key={action.id}
-                  action={action}
-                  delay={220 + i * 80}
-                  onPress={() => setDraftText(action.draft)}
-                />
-              ))}
-            </View>
+            {/* Blank-space tap closes the composer; later siblings stay on top and tappable */}
+            <Pressable style={StyleSheet.absoluteFill} onPress={dismissComposer} />
+
+            {/* Brand Logo & Greeting with fluid scale & positioning transition */}
+            <Animated.View
+              style={[
+                styles.brandBlock,
+                {
+                  transform: [
+                    { translateY: brandTranslateY },
+                    { scale: brandScale },
+                  ],
+                },
+              ]}
+            >
+              <Animated.View style={[styles.logoWrap, { marginBottom: logoMargin }]}>
+                <BrownLogoAnimation size={74} />
+              </Animated.View>
+              <Animated.View style={[styles.greetingBlock, { marginBottom: greetingMargin }]}>
+                <Text style={styles.greetingMuted}>
+                  {greetingName ? `Hi ${greetingName},` : 'Hi there,'}
+                </Text>
+                <Text style={styles.greetingBold}>How can I help you today?</Text>
+              </Animated.View>
+            </Animated.View>
+
+            {/* Quick-action cards with smooth collapse, fade & slide transition */}
+            <Animated.View
+              style={[
+                styles.quickCollapse,
+                {
+                  height: cardsHeight,
+                  opacity: cardsOpacity,
+                  transform: [
+                    { translateY: cardsTranslateY },
+                    { scale: cardsScale },
+                  ],
+                },
+              ]}
+              pointerEvents={keyboardUp ? 'none' : 'box-none'}
+            >
+              <View style={styles.quickList}>
+                {QUICK_ACTIONS.map((action, i) => (
+                  <QuickActionCard
+                    key={action.id}
+                    action={action}
+                    delay={160 + i * 60}
+                    onPress={() => setDraftText(action.draft)}
+                  />
+                ))}
+              </View>
+            </Animated.View>
           </View>
         ) : (
           <FlatList
@@ -763,7 +852,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             updateCellsBatchingPeriod={40}
             initialNumToRender={12}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="none"
+            keyboardDismissMode="on-drag"
           />
         )}
 
@@ -812,6 +901,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         activeModel={activeModel}
         isGenerating={isGenerating}
         isListening={isListening}
+        onFocus={() => setKeyboardUp(true)}
       />
 
       {/* Sidebar Drawer */}
@@ -880,21 +970,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: 40,
+    paddingTop: 68,
+    paddingBottom: 20,
     paddingHorizontal: 24,
+  },
+  brandBlock: {
+    alignItems: 'center',
+    width: '100%',
   },
   logoWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
-  },
-  canvasLogo: {
-    width: 78,
-    height: 74,
   },
   greetingBlock: {
     alignItems: 'center',
-    marginBottom: 26,
   },
   greetingMuted: {
     color: '#8e8e93',
@@ -910,6 +999,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
     textAlign: 'center',
     marginTop: 2,
+  },
+  quickCollapse: {
+    width: '100%',
+    alignSelf: 'stretch',
+    overflow: 'hidden',
   },
   quickList: {
     width: '100%',
@@ -927,19 +1021,10 @@ const styles = StyleSheet.create({
     minHeight: 66,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    borderRadius: 18,
+    borderRadius: 26,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
     backgroundColor: '#212121',
-  },
-  quickCardTile: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    flexShrink: 0,
   },
   quickCardTextCol: {
     flex: 1,

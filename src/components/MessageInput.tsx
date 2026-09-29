@@ -44,6 +44,7 @@ interface MessageInputProps {
   isGenerating: boolean;
   isListening: boolean;
   disabled?: boolean;
+  onFocus?: () => void;
 }
 
 function modelSupportsImages(model?: ModelMetadata | null): boolean {
@@ -75,6 +76,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   isGenerating,
   isListening,
   disabled = false,
+  onFocus,
 }) => {
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
@@ -338,7 +340,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 onContentSizeChange={handleContentSizeChange}
                 onKeyPress={handleKeyPress}
                 onSubmitEditing={handleSend}
-                onFocus={() => setShowAttachMenu(false)}
+                onFocus={() => {
+                  setShowAttachMenu(false);
+                  onFocus?.();
+                }}
                 blurOnSubmit={false}
                 returnKeyType="send"
                 placeholder={displayedPlaceholder}
