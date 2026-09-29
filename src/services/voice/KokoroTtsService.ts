@@ -4,8 +4,8 @@ import { StoragePaths } from '../storage/StoragePaths';
 import { KOKORO_HF_ASSETS, resetKokoroOnnxSession } from './KokoroOnnxEngine';
 
 /** Mirrors desktop `voice-tts.js` catalog keys */
-export type KokoroVoiceId = 'af_heart' | 'am_michael';
-export type KokoroVoiceKey = 'kokoro-heart' | 'kokoro-michael';
+export type KokoroVoiceId = 'af_heart' | 'am_michael' | 'bm_george' | 'bm_lewis';
+export type KokoroVoiceKey = 'kokoro-heart' | 'kokoro-michael' | 'kokoro-george' | 'kokoro-lewis';
 
 export const KOKORO_VOICES: Array<{
   key: KokoroVoiceKey;
@@ -29,6 +29,22 @@ export const KOKORO_VOICES: Array<{
     label: 'Michael',
     gender: 'male',
     description: 'US male · steady, natural conversational voice',
+    sizeEstimate: '~92 MB shared engine',
+  },
+  {
+    key: 'kokoro-george',
+    voiceId: 'bm_george',
+    label: 'George',
+    gender: 'male',
+    description: 'UK male · warm, easy-going narrator',
+    sizeEstimate: '~92 MB shared engine',
+  },
+  {
+    key: 'kokoro-lewis',
+    voiceId: 'bm_lewis',
+    label: 'Lewis',
+    gender: 'male',
+    description: 'UK male · crisp, articulate conversational voice',
     sizeEstimate: '~92 MB shared engine',
   },
 ];
@@ -60,6 +76,20 @@ export const KOKORO_ASSETS = {
       minBytes: KOKORO_HF_ASSETS.voices.am_michael.minBytes,
     },
     {
+      id: 'bm_george',
+      fileName: KOKORO_HF_ASSETS.voices.bm_george.fileName,
+      url: KOKORO_HF_ASSETS.voices.bm_george.url,
+      label: 'George voice model',
+      minBytes: KOKORO_HF_ASSETS.voices.bm_george.minBytes,
+    },
+    {
+      id: 'bm_lewis',
+      fileName: KOKORO_HF_ASSETS.voices.bm_lewis.fileName,
+      url: KOKORO_HF_ASSETS.voices.bm_lewis.url,
+      label: 'Lewis voice model',
+      minBytes: KOKORO_HF_ASSETS.voices.bm_lewis.minBytes,
+    },
+    {
       id: 'tokenizer',
       fileName: KOKORO_HF_ASSETS.tokenizer.fileName,
       url: KOKORO_HF_ASSETS.tokenizer.url,
@@ -86,6 +116,8 @@ export type KokoroInstallStatus = {
   engineInstalled: boolean;
   heartInstalled: boolean;
   michaelInstalled: boolean;
+  georgeInstalled: boolean;
+  lewisInstalled: boolean;
   fullyInstalled: boolean;
   cacheDir: string;
   engineBytes: number;
@@ -136,16 +168,20 @@ export async function getKokoroInstallStatus(): Promise<KokoroInstallStatus> {
   }
 
   const installedVoices = await readJson<string[]>(`${cacheDir}${INSTALLED_VOICES_FILE}`, []);
-  const heartInstalled =
-    allPresent && (installedVoices.length === 0 || installedVoices.includes('af_heart'));
-  const michaelInstalled =
-    allPresent && (installedVoices.length === 0 || installedVoices.includes('am_michael'));
+  const voiceOk = (id: KokoroVoiceId) =>
+    allPresent && (installedVoices.length === 0 || installedVoices.includes(id));
+  const heartInstalled = voiceOk('af_heart');
+  const michaelInstalled = voiceOk('am_michael');
+  const georgeInstalled = voiceOk('bm_george');
+  const lewisInstalled = voiceOk('bm_lewis');
 
   return {
     engineInstalled: allPresent,
     heartInstalled,
     michaelInstalled,
-    fullyInstalled: allPresent && heartInstalled && michaelInstalled,
+    georgeInstalled,
+    lewisInstalled,
+    fullyInstalled: allPresent,
     cacheDir,
     engineBytes,
   };
@@ -154,7 +190,7 @@ export async function getKokoroInstallStatus(): Promise<KokoroInstallStatus> {
 export async function getActiveKokoroVoice(): Promise<KokoroVoiceId> {
   try {
     const raw = await AsyncStorage.getItem(ACTIVE_VOICE_KEY);
-    if (raw === 'am_michael' || raw === 'af_heart') return raw;
+    if (KOKORO_VOICES.some((v) => v.voiceId === raw)) return raw as KokoroVoiceId;
   } catch {}
   return 'af_heart';
 }
@@ -164,11 +200,11 @@ export async function setActiveKokoroVoice(voiceId: KokoroVoiceId): Promise<void
 }
 
 export function voiceIdToKey(voiceId: KokoroVoiceId): KokoroVoiceKey {
-  return voiceId === 'am_michael' ? 'kokoro-michael' : 'kokoro-heart';
+  return KOKORO_VOICES.find((v) => v.voiceId === voiceId)?.key ?? 'kokoro-heart';
 }
 
 export function keyToVoiceId(key: KokoroVoiceKey): KokoroVoiceId {
-  return key === 'kokoro-michael' ? 'am_michael' : 'af_heart';
+  return KOKORO_VOICES.find((v) => v.key === key)?.voiceId ?? 'af_heart';
 }
 
 let downloadCancelled = false;
@@ -286,7 +322,7 @@ async function downloadFile(
 }
 
 /**
- * Downloads Kokoro ONNX engine + Heart & Michael voice bins (same as desktop HF assets).
+ * Downloads Kokoro ONNX engine + all bundled voice bins (same as desktop HF assets).
  */
 export async function downloadKokoroOnboardingDefaults(
   onProgress?: (p: KokoroDownloadProgress) => void
@@ -332,11 +368,12 @@ export async function downloadKokoroOnboardingDefaults(
 
     if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
 
-    await writeJson(`${cacheDir}${INSTALLED_VOICES_FILE}`, ['af_heart', 'am_michael']);
+    const installedVoiceIds = KOKORO_VOICES.map((v) => v.voiceId);
+    await writeJson(`${cacheDir}${INSTALLED_VOICES_FILE}`, installedVoiceIds);
     await writeJson(`${cacheDir}${MARKER_FILE}`, {
       modelId: KOKORO_ASSETS.modelId,
       installedAt: new Date().toISOString(),
-      voices: ['af_heart', 'am_michael'],
+      voices: installedVoiceIds,
       runtime: Platform.OS,
     });
     resetKokoroOnnxSession();
@@ -344,7 +381,7 @@ export async function downloadKokoroOnboardingDefaults(
     onProgress?.({
       phase: 'complete',
       percent: 100,
-      status: 'Kokoro neural voices ready (Heart & Michael).',
+      status: 'Kokoro neural voices ready.',
     });
     return { success: true };
   } catch (err: any) {

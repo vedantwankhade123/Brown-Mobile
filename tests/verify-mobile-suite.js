@@ -367,25 +367,130 @@ async function runTests() {
   });
 
   // 5. Desktop Sync Handshake
-  console.log('\n[5/5] Testing Desktop Wi-Fi Pairing Service:');
+  console.log('\n[5/6] Testing Desktop Wi-Fi Pairing Service:');
   const { DesktopSyncService } = requireTs('../src/services/sync/DesktopSync.ts');
+  const { SecureStore } = requireTs('../src/services/storage/SecureStore.ts');
   const sync = DesktopSyncService.getInstance();
 
-  await testAsync('Discovers local desktop node and completes PIN pairing', async () => {
+  // In-process desktop stand-in: speaks the same HTTP contract as
+  // src/main/desktop-sync-server.js (/discover, /pair/request, /pair/verify, /session).
+  function startStubDesktop(preferredPort) {
+    const http = require('http');
+    const crypto = require('crypto');
+    const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const makeCode = () => Array.from({ length: 4 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join('');
+    const state = { syncId: crypto.randomBytes(6).toString('hex'), pending: null, token: null, attempts: 0 };
+    const discover = (port) => ({ ok: true, syncId: state.syncId, name: 'Stub Desktop', version: '1.0.2', port, addresses: ['127.0.0.1'] });
+    const server = http.createServer((req, res) => {
+      const port = server.address().port;
+      const chunks = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        const body = (() => { try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { return {}; } })();
+        const send = (status, payload) => {
+          res.writeHead(status, { 'Content-Type': 'application/json', Connection: 'close' });
+          res.end(JSON.stringify(payload));
+        };
+        const route = (req.url || '').split('?')[0].replace(/\/+$/, '') || '/';
+        if (req.method === 'GET' && (route === '/discover' || route === '/health')) return send(200, discover(port));
+        if (req.method === 'GET' && route === '/session') return send(200, { ok: state.token === (req.headers.authorization || '').replace('Bearer ', '') });
+        if (req.method === 'POST' && route === '/pair/request') {
+          state.pending = { requestId: crypto.randomBytes(8).toString('hex'), code: makeCode(), expiresAt: Date.now() + 120000, attempts: 0 };
+          return send(200, { ok: true, requestId: state.pending.requestId, expiresIn: 120, syncId: state.syncId });
+        }
+        if (req.method === 'POST' && route === '/pair/verify') {
+          if (!state.pending) return send(400, { ok: false, error: 'No active pairing request' });
+          if (state.pending.requestId !== String(body.requestId || '')) return send(400, { ok: false, error: 'No active pairing request' });
+          if (Date.now() > state.pending.expiresAt) { state.pending = null; return send(400, { ok: false, error: 'Pairing code expired' }); }
+          if (String(body.code || '').trim().toUpperCase() !== state.pending.code) {
+            state.pending.attempts += 1;
+            if (state.pending.attempts >= 5) { state.pending = null; return send(429, { ok: false, error: 'Too many failed attempts — generate a new code on the PC' }); }
+            return send(401, { ok: false, error: 'Invalid pairing code' });
+          }
+          state.token = crypto.randomBytes(24).toString('hex');
+          state.pending = null;
+          return send(200, {
+            ok: true,
+            token: state.token,
+            desktop: { ...discover(port), geminiApiKey: 'stub-inherited-key' },
+            profile: { displayName: '', email: '', systemPrompt: '', geminiApiKey: '' },
+          });
+        }
+        return send(404, { ok: false, error: 'Not found' });
+      });
+    });
+    return new Promise((resolve, reject) => {
+      const fail = (err) => reject(err);
+      server.once('error', fail);
+      server.once('listening', () => {
+        server.removeListener('error', fail);
+        resolve({ server, state, port: server.address().port });
+      });
+      server.listen(preferredPort, '127.0.0.1');
+    });
+  }
+
+  // Prefer the real sync port so discovery finds the stub too; fall back to a free port
+  // when a live Brown Desktop already owns 49200 on this machine.
+  let stub = null;
+  try {
+    stub = await startStubDesktop(49200);
+  } catch (err) {
+    if (err.code !== 'EADDRINUSE') throw err;
+    stub = await startStubDesktop(0);
+  }
+  const stubOnSyncPort = stub.port === 49200;
+
+  let target = null;
+  await testAsync('Discovers the desktop sync node over the local network', async () => {
     const devices = await sync.scanLocalNetwork();
-    assert(devices.length > 0);
-    const target = devices[0];
-    assert.strictEqual(target.port, 49200);
+    if (!stubOnSyncPort) {
+      target = { id: stub.state.syncId, syncId: stub.state.syncId, name: 'Stub Desktop', ipAddress: '127.0.0.1', port: stub.port, version: '1.0.2', isPaired: false, lastSeen: Date.now() };
+      return;
+    }
+    const match = devices.find((d) => d.syncId === stub.state.syncId);
+    assert(match, `Stub desktop was not discovered (saw ${devices.length} device(s))`);
+    assert.strictEqual(match.port, 49200);
+    assert.strictEqual(match.ipAddress, '127.0.0.1');
+    target = match;
+  });
 
-    const paired = await sync.pairWithDesktop(target, '8421');
+  await testAsync('Rejects a wrong pairing code without connecting', async () => {
+    const session = await sync.requestPairing(target);
+    assert(session.requestId);
+    assert.strictEqual(session.expiresIn, 120);
+    const wrong = stub.state.pending.code === 'AAAA' ? 'BBBB' : 'AAAA';
+    await assert.rejects(() => sync.pairWithDesktop(target, wrong), /Invalid pairing code/);
+    assert.strictEqual(sync.getStatus().isConnected, false);
+  });
+
+  await testAsync('Rejects an expired pairing code', async () => {
+    await sync.requestPairing(target);
+    stub.state.pending.expiresAt = Date.now() - 1;
+    await assert.rejects(() => sync.pairWithDesktop(target, 'AAAA'), /expired/i);
+    assert.strictEqual(sync.getStatus().isConnected, false);
+  });
+
+  await testAsync('Completes PIN pairing and stores the session token', async () => {
+    const session = await sync.requestPairing(target);
+    const paired = await sync.pairWithDesktop(target, stub.state.pending.code);
     assert.strictEqual(paired, true);
-
     const status = sync.getStatus();
     assert.strictEqual(status.isConnected, true);
     assert.strictEqual(status.activeDesktop.id, target.id);
+    assert.strictEqual(await SecureStore.getItem('ultron_desktop_sync_token'), stub.state.token);
+    assert.strictEqual(await SecureStore.getItem('ultron_desktop_last_ip'), '127.0.0.1');
+
+    const history = await sync.getPairedHistory();
+    assert(history.some((h) => h.id === target.id));
 
     await sync.disconnect();
     assert.strictEqual(sync.getStatus().isConnected, false);
+  });
+
+  await new Promise((resolve) => {
+    if (stub.server.closeAllConnections) stub.server.closeAllConnections();
+    stub.server.close(resolve);
   });
 
   // 6. Cloud Multi-Providers Verification (Desktop Parity)
