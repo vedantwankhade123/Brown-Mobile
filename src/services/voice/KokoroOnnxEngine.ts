@@ -1,5 +1,5 @@
 /**
- * Real Kokoro ONNX inference for mobile (Heart / Michael).
+ * Real Kokoro ONNX inference for mobile (Heart / Michael / George / Lewis).
  * Downloads align with desktop: onnx-community/Kokoro-82M-v1.0-ONNX q8 + voice bins.
  */
 import { Platform } from 'react-native';
@@ -25,6 +25,16 @@ export const KOKORO_HF_ASSETS = {
     am_michael: {
       fileName: 'am_michael.bin',
       url: `${HF}/voices/am_michael.bin?download=true`,
+      minBytes: 400 * 1024,
+    },
+    bm_george: {
+      fileName: 'bm_george.bin',
+      url: `${HF}/voices/bm_george.bin?download=true`,
+      minBytes: 400 * 1024,
+    },
+    bm_lewis: {
+      fileName: 'bm_lewis.bin',
+      url: `${HF}/voices/bm_lewis.bin?download=true`,
       minBytes: 400 * 1024,
     },
   },
@@ -283,7 +293,7 @@ export async function synthesizeKokoroOnnx(
     throw new Error('Kokoro ONNX model is missing or incomplete.');
   }
   if (!voiceInfo?.exists || Number(voiceInfo.size || 0) < KOKORO_HF_ASSETS.voices[voiceId].minBytes) {
-    throw new Error(`Kokoro voice ${voiceId} is missing. Re-download Heart & Michael.`);
+    throw new Error(`Kokoro voice ${voiceId} is missing. Re-download the Kokoro voices.`);
   }
 
   const chunks = chunkTextForKokoro(text);

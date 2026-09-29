@@ -2,20 +2,8 @@ import { Platform } from 'react-native';
 import {
   getActiveKokoroVoice,
   getKokoroInstallStatus,
-  KokoroVoiceId,
 } from './KokoroTtsService';
 import { synthesizeKokoroOnnx, isKokoroOnnxRuntimeReady } from './KokoroOnnxEngine';
-
-const Speech = require('expo-speech') as {
-  speak: (text: string, options?: any) => void;
-  stop: () => void;
-  pause?: () => void;
-  resume?: () => void;
-  isSpeakingAsync?: () => Promise<boolean>;
-  getAvailableVoicesAsync?: () => Promise<
-    Array<{ identifier: string; name?: string; language?: string }>
-  >;
-};
 
 export type TtsStatus = 'idle' | 'speaking' | 'paused';
 
@@ -37,31 +25,9 @@ function stripForSpeech(text: string): string {
     .trim();
 }
 
-function pickSystemVoice(
-  voices: Array<{ identifier: string; name?: string; language?: string }>,
-  voiceId: KokoroVoiceId
-): string | undefined {
-  const wantFemale = voiceId === 'af_heart';
-  const scored = voices
-    .filter((v) => /en[-_]?us|en[-_]?gb|en\b/i.test(v.language || ''))
-    .map((v) => {
-      const name = `${v.name || ''} ${v.identifier || ''}`.toLowerCase();
-      let score = 0;
-      if (wantFemale && /female|zira|jenny|aria|samantha|susan|hazel|emma|karen|moira|fiona|tessa/.test(name))
-        score += 8;
-      if (!wantFemale && /male|david|mark|guy|ryan|james|daniel|alex|fred|tom|aaron|gordon/.test(name))
-        score += 8;
-      if (/enhanced|premium|neural|quality/.test(name)) score += 2;
-      if (/en-us|en_us/.test((v.language || '').toLowerCase())) score += 1;
-      return { id: v.identifier, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  return scored[0]?.id;
-}
-
 /**
- * On-device TTS. Prefers real Kokoro ONNX (Heart / Michael).
- * System speech is last-resort only when the native ORT module is not linked.
+ * On-device TTS: real Kokoro ONNX only. No system/browser voice — a missing
+ * engine surfaces as an error instead of switching to a robotic fallback.
  */
 export class TextToSpeechService {
   private static status: TtsStatus = 'idle';
@@ -157,64 +123,16 @@ export class TextToSpeechService {
         });
         return;
       } catch (err) {
-        console.warn('[Kokoro] ONNX synthesis failed, falling back to system speech:', err);
-        // Fall back to system speech rather than failing completely
+        this.status = 'idle';
+        this.fullText = '';
+        this.onDone = undefined;
+        throw err instanceof Error ? err : new Error(String(err));
       }
     }
 
-    // 2) ORT not linked (Expo Go / missing native rebuild) — temporary system speech
-    console.warn(
-      '[TTS] onnxruntime-react-native not linked; using system speech until a native rebuild.'
+    throw new Error(
+      'Kokoro voice engine is not available in this build. Reinstall the Brown APK.'
     );
-    if (generation !== this.speakGeneration) return;
-
-    let voiceIdentifier: string | undefined;
-    try {
-      if (Speech.getAvailableVoicesAsync) {
-        const voices = await Speech.getAvailableVoicesAsync();
-        voiceIdentifier = pickSystemVoice(voices || [], voiceId);
-      }
-    } catch {}
-
-    await new Promise<void>((resolve) => {
-      if (generation !== this.speakGeneration) {
-        resolve();
-        return;
-      }
-      Speech.speak(cleaned, {
-        language: 'en-US',
-        rate: this.rate,
-        pitch: voiceId === 'af_heart' ? 1.05 : 0.95,
-        voice: voiceIdentifier,
-        onDone: () => {
-          if (generation !== this.speakGeneration) {
-            resolve();
-            return;
-          }
-          this.status = 'idle';
-          this.fullText = '';
-          const done = this.onDone;
-          this.onDone = undefined;
-          done?.();
-          resolve();
-        },
-        onStopped: () => {
-          if (generation === this.speakGeneration) {
-            this.status = 'idle';
-          }
-          resolve();
-        },
-        onError: () => {
-          if (generation === this.speakGeneration) {
-            this.status = 'idle';
-            const done = this.onDone;
-            this.onDone = undefined;
-            done?.();
-          }
-          resolve();
-        },
-      });
-    });
   }
 
   /** Pause = hard stop (Android Speech.pause is unreliable). */
@@ -232,9 +150,6 @@ export class TextToSpeechService {
 
   private static stopInternal(clearDone: boolean): void {
     this.speakGeneration += 1;
-    try {
-      Speech.stop();
-    } catch {}
     void this.unloadActiveSound();
     this.status = 'idle';
     this.paused = false;
