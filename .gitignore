@@ -21,3 +21,6 @@ build/
 # Local env files
 .env*.local
 .env
+
+# Staged by CI from .release-notes-v<version>.md
+.release-notes.md
