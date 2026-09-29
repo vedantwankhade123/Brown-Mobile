@@ -101,7 +101,7 @@ export const Header: React.FC<HeaderProps> = ({
             activeOpacity={0.7}
             accessibilityLabel="Open History"
           >
-            <GridMenuIcon size={24} color="#ffffff" />
+            <GridMenuIcon size={28} color="#ffffff" />
           </TouchableOpacity>
 
           <View ref={titleAnchorRef} style={styles.modelTitleAnchor} collapsable={false}>
@@ -298,8 +298,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   iconButton: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
   },
   brandTitle: {
     color: '#ffffff',
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '500',
     letterSpacing: -0.4,
     flexShrink: 0,

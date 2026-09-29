@@ -11,6 +11,8 @@ import {
   Modal,
   Alert,
   PanResponder,
+  Dimensions,
+  Easing,
 } from 'react-native';
 import { ChatSession } from '../types/chat';
 import { colors } from '../theme/colors';
@@ -21,10 +23,6 @@ import {
   SettingsIcon,
   LaptopIcon,
   PencilIcon,
-  SparklesIcon,
-  DocumentIcon,
-  CodeIcon,
-  ChatIcon,
   MoreVerticalIcon,
   ArrowUpRightIcon,
   QrCodeIcon,
@@ -33,6 +31,7 @@ import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService } from '../services/storage/ConsentService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { EmptyState } from './EmptyState';
 
 interface DrawerSidebarProps {
   isOpen: boolean;
@@ -51,12 +50,12 @@ interface DrawerSidebarProps {
 
 /** Quick-start cards shown in the horizontal rail */
 const QUICK_CARDS = [
-  { id: 'write', label: 'Write', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:', Icon: PencilIcon },
-  { id: 'code', label: 'Code', desc: 'Explain, debug and improve code', draft: 'Explain what this code does and fix any problems:', Icon: CodeIcon },
-  { id: 'summarize', label: 'Summarize', desc: 'Condense long content to key points', draft: 'Summarize the key points of this text:', Icon: SparklesIcon },
-  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh angles and options', draft: 'Help me brainstorm ideas about:', Icon: ChatIcon },
-  { id: 'explain', label: 'Explain', desc: 'Break down complex topics clearly', draft: 'Explain this topic in simple terms:', Icon: DocumentIcon },
-  { id: 'translate', label: 'Translate', desc: 'Translate between any languages', draft: 'Translate the following text:', Icon: ArrowUpRightIcon },
+  { id: 'write', label: 'Write', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:' },
+  { id: 'code', label: 'Code', desc: 'Explain, debug and improve code', draft: 'Explain what this code does and fix any problems:' },
+  { id: 'summarize', label: 'Summarize', desc: 'Condense long content to key points', draft: 'Summarize the key points of this text:' },
+  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh angles and options', draft: 'Help me brainstorm ideas about:' },
+  { id: 'explain', label: 'Explain', desc: 'Break down complex topics clearly', draft: 'Explain this topic in simple terms:' },
+  { id: 'translate', label: 'Translate', desc: 'Translate between any languages', draft: 'Translate the following text:' },
 ];
 
 /**
@@ -243,7 +242,9 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const closedDrawerOffset = -10000;
+  /* The drawer is full-width, so the closed offset must equal the screen width —
+     a larger value makes the 240ms slide finish in a few invisible frames. */
+  const closedDrawerOffset = -Dimensions.get('window').width;
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(null);
@@ -275,31 +276,51 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       .catch(() => {});
   }, [isOpen]);
 
+  const runClose = (done?: () => void) => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: closedDrawerOffset,
+        duration: 230,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(done);
+  };
+
   useEffect(() => {
     if (isOpen) {
       Animated.parallel([
-        Animated.timing(slideAnim, { toValue: 0, duration: 240, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 1, duration: 240, useNativeDriver: true }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 290,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 240,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
       ]).start();
     } else {
       setIsSearchActive(false);
       setSearchQuery('');
-      Animated.parallel([
-        Animated.timing(slideAnim, { toValue: closedDrawerOffset, duration: 180, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
-      ]).start();
+      runClose();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   if (!isOpen && (fadeAnim as any)._value === 0) return null;
 
   const handleClose = () => {
-    Animated.parallel([
-      Animated.timing(slideAnim, { toValue: closedDrawerOffset, duration: 180, useNativeDriver: true }),
-      Animated.timing(fadeAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
-    ]).start(() => {
-      onClose();
-    });
+    runClose(() => onClose());
   };
 
   const filteredSessions = sessions.filter((s) => {
@@ -382,17 +403,28 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 <Text style={styles.avatarText}>{userInitials}</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.newChatPill}
-                onPress={() => {
-                  onNewChat();
-                  handleClose();
-                }}
-                activeOpacity={0.8}
-              >
-                <PencilIcon size={16} color="#ffffff" />
-                <Text style={styles.newChatPillText}>New chat</Text>
-              </TouchableOpacity>
+              <View style={styles.topBarRight}>
+                <TouchableOpacity
+                  style={styles.newChatPill}
+                  onPress={() => {
+                    onNewChat();
+                    handleClose();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <PencilIcon size={16} color="#ffffff" />
+                  <Text style={styles.newChatPillText}>New chat</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.closeDrawerBtn}
+                  onPress={handleClose}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Close menu"
+                >
+                  <CloseIcon size={18} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* Hero */}
@@ -415,17 +447,16 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   returnKeyType="search"
                   autoCorrect={false}
                 />
-                {searchQuery.length > 0 ? (
-                  <TouchableOpacity style={styles.searchClearBtn} onPress={() => setSearchQuery('')} activeOpacity={0.7}>
+                {inSearchMode ? (
+                  <TouchableOpacity
+                    style={styles.searchClearBtn}
+                    onPress={searchQuery.length > 0 ? () => setSearchQuery('') : closeSearch}
+                    activeOpacity={0.7}
+                  >
                     <CloseIcon size={16} color="#8e8e93" />
                   </TouchableOpacity>
                 ) : null}
               </View>
-              {inSearchMode ? (
-                <TouchableOpacity style={styles.searchCancelBtn} onPress={closeSearch} activeOpacity={0.7}>
-                  <Text style={styles.searchCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              ) : null}
             </View>
 
             {inSearchMode ? (
@@ -454,7 +485,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.cardsRow}
                 >
-                  {QUICK_CARDS.map(({ id, label, desc, draft, Icon }) => (
+                  {QUICK_CARDS.map(({ id, label, desc, draft }) => (
                     <TouchableOpacity
                       key={id}
                       style={styles.quickCard}
@@ -475,14 +506,9 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                         end={{ x: 1, y: 1 }}
                         style={StyleSheet.absoluteFill}
                       />
-                      <View style={styles.quickCardHead}>
-                        <View style={styles.quickCardIcon}>
-                          <Icon size={16} color="#ffffff" />
-                        </View>
-                        <Text style={styles.quickCardLabel} numberOfLines={1}>
-                          {label}
-                        </Text>
-                      </View>
+                      <Text style={styles.quickCardLabel} numberOfLines={1}>
+                        {label}
+                      </Text>
                       <Text style={styles.quickCardDesc} numberOfLines={3}>
                         {desc}
                       </Text>
@@ -499,9 +525,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 </View>
 
                 {sessions.length === 0 ? (
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>No saved chats yet.</Text>
-                  </View>
+                  <EmptyState
+                    title="No chats yet"
+                    description={'No data here yet. Start a conversation\nand it will appear in this history list.'}
+                  />
                 ) : (
                   <View style={styles.historyGroup}>
                     <ScrollView
@@ -560,7 +587,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               activeOpacity={0.7}
               accessibilityLabel="Settings"
             >
-              <SettingsIcon size={18} color="#ffffff" />
+              <SettingsIcon size={24} color="#ffffff" />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -782,6 +809,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  closeDrawerBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
 
   /* Hero */
   heroTitle: {
@@ -827,15 +869,6 @@ const styles = StyleSheet.create({
   searchClearBtn: {
     padding: 4,
   },
-  searchCancelBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-  },
-  searchCancelText: {
-    color: '#8e8e93',
-    fontSize: 15,
-    fontWeight: '600',
-  },
   historyGroup: {
     marginHorizontal: 16,
     marginTop: 8,
@@ -866,22 +899,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     overflow: 'hidden',
   },
-  quickCardHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  quickCardIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
   quickCardLabel: {
-    flex: 1,
     minWidth: 0,
     color: '#ffffff',
     fontSize: 17,
@@ -1029,12 +1047,9 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   connectCapsuleSettings: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(129, 166, 228, 0.18)',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
   },

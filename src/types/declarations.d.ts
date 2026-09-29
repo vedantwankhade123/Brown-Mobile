@@ -34,6 +34,7 @@ declare module 'react-native' {
     create<T extends Record<string, any>>(styles: T): T;
     absoluteFill: Record<string, any>;
     absoluteFillObject: Record<string, any>;
+    hairlineWidth: number;
     flatten(style: any): Record<string, any> | undefined;
   };
   export const TouchableOpacity: any;
@@ -48,14 +49,31 @@ declare module 'react-native' {
   export const Switch: any;
   export const ActivityIndicator: any;
   export const Animated: any;
+  export const Easing: {
+    linear: (t: number) => number;
+    quad: (t: number) => number;
+    cubic: (t: number) => number;
+    in: (fn: (t: number) => number) => (t: number) => number;
+    out: (fn: (t: number) => number) => (t: number) => number;
+    inOut: (fn: (t: number) => number) => (t: number) => number;
+  };
   export const Image: any;
   export const Modal: any;
   export const KeyboardAvoidingView: any;
+  export const Keyboard: {
+    addListener: (type: string, listener: () => void) => { remove: () => void };
+    dismiss: () => void;
+  };
   export const AppState: {
     currentState: string;
     addEventListener: (type: string, listener: (state: string) => void) => { remove: () => void };
   };
   export const Platform: { OS: 'ios' | 'android' | 'windows' | 'macos' | 'web' };
+  export const Dimensions: {
+    get: (dim: 'window' | 'screen') => { width: number; height: number; scale: number; fontScale: number };
+  };
+  export type ViewStyle = Record<string, any>;
+  export type StyleProp<T> = T | T[] | false | null | undefined;
   export const Alert: {
     alert: (title: string, message?: string, buttons?: any[]) => void;
   };
