@@ -34,6 +34,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Restore Release Signing Key
+        shell: bash
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+          KEYSTORE_PROPS_B64: ${{ secrets.RELEASE_KEYSTORE_PROPS_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PROPS_B64" ]; then
+            echo "::error::Release signing secrets are missing. A debug-signed APK must never be published as a release build."
+            echo "Generate them locally once (from the mobile/android directory):"
+            echo "  base64 -w0 app/my-release-key.keystore              -> gh secret set RELEASE_KEYSTORE_B64"
+            echo "  base64 -w0 keystore.properties                       -> gh secret set RELEASE_KEYSTORE_PROPS_B64"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > android/app/my-release-key.keystore
+          printf '%s' "$KEYSTORE_PROPS_B64" | base64 -d > android/keystore.properties
+          echo "Release keystore restored ($(wc -c < android/app/my-release-key.keystore) bytes)."
+
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:

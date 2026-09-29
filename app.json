@@ -2,12 +2,12 @@
   "expo": {
     "name": "Brown AI",
     "slug": "brown-mobile",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
-    "icon": "./Assets/brown-b-white-logo.png",
+    "icon": "./Assets/Brown-icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./Assets/splash-small.png",
+      "image": "./Assets/Brown-splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
@@ -24,7 +24,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./Assets/brown-b-white-logo.png",
+        "foregroundImage": "./Assets/Brown-adaptive.png",
         "backgroundColor": "#000000"
       },
       "package": "com.brown.mobile",
@@ -43,7 +43,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC"
       ],
-      "versionCode": 3
+      "versionCode": 4
     },
     "plugins": [
       "expo-font",

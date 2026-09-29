@@ -15,6 +15,9 @@ local.properties
 # Bundle artifacts
 *.jsbundle
 
+# Copied into the source tree by the llama.rn Gradle build (Hexagon DSP backends)
+app/src/main/assets/ggml-hexagon/
+
 # Release signing (do not commit secrets / production keystore)
 keystore.properties
 app/my-release-key.keystore
