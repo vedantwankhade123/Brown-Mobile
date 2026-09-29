@@ -18,6 +18,8 @@ export interface AppUpdateInfo {
   releaseName: string;
   htmlUrl: string;
   apkDownloadUrl: string | null;
+  /** APK asset size in bytes (GitHub reports it), null when the release has none */
+  apkSizeBytes: number | null;
   publishedAt: string | null;
 }
 
@@ -160,6 +162,7 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
     releaseName: String(release.name || `v${latestVersion}`),
     htmlUrl: String(release.html_url || `https://github.com/${UPDATE_CONFIG.GITHUB_OWNER}/${UPDATE_CONFIG.GITHUB_REPO}/releases`),
     apkDownloadUrl: apk?.browser_download_url || null,
+    apkSizeBytes: Number(apk?.size) > 0 ? Number(apk?.size) : null,
     publishedAt: release.published_at || null,
   };
 }
@@ -194,10 +197,41 @@ export async function shouldAutoCheckNow(): Promise<boolean> {
 }
 
 /**
+ * downloadAsync() exposes no progress hook, so the resumable task API is used for
+ * byte-level callbacks; it falls back to a plain download when unavailable.
+ */
+async function downloadWithProgress(
+  downloadUrl: string,
+  target: string,
+  onProgress?: (writtenBytes: number, totalBytes: number) => void
+): Promise<{ status: number; uri: string }> {
+  if (!onProgress || typeof FileSystem.createDownloadResumable !== 'function') {
+    return await FileSystem.downloadAsync(downloadUrl, target);
+  }
+  const task = FileSystem.createDownloadResumable(
+    downloadUrl,
+    target,
+    {},
+    (progress: any) => {
+      const data = progress?.totalBytesWritten !== undefined ? progress : progress?.data;
+      if (!data) return;
+      onProgress(Number(data.totalBytesWritten) || 0, Number(data.totalBytesExpectedToWrite) || 0);
+    }
+  );
+  const result = await task.downloadAsync();
+  if (!result) throw new Error('The update download did not start.');
+  return result;
+}
+
+/**
  * Opens the APK download. On Android, prefers downloading to cache then launching
  * the system package installer; falls back to opening the download URL.
+ * `onProgress` receives (writtenBytes, totalBytes) — totalBytes is 0 until the server answers.
  */
-export async function installOrOpenApkUpdate(downloadUrl: string): Promise<'installer' | 'browser'> {
+export async function installOrOpenApkUpdate(
+  downloadUrl: string,
+  onProgress?: (writtenBytes: number, totalBytes: number) => void
+): Promise<'installer' | 'browser'> {
   if (!downloadUrl) throw new Error('No APK download URL available for this release.');
 
   if (Platform.OS !== 'android') {
@@ -209,7 +243,7 @@ export async function installOrOpenApkUpdate(downloadUrl: string): Promise<'inst
   try {
     const fileName = `brown-update-${Date.now()}.apk`;
     const target = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}${fileName}`;
-    const result = await FileSystem.downloadAsync(downloadUrl, target);
+    const result = await downloadWithProgress(downloadUrl, target, onProgress);
     if (result.status !== 200) {
       throw new Error(`APK download failed with HTTP ${result.status}`);
     }

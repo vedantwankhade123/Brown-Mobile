@@ -41,7 +41,15 @@ import {
 import { LlamaEngine } from '../services/inference/LlamaEngine';
 import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
-import { UpdatePromptModal } from '../components/UpdatePromptModal';
+import {
+  UpdatePromptModal,
+  parseReleaseNotes,
+  formatBytes,
+  formatReleaseDate,
+  stripV,
+} from '../components/UpdatePromptModal';
+import { UpdateHero } from '../components/UpdateHero';
+import { EmptyState } from '../components/EmptyState';
 import {
   AppUpdateInfo,
   checkForAppUpdate,
@@ -63,6 +71,7 @@ import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   SearchIcon,
   CloseIcon,
+  ArrowUpRightIcon,
   ShieldCheckIcon,
   CpuIcon,
   TrashIcon,
@@ -152,11 +161,11 @@ const HoverableSettingsRow: React.FC<{
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          paddingVertical: 15,
-          paddingHorizontal: 16,
-          borderRadius: 33,
+          minHeight: 56,
+          paddingVertical: 16,
+          paddingHorizontal: 18,
         },
-        isHovered && { backgroundColor: 'rgba(255, 255, 255, 0.06)' },
+        isHovered && { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
       ]}
       onPress={onPress}
       activeOpacity={0.7}
@@ -271,6 +280,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [autoCheckUpdates, setAutoCheckUpdates] = useState(true);
   const [latestUpdateInfo, setLatestUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showAllUpdateNotes, setShowAllUpdateNotes] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const currentAppVersion = getCurrentAppVersion();
   const [kokoroVoice, setKokoroVoice] = useState<KokoroVoiceId>('af_heart');
@@ -1054,17 +1064,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   ];
 
   const renderItemIcon = (iconType: string, iconColor: string = '#ffffff') => {
-    let iconEl = <CpuIcon size={19} color={iconColor} />;
-    if (iconType === 'chat') iconEl = <ChatIcon size={19} color={iconColor} />;
-    else if (iconType === 'user') iconEl = <UserIcon size={19} color={iconColor} />;
-    else if (iconType === 'cpu') iconEl = <CpuIcon size={19} color={iconColor} />;
-    else if (iconType === 'location') iconEl = <MapPinIcon size={19} color={iconColor} />;
-    else if (iconType === 'sync') iconEl = <SyncArrowsIcon size={19} color={iconColor} />;
-    else if (iconType === 'volume') iconEl = <VolumeIcon size={19} color={iconColor} />;
-    else if (iconType === 'database') iconEl = <DatabaseIcon size={19} color={iconColor} />;
-    else if (iconType === 'update') iconEl = <SoftwareUpdateIcon size={19} color={iconColor} />;
-    else if (iconType === 'about') iconEl = <AboutUltronIcon size={19} color={iconColor} />;
-    else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={19} color={iconColor} />;
+    let iconEl = <CpuIcon size={20} color={iconColor} />;
+    if (iconType === 'chat') iconEl = <ChatIcon size={20} color={iconColor} />;
+    else if (iconType === 'user') iconEl = <UserIcon size={20} color={iconColor} />;
+    else if (iconType === 'cpu') iconEl = <CpuIcon size={20} color={iconColor} />;
+    else if (iconType === 'location') iconEl = <MapPinIcon size={20} color={iconColor} />;
+    else if (iconType === 'sync') iconEl = <SyncArrowsIcon size={20} color={iconColor} />;
+    else if (iconType === 'volume') iconEl = <VolumeIcon size={20} color={iconColor} />;
+    else if (iconType === 'database') iconEl = <DatabaseIcon size={20} color={iconColor} />;
+    else if (iconType === 'update') iconEl = <SoftwareUpdateIcon size={20} color={iconColor} />;
+    else if (iconType === 'about') iconEl = <AboutUltronIcon size={20} color={iconColor} />;
+    else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={20} color={iconColor} />;
 
     return (
       <View style={styles.cleanMenuIconBox}>
@@ -2105,7 +2115,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             {/* Installed Models List Cards */}
             <View style={styles.modelsFullList}>
-              {filteredModels.length === 0 ? (
+              {allAvailableModelsList.length === 0 ? (
+                <EmptyState
+                  title="No models installed"
+                  description={
+                    'No data here yet. Add an API key\nin Connectors above, or download an\noffline GGUF from the Model Store.'
+                  }
+                />
+              ) : filteredModels.length === 0 ? (
                 <Text style={styles.connectorDesc}>
                   No models match this filter. Add API keys in Connectors above or download GGUFs in Model Store.
                 </Text>
@@ -2687,13 +2704,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }
 
   // ==========================================
-  // FULL-PAGE VIEW 5: SOFTWARE UPDATES (Desktop Parity with Ultron Logo without BG)
+  // FULL-PAGE VIEW 5: SOFTWARE UPDATE (One UI layout, Brown palette)
   // ==========================================
   if (currentView === 'updates') {
+    const hasUpdate = updateStatus === 'available' && !!latestUpdateInfo?.available;
+    const notes = parseReleaseNotes(latestUpdateInfo?.releaseNotes);
+    const shownNotes = showAllUpdateNotes ? notes : notes.slice(0, 3);
+    const released = formatReleaseDate(latestUpdateInfo?.publishedAt);
+    const sizeLabel = formatBytes(latestUpdateInfo?.apkSizeBytes || 0);
+    const kickerText =
+      updateStatus === 'checking'
+        ? 'Checking for updates'
+        : updateStatus === 'error'
+          ? 'Update check failed'
+          : hasUpdate
+            ? 'Update your phone'
+            : 'Your phone is up to date';
+    const headlineText = `Brown ${stripV(hasUpdate ? latestUpdateInfo?.latestVersion : currentAppVersion)}`;
+    const statusText =
+      updateStatus === 'checking'
+        ? 'Looking for the newest Mobile Edition release…'
+        : updateStatus === 'error'
+          ? updateError || 'Could not reach GitHub Releases. Check your connection and try again.'
+          : hasUpdate
+            ? `${sizeLabel}${released ? ` · Released ${released}` : ''}`
+            : `v${stripV(currentAppVersion)} · Nothing left to download`;
+
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
-          {renderFullPageHeader('Software Updates')}
+          {renderFullPageHeader('Software update')}
           <ScrollView
             keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
             contentContainerStyle={styles.fullPageScrollContent}
@@ -2701,57 +2741,108 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             onScroll={settingsScroll}
             scrollEventThrottle={16}
           >
-            <View style={styles.updateCard}>
-              <View style={styles.updateCardHeaderRow}>
-                {/* Brown Logo */}
-                <Image
-                  source={require('../../Assets/brown-b-white-logo.png')}
-                  style={styles.updateLogoImg}
-                  resizeMode="contain"
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.updateStatusTitle}>
-                    {updateStatus === 'checking'
-                      ? 'Checking for updates...'
-                      : updateStatus === 'available'
-                        ? `Update available · v${latestUpdateInfo?.latestVersion || ''}`
-                        : updateStatus === 'error'
-                          ? 'Update check failed'
-                          : 'Brown is up to date'}
+            <View>
+              <Text style={styles.updateKicker}>{kickerText}</Text>
+              <Text style={styles.updateHeadline}>{headlineText}</Text>
+              <Text style={styles.updateStatusText}>{statusText}</Text>
+              {hasUpdate ? (
+                <Text style={styles.updateLegal}>
+                  Downloading over mobile data may result in additional charges. Using Wi-Fi is
+                  recommended.
+                </Text>
+              ) : null}
+            </View>
+
+            <UpdateHero height={168} />
+
+            {hasUpdate && notes.length > 0 ? (
+              <View>
+                <Text style={styles.updateSectionTitle}>What's new in this update</Text>
+                {shownNotes.map((line, i) => (
+                  <View key={`${i}-${line.slice(0, 12)}`} style={styles.updateNoteRow}>
+                    <View style={styles.updateNoteBullet} />
+                    <Text style={styles.updateNoteText}>{line}</Text>
+                  </View>
+                ))}
+                {notes.length > 3 ? (
+                  <TouchableOpacity
+                    style={styles.updateLinkRow}
+                    onPress={() => setShowAllUpdateNotes((open) => !open)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.updateLinkText}>
+                      {showAllUpdateNotes ? 'Show less' : `View all changes (${notes.length})`}
+                    </Text>
+                    <View style={showAllUpdateNotes ? styles.updateLinkChevronOpen : styles.updateLinkChevron}>
+                      <ChevronRightIcon size={13} color="#93c5fd" />
+                    </View>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+
+            <View>
+              <Text style={styles.updateGroupLabel}>App update information</Text>
+              <View style={styles.updateInfoCard}>
+                <View style={styles.updateInfoRow}>
+                  <Text style={styles.updateSettingLabel}>Current version</Text>
+                  <Text style={styles.updateSettingValue}>v{stripV(currentAppVersion)}</Text>
+                </View>
+                <View style={[styles.updateInfoRow, styles.updateInfoRowDivider]}>
+                  <Text style={styles.updateSettingLabel}>Latest version</Text>
+                  <Text style={styles.updateSettingValue}>
+                    {latestUpdateInfo?.latestVersion ? `v${stripV(latestUpdateInfo.latestVersion)}` : '—'}
                   </Text>
-                  <Text style={styles.updateStatusSubtitle}>Current Version: v{currentAppVersion} Mobile</Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.checkUpdatesActionBtn}
-                  onPress={handleCheckUpdates}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.checkUpdatesActionBtnText}>Check for Updates</Text>
-                </TouchableOpacity>
+                <View style={[styles.updateInfoRow, styles.updateInfoRowDivider]}>
+                  <Text style={styles.updateSettingLabel}>Download size</Text>
+                  <Text style={styles.updateSettingValue}>{sizeLabel}</Text>
+                </View>
+                <View style={[styles.updateInfoRow, styles.updateInfoRowDivider]}>
+                  <Text style={styles.updateSettingLabel}>Released</Text>
+                  <Text style={styles.updateSettingValue}>{released || '—'}</Text>
+                </View>
+                <View style={[styles.updateInfoRow, styles.updateInfoRowDivider]}>
+                  <Text style={styles.updateSettingLabel}>Channel</Text>
+                  <Text style={styles.updateSettingValue}>Stable (Mobile Edition)</Text>
+                </View>
               </View>
             </View>
 
-            <View style={styles.pageCardGroup}>
-              <View style={styles.toggleRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.fullPageRowLabel}>Auto-Check on Launch</Text>
-                  <Text style={styles.toggleDesc}>Check GitHub Releases when starting the app</Text>
+            <View>
+              <Text style={styles.updateGroupLabel}>Update settings</Text>
+              <View style={styles.pageCardGroup}>
+                <View style={styles.toggleRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.updateSettingLabel}>Auto-check on launch</Text>
+                    <Text style={styles.updateSettingDesc}>Check GitHub Releases when starting the app</Text>
+                  </View>
+                  <ToggleSwitch
+                    value={autoCheckUpdates}
+                    onValueChange={handleAutoCheckToggle}
+                  />
                 </View>
-                <ToggleSwitch
-                  value={autoCheckUpdates}
-                  onValueChange={handleAutoCheckToggle}
-                />
-              </View>
-
-              <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Release Channel</Text>
-                <Text style={styles.fullPageRowValue}>Stable (Mobile Edition)</Text>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.primaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
-              <Text style={styles.primaryFullBtnText}>Back to Settings</Text>
+            <TouchableOpacity
+              style={[styles.updatePrimaryBtn, updateStatus === 'checking' && styles.updatePrimaryBtnDisabled]}
+              onPress={() => (hasUpdate ? setShowUpdateModal(true) : handleCheckUpdates())}
+              disabled={updateStatus === 'checking'}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.updatePrimaryBtnText}>
+                {updateStatus === 'checking'
+                  ? 'Checking…'
+                  : hasUpdate
+                    ? `Download update${latestUpdateInfo?.apkSizeBytes ? ` (${sizeLabel})` : ''}`
+                    : 'Check for updates'}
+              </Text>
             </TouchableOpacity>
+
+            <Text style={styles.updateFootnote}>
+              Only the app is replaced — your chats, models and settings stay on this device.
+            </Text>
           </ScrollView>
           <UpdatePromptModal
             visible={showUpdateModal && !!latestUpdateInfo?.available}
@@ -2785,7 +2876,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.aboutCard}>
               <View style={styles.aboutBrandHeader}>
                 <Image
-                  source={require('../../Assets/brown-b-white-logo.png')}
+                  source={require('../../Assets/Brown-white.png')}
                   style={styles.aboutAppLogo}
                   resizeMode="contain"
                 />
@@ -2967,7 +3058,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityLabel="Back to Chat"
             >
-              <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
+              <BackArrowIcon size={22} color="#ffffff" strokeWidth={2.2} />
             </TouchableOpacity>
             <Text style={styles.settingsTitleText} numberOfLines={1}>
               Settings
@@ -3005,7 +3096,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           scrollEventThrottle={16}
         >
 
-          {/* iOS-Style Profile Card */}
+          {/* One-UI profile card */}
           {(!searchQuery.trim() ||
             'account'.includes(searchQuery.toLowerCase()) ||
             'profile'.includes(searchQuery.toLowerCase()) ||
@@ -3045,74 +3136,87 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
             )}
 
-          {/* Settings options — every row its own independent card */}
+          {/* One-UI option cards — one flat card per section, full-bleed hairline dividers */}
           {(() => {
-            const flatItems = settingsGroups
-              .flatMap((g) => g.items)
-              .filter(
-                (item) =>
-                  !searchQuery.trim() ||
-                  item.title.toLowerCase().includes(searchQuery.toLowerCase())
-              );
-            return flatItems.map((item) => (
-              <View key={item.id} style={styles.singleOptionCard}>
-                <HoverableSettingsRow onPress={item.action}>
-                  <View style={styles.cleanMenuLeft}>
-                    <View style={styles.menuIconTile}>
-                      {renderItemIcon(item.iconType, '#ffffff')}
-                    </View>
-                    <Text style={styles.cleanMenuTitle}>{item.title}</Text>
-                  </View>
+            const query = searchQuery.trim().toLowerCase();
+            const visibleGroups = settingsGroups
+              .map((group) => ({
+                ...group,
+                items: query
+                  ? group.items.filter((it) => it.title.toLowerCase().includes(query))
+                  : group.items,
+              }))
+              .filter((group) => group.items.length > 0);
 
-                  <View style={styles.cleanMenuRight}>
-                    {/* Stacked Hugging Face + Gemini logos for Models */}
-                    {item.id === 'models' && (
-                      <View style={styles.modelsLogoStack}>
-                        <View style={styles.modelsStackedLogo1}>
-                          <HuggingFaceLogo size={15} />
-                        </View>
-                        <View style={styles.modelsStackedLogo2}>
-                          <Image
-                            source={require('../../Assets/gemini-logo.png')}
-                            style={styles.geminiStackedImage}
-                            resizeMode="contain"
-                          />
-                        </View>
+            return visibleGroups.map((group) => (
+              <View key={group.id} style={styles.optionCard}>
+                {group.items.map((item, index) => (
+                  <React.Fragment key={item.id}>
+                    {index > 0 ? <View style={styles.optionDivider} /> : null}
+                    <HoverableSettingsRow onPress={item.action}>
+                      <View style={styles.cleanMenuLeft}>
+                        {renderItemIcon(item.iconType, '#e4e4e7')}
+                        <Text style={styles.cleanMenuTitle}>{item.title}</Text>
                       </View>
-                    )}
-                    {item.detail ? (
-                      <Text style={styles.iosRowDetailText} numberOfLines={1}>
-                        {item.detail}
-                      </Text>
-                    ) : null}
-                    <ChevronRightIcon size={16} color="#5c5c66" />
-                  </View>
-                </HoverableSettingsRow>
+
+                      <View style={styles.cleanMenuRight}>
+                        {/* Stacked Hugging Face + Gemini logos for Models */}
+                        {item.id === 'models' && (
+                          <View style={styles.modelsLogoStack}>
+                            <View style={styles.modelsStackedLogo1}>
+                              <HuggingFaceLogo size={15} />
+                            </View>
+                            <View style={styles.modelsStackedLogo2}>
+                              <Image
+                                source={require('../../Assets/gemini-logo.png')}
+                                style={styles.geminiStackedImage}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          </View>
+                        )}
+                        {item.detail ? (
+                          <Text style={styles.iosRowDetailText} numberOfLines={1}>
+                            {item.detail}
+                          </Text>
+                        ) : null}
+                        <ChevronRightIcon size={17} color="#5c5c66" />
+                      </View>
+                    </HoverableSettingsRow>
+                  </React.Fragment>
+                ))}
               </View>
             ));
           })()}
 
-          {/* Also Available On - Platform Download Links */}
-          <View style={styles.menuGroupContainer}>
-            <Text style={styles.alsoAvailableHeading}>ALSO AVAILABLE ON</Text>
-            <View style={styles.platformButtonsGrid}>
-              {otherPlatforms.map((platform) => (
-                <TouchableOpacity
-                  key={platform.id}
-                  style={[styles.platformButton, platform.disabled && styles.platformButtonDisabled]}
-                  onPress={() => {
-                    if (platform.disabled) {
-                      Alert.alert('In Development', `${platform.label.replace('Download for ', '')} build is currently in development.`);
-                      return;
-                    }
-                    handleOpenDownloadLink(platform.url);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  {renderPlatformIcon(platform, 18)}
-                  <Text style={[styles.platformButtonText, platform.disabled && styles.platformButtonTextDisabled]}>{platform.label}</Text>
-                  <Text style={styles.platformButtonArrow}>↗</Text>
-                </TouchableOpacity>
+          {/* Platform download links */}
+          <View style={styles.alsoAvailableGroup}>
+            <View style={[styles.optionCard, otherPlatforms.length === 1 && styles.downloadCardPill]}>
+              {otherPlatforms.map((platform, index) => (
+                <React.Fragment key={platform.id}>
+                  {index > 0 ? <View style={styles.optionDivider} /> : null}
+                  <TouchableOpacity
+                    style={[styles.optionRow, platform.disabled && styles.optionRowDisabled]}
+                    onPress={() => {
+                      if (platform.disabled) {
+                        Alert.alert('In Development', `${platform.label.replace('Download for ', '')} build is currently in development.`);
+                        return;
+                      }
+                      handleOpenDownloadLink(platform.url);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.cleanMenuLeft}>
+                      <View style={styles.cleanMenuIconBox}>
+                        {renderPlatformIcon(platform, 20)}
+                      </View>
+                      <Text style={styles.cleanMenuTitle}>{platform.label}</Text>
+                    </View>
+                    <View style={styles.downloadArrowCircle}>
+                      <ArrowUpRightIcon size={14} color="#111111" />
+                    </View>
+                  </TouchableOpacity>
+                </React.Fragment>
               ))}
             </View>
             <Text style={styles.bottomVersionLabel}>V1.0.0</Text>
@@ -3165,12 +3269,12 @@ const styles = StyleSheet.create({
   mainHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 4,
+    paddingLeft: 14,
     paddingRight: 14,
     paddingTop: 8,
     paddingBottom: 8,
     backgroundColor: '#000000',
-    minHeight: 56,
+    minHeight: 58,
     width: '100%',
     maxWidth: 600,
     alignSelf: 'center',
@@ -3214,19 +3318,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   settingsBackBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
   },
   settingsTitleText: {
+    position: 'absolute',
+    left: 64,
+    right: 64,
+    textAlign: 'center',
     color: '#ffffff',
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '700',
-    letterSpacing: -0.4,
-    marginLeft: 4,
+    letterSpacing: -0.3,
   },
   fullscreenBackdrop: {
     position: 'absolute',
@@ -3264,13 +3371,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 40,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 44,
     maxWidth: 600,
     width: '100%',
     alignSelf: 'center',
-    gap: 8,
+    gap: 14,
   },
   fullPageScrollContent: {
     paddingHorizontal: 16,
@@ -3281,8 +3388,9 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     gap: 14,
   },
-  menuGroupContainer: {
-    marginBottom: 18,
+  alsoAvailableGroup: {
+    marginTop: 6,
+    gap: 8,
   },
   menuGroupHeaderRow: {
     flexDirection: 'row',
@@ -3306,16 +3414,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1c1c1e',
-    borderRadius: 22,
-    padding: 16,
-    marginBottom: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 36,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   iosAvatarCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#295294',
     alignItems: 'center',
     justifyContent: 'center',
@@ -3323,7 +3429,7 @@ const styles = StyleSheet.create({
   },
   iosAvatarText: {
     color: '#ffffff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
   },
   iosProfileInfo: {
@@ -3332,73 +3438,74 @@ const styles = StyleSheet.create({
   },
   iosProfileName: {
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 16.5,
     fontWeight: '700',
     letterSpacing: -0.3,
   },
   iosProfileSubtitle: {
     color: '#8e8e93',
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 13,
+    marginTop: 3,
   },
-  groupCardContainer: {
+  optionCard: {
     backgroundColor: '#1c1c1e',
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 26,
     overflow: 'hidden',
   },
-  singleOptionCard: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 33,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-    overflow: 'hidden',
-    marginBottom: 10,
+  optionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
-  cleanMenuRow: {
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
+    minHeight: 56,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  optionRowDisabled: {
+    opacity: 0.5,
+  },
+  /* Only the download card is a single row, so it can go full pill like the profile card */
+  downloadCardPill: {
+    borderRadius: 28,
+  },
+  downloadArrowCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cleanMenuLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     flex: 1,
-  },
-  menuIconTile: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
   },
   cleanMenuIconBox: {
     width: 24,
-    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
     backgroundColor: 'transparent',
   },
   cleanMenuTitle: {
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '500',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   cleanMenuRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   iosRowDetailText: {
-    color: '#98989e',
-    fontSize: 14,
+    color: '#8e8e93',
+    fontSize: 13.5,
     fontWeight: '400',
   },
   modelsLogoStack: {
@@ -3432,11 +3539,6 @@ const styles = StyleSheet.create({
   geminiStackedImage: {
     width: 15,
     height: 15,
-  },
-  cleanMenuDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.055)',
-    marginLeft: 62,
   },
   pageCardGroup: {
     backgroundColor: '#1A1A1A',
@@ -4317,42 +4419,156 @@ const styles = StyleSheet.create({
   },
 
   /* Software Updates Styles */
-  updateCard: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+  /* Software update screen — One UI layout in the Brown dark palette.
+     Text blocks are wrapped in Views so the scroll container's 14pt gap only
+     lands between blocks, never inside the headline stack. */
+  updateKicker: {
+    color: 'rgba(255, 255, 255, 0.82)',
+    fontFamily: typography.fontFamily.medium,
+    fontSize: 13.5,
+    letterSpacing: 0.1,
   },
-  updateCardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  updateLogoImg: {
-    width: 38,
-    height: 38,
-  },
-  updateStatusTitle: {
+  updateHeadline: {
     color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  updateStatusSubtitle: {
-    color: '#a1a1aa',
-    fontSize: 12,
+    fontFamily: typography.fontFamily.bold,
+    fontSize: 32,
+    lineHeight: 38,
+    letterSpacing: -1,
     marginTop: 2,
   },
-  checkUpdatesActionBtn: {
-    backgroundColor: '#4285f4',
-    borderRadius: 9999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  checkUpdatesActionBtnText: {
+  updateStatusText: {
     color: '#ffffff',
+    fontFamily: typography.fontFamily.medium,
+    fontSize: 13.5,
+    lineHeight: 18,
+    marginTop: 5,
+  },
+  updateLegal: {
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontFamily: typography.fontFamily.regular,
+    fontSize: 12.5,
+    lineHeight: 17,
+    marginTop: 6,
+  },
+  updateSectionTitle: {
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: 17,
+    letterSpacing: -0.3,
+    marginTop: 0,
+    marginBottom: 2,
+  },
+  updateNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 9,
+    marginTop: 7,
+  },
+  updateNoteBullet: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#60a5fa',
+    marginTop: 7,
+  },
+  updateNoteText: {
+    flex: 1,
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.regular,
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  updateLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 9,
+    paddingTop: 9,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  updateLinkText: {
+    color: '#93c5fd',
+    fontFamily: typography.fontFamily.medium,
+    fontSize: 14,
+    flex: 1,
+  },
+  updateLinkChevron: {
+    transform: [{ rotate: '0deg' }],
+  },
+  updateLinkChevronOpen: {
+    transform: [{ rotate: '90deg' }],
+  },
+  updateGroupLabel: {
+    color: 'rgba(255, 255, 255, 0.82)',
+    fontFamily: typography.fontFamily.medium,
+    fontSize: 12.5,
+    letterSpacing: 0.2,
+    marginTop: 0,
+    marginBottom: 6,
+  },
+  updateInfoCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+  },
+  updateInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+    gap: 14,
+  },
+  updateInfoRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  updateSettingLabel: {
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.medium,
+    fontSize: 14,
+  },
+  updateSettingValue: {
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.medium,
+    fontSize: 14,
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  updateSettingDesc: {
+    color: 'rgba(255,255,255,0.62)',
+    fontFamily: typography.fontFamily.regular,
     fontSize: 12,
-    fontWeight: '600',
+    lineHeight: 17,
+    marginTop: 3,
+    maxWidth: '85%',
+  },
+  updatePrimaryBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#295294',
+    borderRadius: 9999,
+    paddingVertical: 14,
+    marginTop: 0,
+  },
+  updatePrimaryBtnDisabled: {
+    opacity: 0.6,
+  },
+  updatePrimaryBtnText: {
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.bold,
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  updateFootnote: {
+    color: 'rgba(255,255,255,0.62)',
+    fontFamily: typography.fontFamily.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginTop: 0,
   },
 
   /* About Screen Styles */
@@ -4462,15 +4678,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 4,
   },
-  alsoAvailableHeading: {
-    color: '#8e8e93',
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.9,
-    marginBottom: 10,
-    textAlign: 'center',
-    paddingHorizontal: 4,
-  },
   platformButtonsGrid: {
     gap: 10,
   },
@@ -4495,15 +4702,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
-  platformButtonDisabled: {
-    backgroundColor: '#2c2c2e',
-    opacity: 0.65,
-  },
-  platformButtonTextDisabled: {
-    color: '#9ca3af',
-  },
   bottomVersionLabel: {
-    marginTop: 16,
+    marginTop: 4,
     textAlign: 'center',
     color: '#71717a',
     fontSize: 12,
