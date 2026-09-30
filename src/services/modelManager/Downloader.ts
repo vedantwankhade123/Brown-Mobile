@@ -10,6 +10,13 @@ const DOWNLOADS_KEY = '@ultron_downloaded_models_v2';
 const PAUSED_MODELS_KEY = '@brown_paused_download_models';
 const RESUMABLE_KEY = '@brown_download_resumables';
 
+/** No progress for this long means the socket is dead; cancel and retry the range. */
+const STALL_TIMEOUT_MS = 30_000;
+
+function joinPath(dir: string, filename: string): string {
+  return `${String(dir).replace(/\/+$/, '')}/${filename}`;
+}
+
 function isPlaceholderPath(localPath?: string): boolean {
   const path = String(localPath || '');
   if (!path) return true;
@@ -108,7 +115,10 @@ export class ModelDownloader {
         if (item.status !== 'downloaded') continue;
         if (isPlaceholderPath(item.localPath)) continue;
         const catalogModel = findModelById(item.modelId);
-        const expectedMin = catalogModel?.sizeBytes ? Math.floor(catalogModel.sizeBytes * 0.75) : 50 * 1024 * 1024;
+        // Prefer the byte count we recorded when the download finished: catalog sizes
+        // for discovered HF repos are estimates and used to reject perfectly good files.
+        const expectedBytes = item.totalBytes || catalogModel?.sizeBytes || 0;
+        const expectedMin = expectedBytes > 0 ? Math.floor(expectedBytes * 0.9) : 1024 * 1024;
         if (!(await this.fileExists(String(item.localPath), expectedMin))) continue;
         this.downloadStates.set(item.modelId, item);
       }
@@ -130,14 +140,27 @@ export class ModelDownloader {
     } catch {}
   }
 
-  private async persistResumable(modelId: string, resumable: any): Promise<void> {
+  private async saveResumableSnapshot(modelId: string, snapshot: any): Promise<void> {
     try {
-      if (!resumable?.savable) return;
-      const snapshot = resumable.savable();
+      // Without `resumeData` the native task restarts from byte zero, so a snapshot
+      // that lacks it is not worth storing (it would only look resumable).
+      if (!snapshot?.url || !snapshot?.fileUri || !snapshot?.resumeData) return;
       const raw = await AsyncStorage.getItem(RESUMABLE_KEY);
       const map = raw ? JSON.parse(raw) : {};
-      map[modelId] = snapshot;
+      map[modelId] = {
+        url: snapshot.url,
+        fileUri: snapshot.fileUri,
+        options: snapshot.options || {},
+        resumeData: snapshot.resumeData,
+      };
       await AsyncStorage.setItem(RESUMABLE_KEY, JSON.stringify(map));
+    } catch {}
+  }
+
+  private async persistResumable(modelId: string, resumable: any): Promise<void> {
+    try {
+      if (typeof resumable?.savable !== 'function') return;
+      await this.saveResumableSnapshot(modelId, resumable.savable());
     } catch {}
   }
 
@@ -154,12 +177,19 @@ export class ModelDownloader {
   private async restoreResumable(modelId: string, callback: any): Promise<any | null> {
     try {
       const FileSystem = require('expo-file-system');
+      if (!FileSystem?.createDownloadResumable) return null;
       const raw = await AsyncStorage.getItem(RESUMABLE_KEY);
       if (!raw) return null;
       const map = JSON.parse(raw);
       const snapshot = map[modelId];
-      if (!snapshot || !FileSystem?.createDownloadResumableFromSavable) return null;
-      return FileSystem.createDownloadResumableFromSavable(snapshot, callback);
+      if (!snapshot?.url || !snapshot?.fileUri || !snapshot.resumeData) return null;
+      return FileSystem.createDownloadResumable(
+        snapshot.url,
+        snapshot.fileUri,
+        snapshot.options || {},
+        callback,
+        snapshot.resumeData
+      );
     } catch {
       return null;
     }
@@ -167,6 +197,24 @@ export class ModelDownloader {
 
   getStates(): ModelDownloadState[] {
     return Array.from(this.downloadStates.values());
+  }
+
+  /**
+   * Filenames in the models folder that must survive cleanup: finished models plus
+   * partials belonging to a paused or in-flight download.
+   */
+  getRetainedFilenames(): string[] {
+    const names = new Set<string>();
+    const add = (value?: string) => {
+      const name = String(value || '').split('/').pop();
+      if (name) names.add(name);
+    };
+    for (const state of this.downloadStates.values()) {
+      if (state.status === 'idle') continue;
+      add(state.localPath);
+    }
+    for (const model of this.pausedModels.values()) add(model.filename);
+    return Array.from(names);
   }
 
   getState(modelId: string): ModelDownloadState {
@@ -234,12 +282,14 @@ export class ModelDownloader {
         await StoragePaths.ensureLayout();
         const dir = destDir || (await StoragePaths.getModelsDir());
         await StoragePaths.ensureDir(dir);
-        const dest = dir + model.filename;
+        const dest = joinPath(dir, model.filename);
         const startTime = Date.now();
+        let lastProgressAt = Date.now();
         const callback = (progress: any) => {
           const total = progress.totalBytesExpectedToWrite || model.sizeBytes;
           const downloaded = progress.totalBytesWritten || 0;
           const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
+          if (downloaded !== state.downloadedBytes) lastProgressAt = Date.now();
           state.downloadedBytes = downloaded;
           state.totalBytes = total;
           state.progress = Math.min(Math.round((downloaded / total) * 100), 99);
@@ -279,19 +329,47 @@ export class ModelDownloader {
         const maxAttempts = 8;
 
         while (attempts < maxAttempts) {
+          // A socket that stalls mid-transfer never settles downloadAsync(); without this
+          // the UI sits at a frozen percentage forever instead of retrying.
+          let stallTimer: any = null;
+          const armStallWatchdog = (task: any) => {
+            if (!task || typeof task.cancelAsync !== 'function') return;
+            lastProgressAt = Date.now();
+            if (stallTimer) clearInterval(stallTimer);
+            stallTimer = setInterval(() => {
+              if (this.abortControllers.get(model.id)) return;
+              if (Date.now() - lastProgressAt < STALL_TIMEOUT_MS) return;
+              clearInterval(stallTimer);
+              stallTimer = null;
+              task.cancelAsync().catch(() => {});
+            }, 2000);
+          };
+          const disarmStallWatchdog = () => {
+            if (stallTimer) clearInterval(stallTimer);
+            stallTimer = null;
+          };
+
           try {
             if (resumable && typeof resumable.downloadAsync === 'function') {
               const isResuming =
                 (hadResumable || attempts > 0) &&
                 state.downloadedBytes > 0 &&
                 typeof resumable.resumeAsync === 'function';
+              armStallWatchdog(resumable);
               result = await (isResuming ? resumable.resumeAsync() : resumable.downloadAsync());
+              disarmStallWatchdog();
+              if (result === undefined) {
+                // cancelAsync() resolves the task with no result: either the user paused
+                // or the watchdog fired. Rebuild so the next attempt starts a live task.
+                throw new Error(this.abortControllers.get(model.id) ? 'paused' : 'timeout');
+              }
               await this.persistResumable(model.id, resumable);
               break;
             } else {
               throw new Error('downloadResumableStartAsync is not available');
             }
           } catch (downloadErr: any) {
+            disarmStallWatchdog();
             attempts++;
             const errMsg = String(downloadErr?.message || '');
             const isUnavailability =
@@ -334,12 +412,35 @@ export class ModelDownloader {
               throw downloadErr;
             }
 
+            const httpStatus = Number(result?.status || 0) || Number(errMsg.match(/\b(4\d\d|5\d\d)\b/)?.[1] || 0);
+            if (httpStatus === 401 || httpStatus === 403) {
+              throw new Error(
+                'Hugging Face refused this file (401/403). Gated and private repos cannot be downloaded from the app — accept the licence on huggingface.co first, or pick an open repo.'
+              );
+            }
+            if (httpStatus === 404) {
+              throw new Error(
+                'That GGUF file no longer exists in the repo (404). Re-search the model to pick a current file.'
+              );
+            }
+
             const isNetworkInterruption =
+              errMsg === 'timeout' ||
               /stream was reset|CANCEL|Connection reset|SocketTimeout|timeout|broken pipe|Network request failed|incomplete/i.test(
                 errMsg
               );
 
             if (isNetworkInterruption && attempts < maxAttempts) {
+              // Capture resumeData while the native task still exists, otherwise the retry
+              // silently restarts from zero and the file never completes.
+              try {
+                if (resumable?.pauseAsync) {
+                  const pauseState = await resumable.pauseAsync();
+                  await this.saveResumableSnapshot(model.id, pauseState);
+                  state.downloadedBytes = state.downloadedBytes || 0;
+                }
+              } catch {}
+
               if (AppState.currentState !== 'active') {
                 await new Promise<void>((resolve) => {
                   const sub = AppState.addEventListener('change', (s: string) => {
@@ -357,7 +458,18 @@ export class ModelDownloader {
                 });
               }
               await new Promise((res) => setTimeout(res, 1500 * attempts));
-              hadResumable = true;
+              // A cancelled task can never be reused: rebuild it from the saved snapshot.
+              this.resumables.delete(model.id);
+              resumable = await this.restoreResumable(model.id, callback);
+              if (!resumable) {
+                try {
+                  resumable = FileSystem.createDownloadResumable(downloadUrl, dest, downloadOptions, callback);
+                } catch {
+                  resumable = null;
+                }
+              }
+              if (resumable) this.resumables.set(model.id, resumable);
+              hadResumable = !!resumable;
               continue;
             }
             throw downloadErr;
@@ -376,21 +488,38 @@ export class ModelDownloader {
           throw new Error(`Download failed with HTTP ${result.status}`);
         }
 
-        // Verify file integrity and size on disk before marking downloaded
+        // Verify the file on disk. The catalog size is an estimate, so the server's
+        // Content-Length wins when we have one.
+        const headerTotal = Number(
+          result?.headers?.['Content-Length'] || result?.headers?.['content-length'] || 0
+        );
+        const expectedBytes = headerTotal > 0 ? headerTotal : model.sizeBytes || 0;
         const fileInfo = await FileSystem.getInfoAsync(dest);
         const actualBytes = Number(fileInfo?.size || 0);
-        const expectedMin = model.sizeBytes ? Math.floor(model.sizeBytes * 0.75) : 50 * 1024 * 1024;
-        if (!fileInfo?.exists || actualBytes < expectedMin) {
-          try {
-            await FileSystem.deleteAsync(dest, { idempotent: true });
-          } catch {}
-          throw new Error(
-            `Model file is incomplete (${(actualBytes / (1024 * 1024)).toFixed(1)} MB / ${(model.sizeBytes / (1024 * 1024)).toFixed(1)} MB). Tap retry to resume.`
-          );
+        if (!fileInfo?.exists || actualBytes <= 0) {
+          throw new Error('The download finished without writing a file. Check storage space and retry.');
+        }
+        if (expectedBytes > 0 && actualBytes < expectedBytes) {
+          // Keep the partial on disk — deleting it would force the next retry to
+          // start from zero, which is exactly how downloads used to loop forever.
+          state.status = 'paused';
+          state.downloadedBytes = actualBytes;
+          state.progress = Math.min(Math.round((actualBytes / expectedBytes) * 100), 99);
+          state.speedBytesPerSec = 0;
+          state.error = `Incomplete download (${(actualBytes / (1024 * 1024)).toFixed(1)} MB of ${(
+            expectedBytes /
+            (1024 * 1024)
+          ).toFixed(1)} MB). Tap retry to continue where it stopped.`;
+          this.downloadStates.set(model.id, { ...state });
+          this.notifyListeners();
+          await this.persistStates();
+          return;
         }
 
         state.status = 'downloaded';
         state.progress = 100;
+        state.downloadedBytes = actualBytes;
+        state.totalBytes = actualBytes;
         state.localPath = result?.uri || dest;
         state.speedBytesPerSec = 0;
         state.error = undefined;
@@ -403,6 +532,15 @@ export class ModelDownloader {
       }
     } catch (err: any) {
       const errMsg = String(err?.message || err || '');
+      if (this.abortControllers.get(model.id)) {
+        // The user paused or cancelled: that is a paused download, not a failure.
+        state.status = 'paused';
+        state.speedBytesPerSec = 0;
+        this.downloadStates.set(model.id, { ...state });
+        this.notifyListeners();
+        await this.persistStates();
+        return;
+      }
       let friendlyError = errMsg || 'Download failed';
       if (
         errMsg.includes('downloadResumableStartAsync') ||
@@ -450,8 +588,12 @@ export class ModelDownloader {
     this.abortControllers.set(modelId, true);
     const resumable = this.resumables.get(modelId);
     try {
-      if (resumable?.pauseAsync) await resumable.pauseAsync();
-      if (resumable) await this.persistResumable(modelId, resumable);
+      if (resumable?.pauseAsync) {
+        // pauseAsync() is the only call that produces the resumeData string the native
+        // side needs to continue from the current byte offset.
+        const pauseState = await resumable.pauseAsync();
+        await this.saveResumableSnapshot(modelId, pauseState);
+      }
     } catch {}
     const state = this.downloadStates.get(modelId);
     if (state && state.status === 'downloading') {
@@ -491,7 +633,7 @@ export class ModelDownloader {
     if (model?.filename) {
       try {
         const dir = await StoragePaths.getModelsDir();
-        targets.add(dir + model.filename);
+        targets.add(joinPath(dir, model.filename));
       } catch {}
     }
     for (const path of targets) {

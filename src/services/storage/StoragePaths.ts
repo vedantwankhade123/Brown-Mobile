@@ -73,13 +73,27 @@ export class StoragePaths {
     await this.ensureDir(await this.getModelsDir());
   }
 
+  /**
+   * Creates `dir` if needed. Throws when the folder is genuinely unusable — callers that
+   * are about to write a model file need that instead of a silent no-op.
+   */
   static async ensureDir(dir: string): Promise<void> {
+    const FileSystem = require('expo-file-system');
+    if (!FileSystem?.makeDirectoryAsync) return;
     try {
-      const FileSystem = require('expo-file-system');
-      if (FileSystem?.makeDirectoryAsync) {
-        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-      }
-    } catch {}
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      return;
+    } catch (err: any) {
+      const message = String(err?.message || err || '');
+      if (/exist/i.test(message)) return;
+      try {
+        const info = await FileSystem.getInfoAsync(dir);
+        if (info?.exists && info?.isDirectory) return;
+      } catch {}
+      throw new Error(
+        `Cannot create the folder ${this.displayPath(dir)}. Check the storage location and permissions.`
+      );
+    }
   }
 
   static async ensureLayout(): Promise<{ root: string; models: string; data: string; cache: string }> {
@@ -87,13 +101,10 @@ export class StoragePaths {
     const models = await this.getModelsDir();
     const data = await this.getDataDir();
     const cache = `${root}cache/`;
-    await Promise.all([
-      this.ensureDir(root),
-      this.ensureDir(models),
-      this.ensureDir(data),
-      this.ensureDir(cache),
-      this.ensureDir(`${root}db/`),
-    ]);
+    // Boot must not fail because one folder is unwritable; downloads report it themselves.
+    await Promise.all(
+      [root, models, data, cache, `${root}db/`].map((dir) => this.ensureDir(dir).catch(() => {}))
+    );
     return { root, models, data, cache };
   }
 

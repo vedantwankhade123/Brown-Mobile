@@ -21,6 +21,7 @@ import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon, QrCodeIcon, ChevronRightIcon } from '../components/Icons';
 import { SyncIllustration } from '../components/SyncIllustration';
 import { QRScannerModal } from '../components/QRScannerModal';
+import { revealValues } from '../utils/motion';
 
 const Easing = (Animated as any).Easing || {
   out: (f: any) => f,
@@ -71,11 +72,16 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   const wifiPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(pageFade, { toValue: 1, duration: 240, useNativeDriver: true }),
-      Animated.timing(pageSlide, { toValue: 0, duration: 240, useNativeDriver: true }),
-    ]).start();
-  }, []);
+    // revealValues pins the end state even if the native animation is dropped,
+    // so this page can never stay at opacity 0.
+    revealValues(
+      [
+        { value: pageFade, from: 0, to: 1 },
+        { value: pageSlide, from: 14, to: 0 },
+      ],
+      240
+    );
+  }, [pageFade, pageSlide]);
 
   const loadHistory = async () => {
     try {

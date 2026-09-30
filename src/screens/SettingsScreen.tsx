@@ -50,6 +50,9 @@ import {
 } from '../components/UpdatePromptModal';
 import { UpdateHero } from '../components/UpdateHero';
 import { EmptyState } from '../components/EmptyState';
+import { animateOnce, revealValues } from '../utils/motion';
+import { useBackLayer } from '../utils/backStack';
+import { saveSelectedModel } from '../services/modelManager/ModelSelection';
 import {
   AppUpdateInfo,
   checkForAppUpdate,
@@ -67,6 +70,7 @@ import {
   getKokoroInstallStatus,
   setActiveKokoroVoice,
 } from '../services/voice/KokoroTtsService';
+import { SpeechToTextService } from '../services/voice/SpeechToText';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   SearchIcon,
@@ -295,10 +299,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     checked: false,
     ready: false,
   });
+  const [nativeSpeech, setNativeSpeech] = useState(false);
 
   useEffect(() => {
     if (currentView !== 'sounds') return;
-    if (!desktopSyncStatus.isConnected) {
+    // Sync native call, so it runs once per visit rather than on every render.
+    const onDevice = SpeechToTextService.getPreferredEngine() === 'native';
+    setNativeSpeech(onDevice);
+    if (onDevice || !desktopSyncStatus.isConnected) {
       setWhisperStatus({ checked: false, ready: false });
       return;
     }
@@ -317,23 +325,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   // Trigger smooth enter animation on screen change
   useEffect(() => {
-    screenSlideAnim.setValue(12);
-    screenFadeAnim.setValue(0);
-    Animated.parallel([
-      Animated.timing(screenSlideAnim, {
-        toValue: 0,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(screenFadeAnim, {
-        toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [currentView]);
+    revealValues(
+      [
+        { value: screenSlideAnim, from: 12, to: 0 },
+        { value: screenFadeAnim, from: 0, to: 1 },
+      ],
+      180
+    );
+  }, [currentView, screenSlideAnim, screenFadeAnim]);
 
   useEffect(() => {
     loadConsentProfile();
@@ -736,74 +735,81 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  useEffect(() => {
-    const onHardwareBack = () => {
-      handleSmoothBack();
-      return true;
-    };
-    const backHandlerObj = (require('react-native') as any).BackHandler;
-    const backSub = backHandlerObj?.addEventListener ? backHandlerObj.addEventListener('hardwareBackPress', onHardwareBack) : null;
-    return () => {
-      if (backSub?.remove) backSub.remove();
-    };
-  }, [viewHistory]);
+  // Settings owns the back button while it is on screen: pop the internal view
+  // history first, then hand control back to the app-level screen stack.
+  useBackLayer(true, () => {
+    handleSmoothBack();
+    return true;
+  });
 
   const handleSmoothBack = () => {
     if (viewHistory.length > 1) {
-      Animated.parallel([
+      animateOnce(
+        [
+          Animated.timing(screenSlideAnim, {
+            toValue: 12,
+            duration: 140,
+            easing: Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(screenFadeAnim, {
+            toValue: 0,
+            duration: 140,
+            easing: Easing.in(Easing.cubic),
+            useNativeDriver: true,
+          }),
+        ],
+        140,
+        () => {
+          setViewHistory((prev) => (prev.length > 1 ? prev.slice(0, -1) : ['main']));
+        }
+      );
+      return;
+    }
+
+    animateOnce(
+      [
         Animated.timing(screenSlideAnim, {
-          toValue: 12,
-          duration: 140,
+          toValue: 16,
+          duration: 150,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(screenFadeAnim, {
           toValue: 0,
-          duration: 140,
+          duration: 150,
           easing: Easing.in(Easing.cubic),
           useNativeDriver: true,
         }),
-      ]).start(() => {
-        setViewHistory((prev) => (prev.length > 1 ? prev.slice(0, -1) : ['main']));
-      });
-      return;
-    }
-
-    Animated.parallel([
-      Animated.timing(screenSlideAnim, {
-        toValue: 16,
-        duration: 150,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(screenFadeAnim, {
-        toValue: 0,
-        duration: 150,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      onBack();
-    });
+      ],
+      150,
+      () => {
+        onBack();
+      }
+    );
   };
 
   const navigateToView = (view: SettingsView) => {
-    Animated.parallel([
-      Animated.timing(screenSlideAnim, {
-        toValue: -10,
-        duration: 130,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(screenFadeAnim, {
-        toValue: 0,
-        duration: 130,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setViewHistory((prev) => (prev[prev.length - 1] === view ? prev : [...prev, view]));
-    });
+    animateOnce(
+      [
+        Animated.timing(screenSlideAnim, {
+          toValue: -10,
+          duration: 130,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(screenFadeAnim, {
+          toValue: 0,
+          duration: 130,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ],
+      130,
+      () => {
+        setViewHistory((prev) => (prev[prev.length - 1] === view ? prev : [...prev, view]));
+      }
+    );
   };
 
   const handleBirthdateInput = (val: string) => {
@@ -2223,20 +2229,30 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.pageCardGroup}>
               <Text style={styles.sectionCardTitle}>Voice input</Text>
               <Text style={styles.sectionCardSubtitle}>
-                The mic button records on this phone and transcribes with Whisper on your paired
-                Brown PC — audio never leaves your Wi-Fi network.
+                {nativeSpeech
+                  ? 'The mic button dictates with this phone’s own speech recognition. Nothing is recorded to disk and no audio is uploaded.'
+                  : 'The mic button records on this phone and transcribes with Whisper on your paired Brown PC — audio stays on your Wi-Fi network.'}
               </Text>
+
+              <View style={styles.fullPageDetailRow}>
+                <Text style={styles.fullPageRowLabel}>On-device dictation</Text>
+                <Text style={styles.fullPageRowValue}>
+                  {nativeSpeech ? 'Active' : 'Not in use'}
+                </Text>
+              </View>
 
               <View style={styles.fullPageDetailRow}>
                 <Text style={styles.fullPageRowLabel}>Whisper engine</Text>
                 <Text style={styles.fullPageRowValue}>
-                  {!desktopSyncStatus.isConnected
-                    ? 'Pair Brown Desktop'
-                    : whisperStatus.ready
-                      ? 'Ready on your PC'
-                      : whisperStatus.checked
-                        ? 'Warming up on your PC…'
-                        : 'Checking…'}
+                  {nativeSpeech
+                    ? 'Not needed'
+                    : !desktopSyncStatus.isConnected
+                      ? 'Pair Brown Desktop'
+                      : whisperStatus.ready
+                        ? 'Ready on your PC'
+                        : whisperStatus.checked
+                          ? 'Warming up on your PC…'
+                          : 'Checking…'}
                 </Text>
               </View>
 

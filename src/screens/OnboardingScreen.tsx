@@ -36,6 +36,7 @@ import {
 import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { ConsentService } from '../services/storage/ConsentService';
+import { revealValue } from '../utils/motion';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -216,14 +217,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     if (prevStepRef.current === currentStep) return;
     prevStepRef.current = currentStep;
 
-    stepFadeAnim.setValue(0);
-
-    Animated.timing(stepFadeAnim, {
-      toValue: 1,
-      duration: 240,
-      useNativeDriver: true,
-    }).start();
-  }, [currentStep]);
+    revealValue(stepFadeAnim, 0, 1, 240);
+  }, [currentStep, stepFadeAnim]);
 
   const handleStart = () => {
     setCurrentStep(1);

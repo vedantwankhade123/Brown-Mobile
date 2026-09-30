@@ -1,0 +1,15 @@
+{
+  "name": "brown-speech",
+  "version": "1.0.0",
+  "description": "On-device Android speech recognition (SpeechRecognizer) for Brown voice input",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "expo": {
+    "modules": [
+      {
+        "name": "BrownSpeech",
+        "android": "expo.modules.brownspeech.BrownSpeechModule"
+      }
+    ]
+  }
+}

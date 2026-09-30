@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
 import { ChatMessage, GenerationStats } from '../../types/chat';
 import { ModelMetadata, InferenceSettings } from '../../types/model';
-import { formatPromptForModel } from './PromptTemplates';
 import { streamGeminiReply } from './GeminiClient';
 import { streamCloudReply, CloudProviderId } from './CloudProviders';
 import { ModelDownloader } from '../modelManager/Downloader';
@@ -9,6 +8,48 @@ import { DesktopSyncService } from '../sync/DesktopSync';
 import { StoragePaths } from '../storage/StoragePaths';
 
 const CLOUD_PROVIDER_IDS: CloudProviderId[] = ['openai', 'anthropic', 'deepseek', 'groq', 'custom'];
+
+const MAX_REPLY_TOKENS = 768;
+const MIN_REPLY_TOKENS = 256;
+const REPLY_TOKEN_RATIO = 0.4;
+const CHARS_PER_TOKEN = 3;
+
+type ChatTurn = { role: string; content: string };
+
+/**
+ * llama.rn applies the chat template that ships inside the GGUF to these turns, so no
+ * template is hand-built here — guessing one from the model name is what made downloaded
+ * models answer badly. The reply budget and the history are sized together because a
+ * window that overflows silently drops the system prompt instead of failing.
+ */
+function buildChatMessages(
+  history: ChatMessage[],
+  systemPrompt: string,
+  promptTokenBudget: number
+): ChatTurn[] {
+  const charBudget = Math.max(600, promptTokenBudget * CHARS_PER_TOKEN);
+  const turns = history.filter((m) => m.role !== 'system' && String(m.content || '').trim().length > 0);
+
+  const kept: ChatTurn[] = [];
+  let used = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const content = String(turns[i].content);
+    if (kept.length && used + content.length > charBudget) break;
+    kept.unshift({ role: turns[i].role, content });
+    used += content.length;
+  }
+  if (!kept.length && turns.length) {
+    // One question longer than the whole window: keep its end, where the actual ask is.
+    const last = turns[turns.length - 1];
+    kept.push({ role: last.role, content: String(last.content).slice(-charBudget) });
+  }
+
+  const messages: ChatTurn[] = [];
+  if (String(systemPrompt || '').trim()) {
+    messages.push({ role: 'system', content: String(systemPrompt).trim() });
+  }
+  return messages.concat(kept);
+}
 
 export interface ILlamaService {
   loadModel(model: ModelMetadata, settings?: Partial<InferenceSettings>): Promise<boolean>;
@@ -71,6 +112,10 @@ export class LlamaEngine implements ILlamaService {
   private llamaContext: any = null;
   private useNativeEngine = false;
   private lastNativeError: string | null = null;
+  private contextTokens = 0;
+  /** Bumped whenever a run is stopped or superseded, so a late native callback cannot
+   * write into a reply the UI has already finalised. */
+  private generationEpoch = 0;
 
   public static getInstance(): LlamaEngine {
     if (!LlamaEngine.instance) {
@@ -173,9 +218,11 @@ export class LlamaEngine implements ILlamaService {
         this.lastNativeError = 'Failed to create llama context for this GGUF.';
         return false;
       }
+      this.contextTokens = nCtx;
       return true;
     } catch (err: any) {
       this.llamaContext = null;
+      this.contextTokens = 0;
       const isMissingNative =
         typeof err?.message === 'string' &&
         err.message.includes('install') &&
@@ -191,6 +238,13 @@ export class LlamaEngine implements ILlamaService {
   }
 
   async unloadModel(): Promise<void> {
+    if (this.isGenerating) {
+      // stopCompletion only raises an interrupt flag and returns at once, so give the
+      // native generation loop time to see it. Releasing the context underneath a running
+      // completion is what kills the app when a model is switched mid-reply.
+      this.stopGeneration();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
     if (this.llamaContext) {
       try {
         await this.llamaContext.release?.();
@@ -201,6 +255,7 @@ export class LlamaEngine implements ILlamaService {
     }
     this.activeModel = null;
     this.useNativeEngine = false;
+    this.contextTokens = 0;
   }
 
   isLoaded(): boolean {
@@ -212,6 +267,7 @@ export class LlamaEngine implements ILlamaService {
   }
 
   stopGeneration(): void {
+    this.generationEpoch++;
     this.isGenerating = false;
     if (this.llamaContext) {
       try {
@@ -346,12 +402,22 @@ export class LlamaEngine implements ILlamaService {
       }
     }
 
-    const formattedPrompt = formatPromptForModel(
-      this.activeModel.architecture,
+    if (this.isGenerating) {
+      throw new Error('A reply is still being generated. Tap stop, then send again.');
+    }
+
+    const contextTokens = this.contextTokens > 0 ? this.contextTokens : 2048;
+    const replyTokens = Math.max(
+      MIN_REPLY_TOKENS,
+      Math.min(MAX_REPLY_TOKENS, Math.floor(contextTokens * REPLY_TOKEN_RATIO))
+    );
+    const messages = buildChatMessages(
       history,
-      settings.systemPrompt
+      settings.systemPrompt,
+      Math.max(256, contextTokens - replyTokens - 64)
     );
 
+    const runEpoch = ++this.generationEpoch;
     this.isGenerating = true;
     const startTime = Date.now();
     let tokenCount = 0;
@@ -360,44 +426,61 @@ export class LlamaEngine implements ILlamaService {
     try {
       const result = await this.llamaContext.completion(
         {
-          prompt: formattedPrompt,
-          n_predict: 1024,
+          // No chat_template and no hand-written stop words: llama.rn reads the template
+          // from the GGUF and adds its own stops, which is the only way an arbitrary
+          // downloaded model gets the conversation format it was trained on.
+          messages,
+          n_predict: replyTokens,
           temperature: settings.temperature ?? 0.7,
           top_p: settings.topP ?? 0.9,
-          stop: ['<|eot_id|>', '<end_of_turn>', '<|im_end|>', 'User:', 'Assistant:'],
+          penalty_repeat: 1.1,
         },
         (data: any) => {
-          const token = data?.token ?? '';
-          if (token) {
-            tokenCount++;
-            accumulated += token;
-            onToken(token);
-          }
+          if (runEpoch !== this.generationEpoch) return;
+          const content = typeof data?.content === 'string' ? data.content : '';
+          const reasoning = typeof data?.reasoning_content === 'string' ? data.reasoning_content : '';
+          // Reasoning models stream their thinking in its own field; it must not leak
+          // into the answer, so those tokens are dropped rather than shown.
+          const piece = content || (reasoning ? '' : String(data?.token ?? ''));
+          if (!piece) return;
+          tokenCount++;
+          accumulated += piece;
+          onToken(piece);
         }
       );
 
-      if (!accumulated && result?.text) {
-        accumulated = String(result.text);
-        onToken(accumulated);
-        tokenCount = Math.max(tokenCount, accumulated.split(/\s+/).filter(Boolean).length);
+      // Stopped or superseded: ChatScreen has already finalised that bubble.
+      if (runEpoch !== this.generationEpoch) return;
+
+      if (!accumulated.trim()) {
+        const fallback = String(result?.content || result?.text || '');
+        if (fallback.trim()) {
+          accumulated = fallback;
+          onToken(accumulated);
+        }
       }
 
       if (!accumulated.trim()) {
         throw new Error('Model returned an empty reply. Try again or pick another model.');
       }
 
-      const elapsedMs = Math.max(Date.now() - startTime, 1);
-      const tokensPerSec = Number(((tokenCount / elapsedMs) * 1000).toFixed(1));
+      const predictedMs = Number(result?.timings?.predicted_ms || 0);
+      const promptMs = Number(result?.timings?.prompt_ms || 0);
+      const generateDurationMs = predictedMs > 0 ? Math.round(predictedMs) : Math.max(Date.now() - startTime, 1);
+      const tokensGenerated =
+        Number(result?.tokens_predicted || 0) ||
+        tokenCount ||
+        accumulated.split(/\s+/).filter(Boolean).length;
       this.isGenerating = false;
       onComplete(accumulated, {
-        tokensEvaluated: Math.round(formattedPrompt.length / 4),
-        tokensGenerated: tokenCount,
-        evalDurationMs: 50,
-        generateDurationMs: elapsedMs,
-        tokensPerSecond: tokensPerSec,
+        tokensEvaluated: Number(result?.tokens_evaluated || 0) || Math.round(accumulated.length / CHARS_PER_TOKEN),
+        tokensGenerated,
+        evalDurationMs: promptMs > 0 ? Math.round(promptMs) : 50,
+        generateDurationMs,
+        tokensPerSecond: Number(((tokensGenerated / generateDurationMs) * 1000).toFixed(1)),
       });
     } catch (err: any) {
-      this.isGenerating = false;
+      if (runEpoch === this.generationEpoch) this.isGenerating = false;
       console.warn('[LlamaEngine] completion failed:', err?.message || err);
       throw new Error(err?.message || 'On-device generation failed.');
     }

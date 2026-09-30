@@ -4,6 +4,10 @@ const HF_MODELS_API = 'https://huggingface.co/api/models';
 const PAGE_SIZE = 10;
 const DISCOVERED_KEY = '@ultron_hf_discovered_models';
 const HEAVY_BILLION = 14;
+const MAX_MOBILE_GGUF_BYTES = 4 * 1024 * 1024 * 1024;
+const MIN_MOBILE_GGUF_BYTES = 100 * 1024 * 1024;
+/** Hugging Face's API regularly stalls on mobile networks; never wait on it forever. */
+const HF_TIMEOUT_MS = 20_000;
 
 export const HF_PAGE_SIZE = PAGE_SIZE;
 
@@ -66,8 +70,15 @@ export function pickMobileGgufFile(
     .filter((f) => {
       if (!/\.gguf$/i.test(f.filename)) return false;
       if (/(mmproj|imatrix|\.gguf\.lora|0000\d-of-)/i.test(f.filename)) return false;
+      if (/-\d{5}-of-\d{5}/i.test(f.filename)) return false;
       return true;
     });
+
+  // Split dumps and fp16 files are never loadable on a phone, so they are only used
+  // when the repo offers literally nothing else.
+  const pool = files.filter((f) => f.sizeBytes <= 0 || f.sizeBytes <= MAX_MOBILE_GGUF_BYTES);
+  const candidates = pool.length ? pool : files;
+
   const preferred = [
     /Q4_K_M/i,
     /Q4_K_S/i,
@@ -77,10 +88,19 @@ export function pickMobileGgufFile(
     /Q5_K_S/i,
   ];
   for (const re of preferred) {
-    const hit = files.find((f) => re.test(f.filename));
+    const hit = candidates.find((f) => re.test(f.filename));
     if (hit) return hit;
   }
-  return files[0] || null;
+
+  const sized = candidates.filter((f) => f.sizeBytes > 0);
+  if (sized.length) {
+    // Smallest file that is still large enough to hold weights — beats picking an
+    // arbitrary first entry, which is often a tokenizer-only or fp16 dump.
+    const weightLike = sized.filter((f) => f.sizeBytes >= MIN_MOBILE_GGUF_BYTES);
+    const shortlist = weightLike.length ? weightLike : sized;
+    return shortlist.reduce((smallest, f) => (f.sizeBytes < smallest.sizeBytes ? f : smallest));
+  }
+  return candidates[0] || null;
 }
 
 function parseBillion(text: string): number {
@@ -142,8 +162,18 @@ export function mapHfRepoToMetadata(row: any, file: { filename: string; sizeByte
   };
 }
 
+async function fetchWithTimeout(url: string, timeoutMs = HF_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal as any });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchRepoSiblings(repoId: string): Promise<Array<{ rfilename?: string; size?: number }>> {
-  const res = await fetch(`${HF_MODELS_API}/${repoId}`);
+  const res = await fetchWithTimeout(`${HF_MODELS_API}/${repoId}`);
   if (!res.ok) return [];
   const payload = await res.json();
   return Array.isArray(payload?.siblings) ? payload.siblings : [];
@@ -168,7 +198,16 @@ export async function searchHuggingFaceGgufs(options: {
 }): Promise<HuggingFaceSearchPage> {
   const limit = options.limit || PAGE_SIZE;
   const url = options.nextUrl || buildSearchUrl(options.query, options.skip || 0, limit);
-  const res = await fetch(url);
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(url);
+  } catch (err: any) {
+    const msg = String(err?.message || err || '');
+    if (/abort/i.test(msg)) {
+      throw new Error('Hugging Face took too long to respond. Check the connection and search again.');
+    }
+    throw new Error('Cannot reach Hugging Face. Check the connection and search again.');
+  }
   if (!res.ok) {
     throw new Error(`Hugging Face returned HTTP ${res.status}`);
   }

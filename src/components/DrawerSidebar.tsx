@@ -32,6 +32,7 @@ import { ConsentService } from '../services/storage/ConsentService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from './EmptyState';
+import { animateOnce } from '../utils/motion';
 
 interface DrawerSidebarProps {
   isOpen: boolean;
@@ -256,6 +257,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
 
   const slideAnim = useRef(new Animated.Value(closedDrawerOffset)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const wasOpenRef = useRef(false);
   const searchInputRef = useRef<any>(null);
 
   // Load user profile name & initials
@@ -276,51 +278,77 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       .catch(() => {});
   }, [isOpen]);
 
+  // Keeps the drawer mounted for the length of the close animation, then drops it.
+  const [isClosing, setIsClosing] = useState(false);
+
   const runClose = (done?: () => void) => {
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: closedDrawerOffset,
-        duration: 230,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        easing: Easing.in(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start(done);
+    animateOnce(
+      [
+        Animated.timing(slideAnim, {
+          toValue: closedDrawerOffset,
+          duration: 230,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ],
+      230,
+      () => {
+        // Native-driver animations can lose their completion callback when interrupted;
+        // pin the closed state by hand so the drawer can never stay visible.
+        slideAnim.setValue(closedDrawerOffset);
+        fadeAnim.setValue(0);
+        done?.();
+      }
+    );
   };
 
   useEffect(() => {
     if (isOpen) {
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 290,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 240,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
+      wasOpenRef.current = true;
+      setIsClosing(false);
+      animateOnce(
+        [
+          Animated.timing(slideAnim, {
+            toValue: 0,
+            duration: 290,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 240,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ],
+        290,
+        () => {
+          slideAnim.setValue(0);
+          fadeAnim.setValue(1);
+        }
+      );
+    } else if (wasOpenRef.current) {
+      wasOpenRef.current = false;
       setIsSearchActive(false);
       setSearchQuery('');
-      runClose();
+      setIsClosing(true);
+      runClose(() => setIsClosing(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  if (!isOpen && (fadeAnim as any)._value === 0) return null;
+  if (!isOpen && !isClosing) return null;
 
   const handleClose = () => {
-    runClose(() => onClose());
+    // onClose runs first so the parent state can never be left behind by a lost callback.
+    onClose();
+    runClose();
   };
 
   const filteredSessions = sessions.filter((s) => {

@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import { StoragePaths } from './StoragePaths';
 import { AppDatabase } from './Database';
 import { ModelDownloader } from '../modelManager/Downloader';
+import { hydrateDiscoveredModels } from '../modelManager/HuggingFaceRegistry';
 
 let bootstrapPromise: Promise<void> | null = null;
 
@@ -14,20 +15,16 @@ async function cleanOrphanedPartials(): Promise<void> {
     const files = await FileSystem.readDirectoryAsync(dir);
     if (!Array.isArray(files)) return;
 
-    const tracked = new Set(
-      ModelDownloader.getInstance()
-        .getStates()
-        .filter((s) => s.status === 'downloaded' && s.localPath)
-        .map((s) => String(s.localPath).split('/').pop())
-    );
+    const downloader = ModelDownloader.getInstance();
+    const retained = new Set(downloader.getRetainedFilenames());
 
     for (const file of files) {
-      // Interrupted downloads leave dead partials (resume always restarts from
-      // zero after a restart), so anything untracked in our folder is removable.
+      // Only truly orphaned files go: a partial that a paused download still owns has to
+      // stay on disk or the retry can never continue from where it stopped.
       if (!file.toLowerCase().endsWith('.gguf')) continue;
-      if (tracked.has(file)) continue;
+      if (retained.has(file)) continue;
       try {
-        await FileSystem.deleteAsync(dir + file, { idempotent: true });
+        await FileSystem.deleteAsync(`${String(dir).replace(/\/+$/, '')}/${file}`, { idempotent: true });
       } catch {}
     }
   } catch {}
@@ -38,6 +35,9 @@ export function bootstrapApp(): Promise<void> {
     bootstrapPromise = (async () => {
       await StoragePaths.ensureLayout();
       await AppDatabase.getInstance().init();
+      // Discovered Hugging Face repos live only in storage until this runs; without it a
+      // downloaded HF model disappears from the model list on every restart.
+      await hydrateDiscoveredModels();
       await ModelDownloader.getInstance().whenReady();
       await cleanOrphanedPartials();
     })().catch((err: any) => {

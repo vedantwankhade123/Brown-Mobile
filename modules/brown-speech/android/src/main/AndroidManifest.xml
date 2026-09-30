@@ -1,0 +1,10 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <!-- Android 11+ hides other apps' services unless they are queried for, and without this
+       SpeechRecognizer.isRecognitionAvailable() reports false even when Google speech exists. -->
+  <queries>
+    <intent>
+      <action android:name="android.speech.RecognitionService" />
+    </intent>
+  </queries>
+</manifest>
