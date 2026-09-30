@@ -13,7 +13,9 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "test": "node tests/verify-mobile-suite.js",
-    "build:apk": "cd android && gradlew.bat assembleRelease"
+    "build:apk": "cd android && gradlew.bat assembleRelease",
+    "release:apk": "node scripts/release-apk.js",
+    "publish:apk": "node scripts/release-apk.js --publish"
   },
   "dependencies": {
     "@expo-google-fonts/outfit": "^0.4.3",
