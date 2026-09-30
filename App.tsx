@@ -8,10 +8,16 @@ import {
   StatusBar,
   Platform,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
+// Not reachable through the barrel export in this RN version.
+import { BackHandler } from 'react-native/Libraries/Utilities/BackHandler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as NavigationBar from 'expo-navigation-bar';
+import { consumeBackPress } from './src/utils/backStack';
+import { saveSelectedModel } from './src/services/modelManager/ModelSelection';
 import {
   useFonts,
   Outfit_300Light,
@@ -157,8 +163,13 @@ export default function App() {
   const [screenStack, setScreenStack] = useState<ScreenType[]>(['chat']);
   const currentScreen = screenStack[screenStack.length - 1] || 'chat';
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [bootStalled, setBootStalled] = useState<boolean>(false);
+  const [bootAttempt, setBootAttempt] = useState<number>(0);
   const [chatKey, setChatKey] = useState<number>(0);
+  const [chatRevision, setChatRevision] = useState<number>(0);
   const [syncInitialScan, setSyncInitialScan] = useState<boolean>(false);
+  const [requestedModel, setRequestedModel] = useState<ModelMetadata | null>(null);
+  const [fontsFallback, setFontsFallback] = useState<boolean>(false);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -169,12 +180,71 @@ export default function App() {
       NavigationBar.setBackgroundColorAsync('#101e40').catch(() => {});
       NavigationBar.setButtonStyleAsync('light').catch(() => {});
     }
-    (async () => {
-      await bootstrapApp();
-      await checkOnboardingStatus();
-    })();
-    DesktopSyncService.getInstance().tryAutoConnect().catch(() => {});
   }, []);
+
+  // Boot. Neither step is allowed to hold the UI hostage: a hung storage open or a dead
+  // font load used to leave the app rendering nothing at all.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    setBootStalled(false);
+
+    const stall = setTimeout(() => {
+      if (!cancelled) setBootStalled(true);
+    }, 12000);
+
+    (async () => {
+      try {
+        await withTimeout(bootstrapApp(), 9000, 'Local storage took too long to open');
+        if (cancelled) return;
+        await checkOnboardingStatus();
+      } catch (err: any) {
+        if (cancelled) return;
+        console.warn('[App] boot did not finish cleanly:', err?.message || err);
+        setBootStalled(true);
+      } finally {
+        clearTimeout(stall);
+      }
+    })();
+
+    DesktopSyncService.getInstance().tryAutoConnect().catch(() => {});
+    return () => {
+      cancelled = true;
+      clearTimeout(stall);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bootAttempt]);
+
+  // Font loading is a nicety, not a gate. After a few seconds we render with whatever
+  // font resolved rather than showing an empty screen.
+  useEffect(() => {
+    if (fontsLoaded) return undefined;
+    const t = setTimeout(() => setFontsFallback(true), 5000);
+    return () => clearTimeout(t);
+  }, [fontsLoaded]);
+
+  // Android back: overlays own it first, then the screen stack, then the system exits.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (consumeBackPress()) return true;
+      if (screenStack.length > 1) {
+        navigateBack();
+        return true;
+      }
+      if (currentScreen !== 'chat') {
+        resetToScreen('chat');
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [screenStack, currentScreen]);
+
+  // Coming back to chat (after a download, a settings change, a model pick) refreshes
+  // the picker so the new state is visible without restarting the app.
+  useEffect(() => {
+    if (currentScreen === 'chat') setChatRevision((n) => n + 1);
+  }, [currentScreen]);
 
   const navigateTo = (screen: ScreenType) => {
     setScreenStack((prev) => [...prev, screen]);
@@ -209,6 +279,9 @@ export default function App() {
   };
 
   const handleModelActivated = (model: ModelMetadata) => {
+    // The pick has to reach the chat that is about to open, and survive a restart.
+    setRequestedModel(model);
+    saveSelectedModel(model).catch(() => {});
     resetToScreen('chat');
   };
 
@@ -220,73 +293,201 @@ export default function App() {
     navigateTo('onboarding');
   };
 
-  if (isLoading || !fontsLoaded) {
-    return null;
-  }
+  const booting = isLoading || (!fontsLoaded && !fontsFallback);
 
   return (
     <SafeAreaProvider>
-    <ErrorBoundary>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="#000000" />
-        <BrownAlertHost />
+      <ErrorBoundary>
+        <SafeAreaView style={styles.container}>
+          <StatusBar barStyle="light-content" backgroundColor="#000000" />
+          <BrownAlertHost />
 
-        {currentScreen === 'onboarding' && (
-          <OnboardingScreen onComplete={handleOnboardingComplete} />
-        )}
+          {booting ? (
+            <BootSplash
+              stalled={bootStalled}
+              onContinue={() => setIsLoading(false)}
+              onRetry={() => setBootAttempt((n) => n + 1)}
+            />
+          ) : (
+            <>
+              {currentScreen === 'onboarding' && (
+                <OnboardingScreen onComplete={handleOnboardingComplete} />
+              )}
 
-        {currentScreen === 'chat' && (
-          <ChatScreen
-            key={chatKey}
-            onOpenModelStore={() => navigateTo('modelStore')}
-            onOpenSettings={() => navigateTo('settings')}
-            onOpenDesktopSync={(opts) => {
-              setSyncInitialScan(!!opts?.scan);
-              navigateTo('desktopSync');
-            }}
-          />
-        )}
+              {currentScreen === 'chat' && (
+                <ChatScreen
+                  key={chatKey}
+                  revision={chatRevision}
+                  requestedModel={requestedModel}
+                  onOpenModelStore={() => navigateTo('modelStore')}
+                  onOpenSettings={() => navigateTo('settings')}
+                  onOpenDesktopSync={(opts) => {
+                    setSyncInitialScan(!!opts?.scan);
+                    navigateTo('desktopSync');
+                  }}
+                />
+              )}
 
-        {currentScreen === 'modelStore' && (
-          <ModelStoreScreen
-            onBack={navigateBack}
-            onModelActivated={handleModelActivated}
-          />
-        )}
+              {currentScreen === 'modelStore' && (
+                <ModelStoreScreen
+                  onBack={navigateBack}
+                  onModelActivated={handleModelActivated}
+                />
+              )}
 
-        {currentScreen === 'settings' && (
-          <SettingsScreen
-            onBack={navigateBack}
-            onClearHistory={handleClearHistory}
-            onRerunOnboarding={handleRerunOnboarding}
-            onOpenModelStore={() => navigateTo('modelStore')}
-            onOpenDesktopSync={() => {
-              setSyncInitialScan(false);
-              navigateTo('desktopSync');
-            }}
-          />
-        )}
+              {currentScreen === 'settings' && (
+                <SettingsScreen
+                  onBack={navigateBack}
+                  onClearHistory={handleClearHistory}
+                  onRerunOnboarding={handleRerunOnboarding}
+                  onOpenModelStore={() => navigateTo('modelStore')}
+                  onOpenDesktopSync={() => {
+                    setSyncInitialScan(false);
+                    navigateTo('desktopSync');
+                  }}
+                />
+              )}
 
-        {currentScreen === 'desktopSync' && (
-          <DesktopSyncScreen
-            onBack={() => {
-              setSyncInitialScan(false);
-              navigateBack();
-            }}
-            initialScan={syncInitialScan}
-          />
-        )}
-      </SafeAreaView>
-    </ErrorBoundary>
+              {currentScreen === 'desktopSync' && (
+                <DesktopSyncScreen
+                  onBack={() => {
+                    setSyncInitialScan(false);
+                    navigateBack();
+                  }}
+                  initialScan={syncInitialScan}
+                />
+              )}
+            </>
+          )}
+        </SafeAreaView>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/** Visible while the app starts. It never renders an empty screen, and it always offers a way out. */
+const BootSplash: React.FC<{
+  stalled: boolean;
+  onContinue: () => void;
+  onRetry: () => void;
+}> = ({ stalled, onContinue, onRetry }) => (
+  <View style={styles.bootWrap}>
+    <LinearGradient
+      pointerEvents="none"
+      colors={['#111111', '#111111', '#10131c', '#101e40']}
+      locations={[0, 0.2, 0.54, 1]}
+      start={{ x: 0.15, y: 0 }}
+      end={{ x: 0.4, y: 1 }}
+      style={StyleSheet.absoluteFill}
+    />
+    <Text style={styles.bootMark}>Brown AI</Text>
+    {stalled ? (
+      <>
+        <Text style={styles.bootTitle}>Still waking up</Text>
+        <Text style={styles.bootBody}>
+          Opening your local data is taking unusually long. You can continue and Brown will keep
+          retrying, or start the launch again.
+        </Text>
+        <View style={styles.bootActions}>
+          <TouchableOpacity style={styles.bootPrimary} onPress={onContinue} activeOpacity={0.85}>
+            <Text style={styles.bootPrimaryText}>Continue anyway</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.bootSecondary} onPress={onRetry} activeOpacity={0.85}>
+            <Text style={styles.bootSecondaryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </>
+    ) : (
+      <>
+        <ActivityIndicator size="small" color="#295294" style={styles.bootSpinner} />
+        <Text style={styles.bootBody}>Preparing your assistant…</Text>
+      </>
+    )}
+  </View>
+);
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',
     ...(Platform.OS === 'web' ? { height: '100vh', width: '100vw' } : {}),
+  },
+
+  bootWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  bootMark: {
+    color: '#ffffff',
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    marginBottom: 18,
+  },
+  bootSpinner: {
+    marginBottom: 14,
+  },
+  bootTitle: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  bootBody: {
+    color: '#a1a1aa',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    maxWidth: 320,
+  },
+  bootActions: {
+    marginTop: 24,
+    width: '100%',
+    maxWidth: 320,
+    gap: 10,
+  },
+  bootPrimary: {
+    backgroundColor: '#295294',
+    borderRadius: 9999,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  bootPrimaryText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  bootSecondary: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 9999,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  bootSecondaryText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   errorContainer: {

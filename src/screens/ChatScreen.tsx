@@ -28,8 +28,11 @@ import { ConsentService } from '../services/storage/ConsentService';
 import { ModelDownloader } from '../services/modelManager/Downloader';
 import { fetchAvailableChatModels } from '../services/modelManager/AvailableChatModels';
 import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog';
-import { getCachedGeminiModels } from '../services/inference/GeminiClient';
-import { getConfiguredCloudModels } from '../services/inference/CloudProviders';
+import {
+  loadSelectedModel,
+  matchSelectedModel,
+  saveSelectedModel,
+} from '../services/modelManager/ModelSelection';
 import { SpeechToTextService } from '../services/voice/SpeechToText';
 import { TextToSpeechService, KokoroNotInstalledError } from '../services/voice/TextToSpeech';
 import {
@@ -53,8 +56,13 @@ import { colors } from '../theme/colors';
 import { getContextualThinkingLabel, ANSWERING_PROMOTE_MS, GENERATING_PROMOTE_MS } from '../utils/thinkingLabel';
 import { generateSessionTitle, isDefaultSessionTitle } from '../utils/sessionTitle';
 import { copyTextToClipboard } from '../utils/clipboard';
+import { useBackLayer } from '../utils/backStack';
 
 interface ChatScreenProps {
+  /** Bumped whenever the app returns to chat, so the model list re-reads storage. */
+  revision?: number;
+  /** Model the user just activated elsewhere (Model Store / Settings). */
+  requestedModel?: ModelMetadata | null;
   onOpenModelStore: () => void;
   onOpenSettings: () => void;
   onOpenDesktopSync: (options?: { scan?: boolean }) => void;
@@ -138,6 +146,8 @@ const QuickActionCard: React.FC<{
 };
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
+  revision,
+  requestedModel,
   onOpenModelStore,
   onOpenSettings,
   onOpenDesktopSync,
@@ -234,6 +244,40 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   // so a fresh "New chat" the user never types into never shows up in History.
   const currentSessionRef = useRef<ChatSession | null>(null);
   const sessionSavedRef = useRef<boolean>(false);
+  const requestedModelRef = useRef<ModelMetadata | null>(requestedModel ?? null);
+
+  /** Single place that swaps the active model: persists the pick and loads the engine. */
+  const activateModel = useCallback(
+    async (model: ModelMetadata | null, opts?: { silent?: boolean }) => {
+      if (!model) {
+        setActiveModel(null);
+        return;
+      }
+      setActiveModel(model);
+      saveSelectedModel(model).catch(() => {});
+      try {
+        const ok = await engine.loadModel(model, {
+          contextSize: model.contextLength || 2048,
+          threads: 4,
+          useHardwareAcceleration: true,
+        });
+        const isDeviceModel =
+          model.provider === 'device' ||
+          model.source === 'offline' ||
+          (!model.provider && model.source !== 'cloud' && model.source !== 'online');
+        if (!ok && isDeviceModel && !opts?.silent) {
+          Alert.alert(
+            'Model Load Failed',
+            engine.getLastNativeError?.() ||
+              'On-device GGUF could not be loaded. Rebuild with llama.rn, or use a Cloud model.'
+          );
+        }
+      } catch (err) {
+        console.warn('[ChatScreen] Error switching model:', err);
+      }
+    },
+    [engine]
+  );
 
   const scheduleScrollToEnd = useCallback((animated = true) => {
     if (scrollToEndTimer.current) clearTimeout(scrollToEndTimer.current);
@@ -279,6 +323,19 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   useEffect(() => {
     refreshModels();
   }, [refreshModels]);
+
+  // Coming back from Model Store / Settings: re-read storage so new downloads show up.
+  useEffect(() => {
+    if (revision === undefined) return;
+    refreshModels();
+  }, [revision, refreshModels]);
+
+  // A model activated on another screen takes over as soon as chat is mounted again.
+  useEffect(() => {
+    if (!requestedModel) return;
+    requestedModelRef.current = requestedModel;
+    activateModel(requestedModel, { silent: true });
+  }, [requestedModel, activateModel]);
 
   const checkUpdatesOnLaunch = async () => {
     try {
@@ -340,28 +397,26 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const initApp = async () => {
     await downloader.whenReady();
+
     const installed = getInstalledDeviceModels(downloader.getDownloadedIds());
-    let nextModel: ModelMetadata | null = installed[0] || null;
-    if (!nextModel) {
-      try {
-        const gemini = await getCachedGeminiModels();
-        nextModel = gemini[0] || null;
-      } catch {}
-    }
-    if (!nextModel) {
-      try {
-        const cloud = await getConfiguredCloudModels();
-        nextModel = cloud[0] || null;
-      } catch {}
-    }
-    if (nextModel) {
-      setActiveModel(nextModel);
-      await engine.loadModel(nextModel, {
-        contextSize: nextModel.contextLength || 2048,
-        threads: 4,
-        useHardwareAcceleration: true,
-      });
-    }
+    let available: ModelMetadata[] = [];
+    try {
+      available = await fetchAvailableChatModels(null);
+    } catch {}
+
+    // Priority: what the user just picked > what they picked last time > anything usable.
+    const stored = await loadSelectedModel();
+    const wanted = requestedModelRef.current;
+    const nextModel =
+      matchSelectedModel(wanted, available) ||
+      matchSelectedModel(wanted, installed) ||
+      matchSelectedModel(stored, available) ||
+      matchSelectedModel(stored, installed) ||
+      available[0] ||
+      installed[0] ||
+      null;
+
+    if (nextModel) await activateModel(nextModel, { silent: true });
 
     setSessions(await chatRepo.getAllSessions());
     createNewChat();
@@ -393,28 +448,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const handleSelectModel = async (model: ModelMetadata) => {
-    setActiveModel(model);
-    try {
-      const ok = await engine.loadModel(model, {
-        contextSize: model.contextLength || 2048,
-        threads: 4,
-        useHardwareAcceleration: true,
-      });
-      if (
-        !ok &&
-        (model.provider === 'device' ||
-          model.source === 'offline' ||
-          (!model.provider && model.source !== 'cloud' && model.source !== 'online'))
-      ) {
-        Alert.alert(
-          'Model Load Failed',
-          engine.getLastNativeError?.() ||
-            'On-device GGUF could not be loaded. Rebuild with llama.rn, or use a Cloud model.'
-        );
-      }
-    } catch (err) {
-      console.warn('[ChatScreen] Error switching model:', err);
-    }
+    await activateModel(model);
   };
 
   const loadSession = async (sessionId: string) => {
@@ -654,6 +688,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const [voiceInsertText, setVoiceInsertText] = useState<string | null>(null);
+  const [voicePartial, setVoicePartial] = useState('');
+  const voicePartialAtRef = useRef(0);
+
+  const showVoicePartial = (text: string) => {
+    // Partials arrive many times a second; painting each one re-renders the whole screen.
+    const now = Date.now();
+    if (now - voicePartialAtRef.current < 220) return;
+    voicePartialAtRef.current = now;
+    setVoicePartial(text);
+  };
 
   const handleVoiceToggle = async () => {
     if (isListening) {
@@ -662,18 +706,25 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       return;
     }
     setIsListening(true);
+    setVoicePartial('');
+    voicePartialAtRef.current = 0;
     try {
       await SpeechToTextService.startListening({
-        onPartialResult: () => {
-          // Keep partials internal — do not put text in the input until commit
-        },
+        onPartialResult: showVoicePartial,
         onFinalResult: (finalText) => {
-          // Finalization is triggered only by stopListening(); insert for review
+          // Only reached when the recognizer ended the session by itself (60s cap, or a
+          // failed tail). A stop initiated here comes back through handleVoiceCommit.
+          setVoicePartial('');
+          setIsListening(false);
           if (finalText?.trim()) {
             setVoiceInsertText(finalText.trim());
           }
         },
-        onError: () => setIsListening(false),
+        onError: (err: any) => {
+          setVoicePartial('');
+          setIsListening(false);
+          Alert.alert('Voice Input', err?.message || 'Could not transcribe the recording.');
+        },
       });
     } catch (err: any) {
       setIsListening(false);
@@ -691,14 +742,37 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     } catch (err: any) {
       Alert.alert('Voice Input', err?.message || 'Could not transcribe the recording.');
     } finally {
+      setVoicePartial('');
       setIsListening(false);
     }
   };
 
   const handleVoiceCancel = async () => {
     await SpeechToTextService.cancelListening();
+    setVoicePartial('');
     setIsListening(false);
   };
+
+  // Android back: peel off the topmost transient layer before the app is allowed to exit.
+  // Registered last = checked first.
+  useBackLayer(isSidebarOpen, () => {
+    setIsSidebarOpen(false);
+    return true;
+  });
+  useBackLayer(Boolean(speakingMessageId), () => {
+    TextToSpeechService.stop();
+    setSpeakingMessageId(null);
+    setTtsPaused(false);
+    return true;
+  });
+  useBackLayer(isGenerating, () => {
+    handleStopGeneration();
+    return true;
+  });
+  useBackLayer(isListening, () => {
+    handleVoiceCancel();
+    return true;
+  });
 
   const handleSpeakText = useCallback(async (messageId: string, text: string) => {
     const isThisMessage = speakingMessageId === messageId;
@@ -896,6 +970,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onVoiceCancel={handleVoiceCancel}
         voiceInsertText={voiceInsertText}
         onVoiceInsertConsumed={() => setVoiceInsertText(null)}
+        voicePartialText={voicePartial}
         draftText={draftText}
         onDraftConsumed={() => setDraftText(null)}
         activeModel={activeModel}

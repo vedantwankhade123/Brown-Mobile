@@ -86,7 +86,7 @@ async function runTests() {
   }
 
   // 1. Model Catalog Verification
-  console.log('[1/5] Testing Model Catalog & Specifications:');
+  console.log('[1/6] Testing Model Catalog & Specifications:');
   const { CURATED_MODELS, getModelById, getDefaultModel } = requireTs('../src/services/modelManager/ModelCatalog.ts');
   
   test('Curated model catalog contains Llama 3.2, Qwen 2.5, Gemma 2', () => {
@@ -221,45 +221,30 @@ async function runTests() {
     assert(!emptyGemini.some((m) => m.provider === 'gemini'));
   });
 
-  // 2. Prompt Template Formatting
-  console.log('\n[2/5] Testing Prompt Template Engine:');
-  const { formatPromptForModel } = requireTs('../src/services/inference/PromptTemplates.ts');
+  // 2. Local inference prompt path
+  console.log('\n[2/6] Testing Local Inference Prompt Path:');
+  const llamaEnginePath = path.resolve(__dirname, '../src/services/inference/LlamaEngine.ts');
+  const llamaEngineSrc = fs.readFileSync(llamaEnginePath, 'utf8');
 
-  test('Formats Llama 3.2 chat template with headers and eot tokens', () => {
-    const messages = [
-      { role: 'user', content: 'Hello Ultron' },
-      { role: 'assistant', content: 'Hi there!' },
-      { role: 'user', content: 'Write code' },
-    ];
-    const prompt = formatPromptForModel('llama3', messages, 'Custom Sys');
-    assert(prompt.includes('<|begin_of_text|>'));
-    assert(prompt.includes('<|start_header_id|>system<|end_header_id|>\n\nCustom Sys<|eot_id|>'));
-    assert(prompt.includes('<|start_header_id|>user<|end_header_id|>\n\nHello Ultron<|eot_id|>'));
-    assert(prompt.includes('<|start_header_id|>assistant<|end_header_id|>\n\nHi there!<|eot_id|>'));
-    assert(prompt.endsWith('<|start_header_id|>assistant<|end_header_id|>\n\n'));
+  test('Hands raw messages to llama.rn instead of a hand-written chat template', () => {
+    const completionCall = llamaEngineSrc.slice(llamaEngineSrc.indexOf('.completion('));
+    assert(completionCall.includes('messages,'), 'completion() must receive the message turns');
+    assert(!/PromptTemplates/.test(llamaEngineSrc), 'no hand-built template module may be imported');
   });
 
-  test('Formats Gemma 2 chat template with start_of_turn and end_of_turn', () => {
-    const messages = [
-      { role: 'user', content: 'Explain offline AI' },
-    ];
-    const prompt = formatPromptForModel('gemma2', messages, 'System instruction');
-    assert(prompt.includes('<start_of_turn>user\nSystem instruction\n\nExplain offline AI<end_of_turn>'));
-    assert(prompt.endsWith('<start_of_turn>model\n'));
+  test('Model-specific template guessing stays removed', () => {
+    const legacy = path.resolve(__dirname, '../src/services/inference/PromptTemplates.ts');
+    assert(!fs.existsSync(legacy), 'PromptTemplates.ts must not come back');
+    assert(!/start_header_id|start_of_turn|im_start/.test(llamaEngineSrc), 'no inline chat template tokens');
   });
 
-  test('Formats Qwen 2.5 chat template with ChatML tags', () => {
-    const messages = [
-      { role: 'user', content: 'Help with math' },
-    ];
-    const prompt = formatPromptForModel('qwen25', messages, 'Math Tutor');
-    assert(prompt.includes('<|im_start|>system\nMath Tutor<|im_end|>'));
-    assert(prompt.includes('<|im_start|>user\nHelp with math<|im_end|>'));
-    assert(prompt.endsWith('<|im_start|>assistant\n'));
+  test('Keeps the system prompt when the history is trimmed to the token budget', () => {
+    assert(/messages\.push\(\{ role: 'system'/.test(llamaEngineSrc), 'system prompt must be prepended');
+    assert(llamaEngineSrc.includes('promptTokenBudget'), 'history must be sized against the prompt budget');
   });
 
   // 3. Database & ChatRepository
-  console.log('\n[3/5] Testing Local Database & Chat Repository:');
+  console.log('\n[3/6] Testing Local Database & Chat Repository:');
   const { ChatRepository } = requireTs('../src/services/storage/ChatRepository.ts');
   const chatRepo = new ChatRepository();
 
@@ -325,7 +310,7 @@ async function runTests() {
   });
 
   // 4. Inference Engine & Token Stream
-  console.log('\n[4/5] Testing Mock/Simulator Llama Inference Engine:');
+  console.log('\n[4/6] Testing Mock/Simulator Llama Inference Engine:');
   const { MockLlamaEngine } = requireTs('../src/services/inference/MockLlamaEngine.ts');
   const mockEngine = new MockLlamaEngine();
 

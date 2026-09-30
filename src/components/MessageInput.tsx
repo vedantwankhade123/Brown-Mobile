@@ -37,6 +37,8 @@ interface MessageInputProps {
   /** External dictate text (from STT commit) — merged into the input once */
   voiceInsertText?: string | null;
   onVoiceInsertConsumed?: () => void;
+  /** What the recognizer has heard so far, shown live inside the recording pill */
+  voicePartialText?: string;
   /** Quick-action draft: replaces the input and focuses it once */
   draftText?: string | null;
   onDraftConsumed?: () => void;
@@ -70,6 +72,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   onVoiceCancel,
   voiceInsertText = null,
   onVoiceInsertConsumed,
+  voicePartialText = '',
   draftText = null,
   onDraftConsumed,
   activeModel,
@@ -493,7 +496,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                       <View style={styles.voiceVisualizerWrapper}>
                         <AudioWaveform isActive={true} barCount={5} barColor="rgba(255, 255, 255, 0.7)" maxHeight={16} />
                         <Text style={styles.voiceListeningText} numberOfLines={1}>
-                          Listening…
+                          {voicePartialText.trim() || 'Listening…'}
                         </Text>
                       </View>
 
