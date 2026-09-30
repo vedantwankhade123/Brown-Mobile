@@ -48,11 +48,24 @@ Download the official Android release directly from **[Brown-Mobile Releases](ht
 
 ## 🔄 Release Pipeline
 
-The release APK is built by CI, never locally:
+The release APK is built on this machine, installed on a phone and tested before it is published —
+there is no CI.
 
-- **[`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml)** — triggered on tag `v*`: installs Node 20 + JDK 17 + Android NDK, restores the release keystore from the `RELEASE_KEYSTORE_B64` / `RELEASE_KEYSTORE_PROPS_B64` Actions secrets, runs `gradlew assembleRelease` against the checked-in `android/` project, and uploads `Brown-AI-Mobile-vX.Y.Z.apk` plus the stable `Brown-AI-Mobile.apk` alias to GitHub Releases.
-- **Bump before tagging**: `app.json` → `version` + `android.versionCode`, and `android/app/build.gradle` → `versionName` + `versionCode`. `versionCode` must increase on every upload, otherwise Android refuses the update.
-- **Ship**: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+- **`npm run release:apk -- --version 1.0.3`** — [`scripts/release-apk.js`](scripts/release-apk.js)
+  bumps `versionName`/`versionCode` in `android/app/build.gradle` and `app.json`, runs `tsc --noEmit`
+  and the test suite, runs `gradlew assembleRelease` for `arm64-v8a`, checks the APK's signing block
+  and stages `dist/Brown-AI-Mobile-vX.Y.Z.apk` plus the stable `dist/Brown-AI-Mobile.apk`.
+- **Test it**: install the staged APK over the previous one and use it. This is the gate CI used to
+  provide, so do not skip it.
+- **Commit the bumps**, then **`npm run publish:apk`** — tags `vX.Y.Z`, pushes the tag, and creates
+  or updates the GitHub Release with both asset names.
+- **`versionCode` must increase on every upload**, otherwise Android refuses the update. The script
+  refuses to publish if it would not, and refuses to publish a **debug-signed** APK: keep
+  `android/keystore.properties` + `android/app/my-release-key.keystore` in place (both gitignored).
+- **Release notes**: put a `.release-notes-vX.Y.Z.md` (or `RELEASE_NOTES.md`) in the repo; without it
+  the script drafts them from `git log` for you to edit.
+
+`Brown-AI-Mobile.apk` is a live link on usebrown.online, so the alias must always be uploaded.
 
 ---
 

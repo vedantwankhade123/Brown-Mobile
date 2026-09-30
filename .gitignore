@@ -22,5 +22,5 @@ build/
 .env*.local
 .env
 
-# Staged by CI from .release-notes-v<version>.md
+# Staged by scripts/release-apk.js from .release-notes-v<version>.md
 .release-notes.md
