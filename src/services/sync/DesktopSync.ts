@@ -18,6 +18,25 @@ export interface PairedDesktopHistoryItem {
   lastConnectedAt: number;
 }
 
+/**
+ * A pairing host must be on the same local network as the phone. A scanned QR code is
+ * attacker-supplied text, so without this gate one could point the phone at an internet host,
+ * hand it the pairing code, and receive the sync token plus the desktop's Gemini key.
+ */
+export function isPrivateLanAddress(raw: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(String(raw || '').trim());
+  if (!m) return false;
+  const [a, b, c, d] = m.slice(1).map(Number);
+  if ([a, b, c, d].some((n) => n > 255)) return false;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true; // link-local
+  if (a === 127) return true; // loopback, for adb reverse / same-machine testing
+  if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT range
+  return false;
+}
+
 export class DesktopSyncService {
   private static instance: DesktopSyncService;
   private status: SyncStatus = {
@@ -137,7 +156,7 @@ export class DesktopSyncService {
       if (!data || !data.syncId) return null;
       return {
         id: data.syncId,
-        name: data.name || 'Ultron Desktop',
+        name: data.name || 'Brown Desktop',
         ipAddress: host,
         port: data.port || SYNC_PORT,
         version: data.version || '1.0.0',
@@ -181,11 +200,11 @@ export class DesktopSyncService {
     try {
       const profile = await this.profileService().getLocalProfile();
       if (profile && profile.displayName && profile.displayName.trim()) {
-        return `${profile.displayName.trim()} (Ultron Mobile)`;
+        return `${profile.displayName.trim()} (Brown Mobile)`;
       }
     } catch {}
     const isIos = Platform.OS === 'ios';
-    return isIos ? 'iPhone (Ultron Mobile)' : 'Android (Ultron Mobile)';
+    return isIos ? 'iPhone (Brown Mobile)' : 'Android (Brown Mobile)';
   }
 
   async requestPairing(desktop: DesktopInstance): Promise<PairingSession> {
@@ -216,19 +235,19 @@ export class DesktopSyncService {
     await SecureStore.setItem(DESKTOP_KEY, JSON.stringify(desktop));
     await SecureStore.setItem(LAST_IP_KEY, desktop.ipAddress);
     try {
-      const histRaw = await SecureStore.getItem(HISTORY_KEY);
+      const histRaw = await SecureStore.getNonSecretItem(HISTORY_KEY);
       let history: PairedDesktopHistoryItem[] = histRaw ? JSON.parse(histRaw) : [];
       const id = desktop.id || desktop.syncId || desktop.ipAddress;
       history = history.filter((h) => h.id !== id && h.ipAddress !== desktop.ipAddress);
       history.unshift({
         id,
-        name: desktop.name || 'Ultron Desktop',
+        name: desktop.name || 'Brown Desktop',
         ipAddress: desktop.ipAddress,
         port: desktop.port,
         platform: desktop.platform || 'windows',
         lastConnectedAt: Date.now(),
       });
-      await SecureStore.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)));
+      await SecureStore.setNonSecretItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)));
     } catch {}
 
     this.status.isConnected = true;
@@ -285,7 +304,7 @@ export class DesktopSyncService {
 
   async getPairedHistory(): Promise<PairedDesktopHistoryItem[]> {
     try {
-      const histRaw = await SecureStore.getItem(HISTORY_KEY);
+      const histRaw = await SecureStore.getNonSecretItem(HISTORY_KEY);
       return histRaw ? JSON.parse(histRaw) : [];
     } catch {
       return [];
@@ -299,8 +318,11 @@ export class DesktopSyncService {
   }
 
   async pairWithDesktop(desktop: DesktopInstance, pin: string): Promise<boolean> {
-    if (pin.length < 4) {
-      throw new Error('Enter the 4-character code shown on your PC');
+    if (pin.length < 6) {
+      throw new Error('Enter the 6-character code shown on your PC');
+    }
+    if (!isPrivateLanAddress(desktop.ipAddress)) {
+      throw new Error('That desktop address is not on your local network. Pairing refused.');
     }
 
     this.status.syncInProgress = true;
@@ -428,8 +450,8 @@ export class DesktopSyncService {
     this.status.activeDesktop = match;
     this.status.needsReauth = true;
     this.status.reauthReason = ipChanged
-      ? 'Network or IP changed — confirm with the 4-digit code on your PC'
-      : session.reason || 'Session expired — confirm with the 4-digit code on your PC';
+      ? 'Network or IP changed — confirm with the 6-character code on your PC'
+      : session.reason || 'Session expired — confirm with the 6-character code on your PC';
     this.notify();
     return 'needs-code';
   }
@@ -455,7 +477,7 @@ export class DesktopSyncService {
   private async authorizedJson(path: string, init?: RequestInit): Promise<any> {
     const desktop = this.status.activeDesktop;
     const token = this.status.authToken;
-    if (!desktop || !token) throw new Error('Not connected to Ultron Desktop');
+    if (!desktop || !token) throw new Error('Not connected to Brown Desktop');
     const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}${path}`, {
       ...init,
       headers: {
@@ -468,7 +490,7 @@ export class DesktopSyncService {
     if (res.status === 401) {
       this.status.isConnected = false;
       this.status.needsReauth = true;
-      this.status.reauthReason = 'Session expired — confirm with the 4-digit code on your PC';
+      this.status.reauthReason = 'Session expired — confirm with the 6-character code on your PC';
       this.notify();
       throw new Error(data?.error || 'Unauthorized');
     }
@@ -565,7 +587,7 @@ export class DesktopSyncService {
     const desktop = this.status.activeDesktop;
     const token = this.status.authToken;
     if (!desktop || !token) {
-      throw new Error('Pair with Ultron Desktop to use models from your PC');
+      throw new Error('Pair with Brown Desktop to use models from your PC');
     }
     let res: Response;
     try {
@@ -578,7 +600,7 @@ export class DesktopSyncService {
         body: JSON.stringify({ model, messages }),
       });
     } catch (err: any) {
-      throw new Error(`Could not connect to desktop (${desktop.ipAddress}): ${err?.message || 'Network error'}. Make sure Ultron Desktop is open.`);
+      throw new Error(`Could not connect to desktop (${desktop.ipAddress}): ${err?.message || 'Network error'}. Make sure Brown Desktop is open.`);
     }
 
     const data = await res.json().catch(() => ({}));

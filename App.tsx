@@ -1,5 +1,5 @@
 import './src/utils/animatedPolyfill';
-import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import {
   View,
   Text,
@@ -8,14 +8,16 @@ import {
   StatusBar,
   Platform,
   TouchableOpacity,
-  ActivityIndicator,
+  Animated,
+  Easing,
+  BackHandler,
 } from 'react-native';
-// Not reachable through the barrel export in this RN version.
-import { BackHandler } from 'react-native/Libraries/Utilities/BackHandler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaProvider, SafeAreaView as ScreenSafeArea } from 'react-native-safe-area-context';
+import * as SplashScreen from 'expo-splash-screen';
 import * as NavigationBar from 'expo-navigation-bar';
+import { setNavBarColor } from './src/theme/systemBars';
+import { ScreenTransition } from './src/components/ScreenTransition';
 import { consumeBackPress } from './src/utils/backStack';
 import { saveSelectedModel } from './src/services/modelManager/ModelSelection';
 import {
@@ -38,10 +40,14 @@ import { bootstrapApp } from './src/services/storage/AppBootstrap';
 import { ModelMetadata } from './src/types/model';
 import { colors } from './src/theme/colors';
 import { BrownAlertHost, installBrownAlertPatch } from './src/components/BrownAlert';
+import { SoundService } from './src/services/sound/SoundService';
 
 installBrownAlertPatch();
 
 type ScreenType = 'onboarding' | 'chat' | 'modelStore' | 'settings' | 'desktopSync';
+
+// Keep the native launch screen until startup and fonts are ready.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Inject Outfit Google Font & Obsidian Dark theme globally on Web
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -113,7 +119,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[Ultron Mobile Crash]:', error, errorInfo);
+    console.error('[Brown Mobile Crash]:', error, errorInfo);
   }
 
   handleReload = async () => {
@@ -171,16 +177,22 @@ export default function App() {
   const [requestedModel, setRequestedModel] = useState<ModelMetadata | null>(null);
   const [fontsFallback, setFontsFallback] = useState<boolean>(false);
 
+  const booting = isLoading || (!fontsLoaded && !fontsFallback);
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      // Extend behind the system navigation bar so the app gradient fills that area.
-      // Bar is tinted with the gradient's terminal blue (#101e40) so it matches even
-      // when edge-to-edge isn't honored (e.g. Expo Go), instead of showing white/black.
-      NavigationBar.setBehaviorAsync('overlay-swipe').catch(() => {});
-      NavigationBar.setBackgroundColorAsync('#101e40').catch(() => {});
-      NavigationBar.setButtonStyleAsync('light').catch(() => {});
-    }
-  }, []);
+    if (!booting) SplashScreen.hideAsync().catch(() => {});
+  }, [booting]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    // Draw each screen behind the bottom system controls. Insets keep content clear.
+    NavigationBar.setPositionAsync('absolute')
+      .then(() => {
+        NavigationBar.setButtonStyleAsync('light').catch(() => {});
+        NavigationBar.setBorderColorAsync('transparent').catch(() => {});
+        setNavBarColor('transparent');
+      })
+      .catch(() => {});
+  }, [currentScreen]);
 
   // Boot. Neither step is allowed to hold the UI hostage: a hung storage open or a dead
   // font load used to leave the app rendering nothing at all.
@@ -195,6 +207,7 @@ export default function App() {
 
     (async () => {
       try {
+        SoundService.init().catch(() => {});
         await withTimeout(bootstrapApp(), 9000, 'Local storage took too long to open');
         if (cancelled) return;
         await checkOnboardingStatus();
@@ -202,6 +215,7 @@ export default function App() {
         if (cancelled) return;
         console.warn('[App] boot did not finish cleanly:', err?.message || err);
         setBootStalled(true);
+        setIsLoading(false);
       } finally {
         clearTimeout(stall);
       }
@@ -247,6 +261,7 @@ export default function App() {
   }, [currentScreen]);
 
   const navigateTo = (screen: ScreenType) => {
+    if (screen === currentScreen) return;
     setScreenStack((prev) => [...prev, screen]);
   };
 
@@ -293,73 +308,73 @@ export default function App() {
     navigateTo('onboarding');
   };
 
-  const booting = isLoading || (!fontsLoaded && !fontsFallback);
+  const renderScreen = (route: string): ReactNode => {
+    switch (route as ScreenType) {
+      case 'onboarding':
+        return <OnboardingScreen onComplete={handleOnboardingComplete} />;
+      case 'modelStore':
+        return (
+          <ModelStoreScreen
+            onBack={navigateBack}
+            onModelActivated={handleModelActivated}
+          />
+        );
+      case 'settings':
+        return (
+          <SettingsScreen
+            onBack={navigateBack}
+            onClearHistory={handleClearHistory}
+            onRerunOnboarding={handleRerunOnboarding}
+            onOpenModelStore={() => navigateTo('modelStore')}
+            onOpenDesktopSync={() => {
+              setSyncInitialScan(false);
+              navigateTo('desktopSync');
+            }}
+          />
+        );
+      case 'desktopSync':
+        return (
+          <DesktopSyncScreen
+            onBack={() => {
+              setSyncInitialScan(false);
+              navigateBack();
+            }}
+            initialScan={syncInitialScan}
+          />
+        );
+      case 'chat':
+      default:
+        return (
+          <ChatScreen
+            key={chatKey}
+            revision={chatRevision}
+            requestedModel={requestedModel}
+            onOpenModelStore={() => navigateTo('modelStore')}
+            onOpenSettings={() => navigateTo('settings')}
+            onOpenDesktopSync={(opts) => {
+              setSyncInitialScan(!!opts?.scan);
+              navigateTo('desktopSync');
+            }}
+          />
+        );
+    }
+  };
 
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <SafeAreaView style={styles.container}>
-          <StatusBar barStyle="light-content" backgroundColor="#000000" />
+        <ScreenSafeArea
+          edges={['top', 'left', 'right']}
+          style={[styles.container, { backgroundColor: currentScreen === 'chat' ? '#111111' : '#000000' }]}
+        >
+          <StatusBar barStyle="light-content" backgroundColor={currentScreen === 'chat' ? '#111111' : '#000000'} />
           <BrownAlertHost />
 
-          {booting ? (
-            <BootSplash
-              stalled={bootStalled}
-              onContinue={() => setIsLoading(false)}
-              onRetry={() => setBootAttempt((n) => n + 1)}
-            />
-          ) : (
-            <>
-              {currentScreen === 'onboarding' && (
-                <OnboardingScreen onComplete={handleOnboardingComplete} />
-              )}
-
-              {currentScreen === 'chat' && (
-                <ChatScreen
-                  key={chatKey}
-                  revision={chatRevision}
-                  requestedModel={requestedModel}
-                  onOpenModelStore={() => navigateTo('modelStore')}
-                  onOpenSettings={() => navigateTo('settings')}
-                  onOpenDesktopSync={(opts) => {
-                    setSyncInitialScan(!!opts?.scan);
-                    navigateTo('desktopSync');
-                  }}
-                />
-              )}
-
-              {currentScreen === 'modelStore' && (
-                <ModelStoreScreen
-                  onBack={navigateBack}
-                  onModelActivated={handleModelActivated}
-                />
-              )}
-
-              {currentScreen === 'settings' && (
-                <SettingsScreen
-                  onBack={navigateBack}
-                  onClearHistory={handleClearHistory}
-                  onRerunOnboarding={handleRerunOnboarding}
-                  onOpenModelStore={() => navigateTo('modelStore')}
-                  onOpenDesktopSync={() => {
-                    setSyncInitialScan(false);
-                    navigateTo('desktopSync');
-                  }}
-                />
-              )}
-
-              {currentScreen === 'desktopSync' && (
-                <DesktopSyncScreen
-                  onBack={() => {
-                    setSyncInitialScan(false);
-                    navigateBack();
-                  }}
-                  initialScan={syncInitialScan}
-                />
-              )}
-            </>
+          {!booting && (
+            <ScreenTransition screen={currentScreen} renderScreen={renderScreen} />
           )}
-        </SafeAreaView>
+
+        </ScreenSafeArea>
       </ErrorBoundary>
     </SafeAreaProvider>
   );
@@ -381,113 +396,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-/** Visible while the app starts. It never renders an empty screen, and it always offers a way out. */
-const BootSplash: React.FC<{
-  stalled: boolean;
-  onContinue: () => void;
-  onRetry: () => void;
-}> = ({ stalled, onContinue, onRetry }) => (
-  <View style={styles.bootWrap}>
-    <LinearGradient
-      pointerEvents="none"
-      colors={['#111111', '#111111', '#10131c', '#101e40']}
-      locations={[0, 0.2, 0.54, 1]}
-      start={{ x: 0.15, y: 0 }}
-      end={{ x: 0.4, y: 1 }}
-      style={StyleSheet.absoluteFill}
-    />
-    <Text style={styles.bootMark}>Brown AI</Text>
-    {stalled ? (
-      <>
-        <Text style={styles.bootTitle}>Still waking up</Text>
-        <Text style={styles.bootBody}>
-          Opening your local data is taking unusually long. You can continue and Brown will keep
-          retrying, or start the launch again.
-        </Text>
-        <View style={styles.bootActions}>
-          <TouchableOpacity style={styles.bootPrimary} onPress={onContinue} activeOpacity={0.85}>
-            <Text style={styles.bootPrimaryText}>Continue anyway</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.bootSecondary} onPress={onRetry} activeOpacity={0.85}>
-            <Text style={styles.bootSecondaryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      </>
-    ) : (
-      <>
-        <ActivityIndicator size="small" color="#295294" style={styles.bootSpinner} />
-        <Text style={styles.bootBody}>Preparing your assistant…</Text>
-      </>
-    )}
-  </View>
-);
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',
     ...(Platform.OS === 'web' ? { height: '100vh', width: '100vw' } : {}),
-  },
-
-  bootWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  bootMark: {
-    color: '#ffffff',
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    marginBottom: 18,
-  },
-  bootSpinner: {
-    marginBottom: 14,
-  },
-  bootTitle: {
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '700',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  bootBody: {
-    color: '#a1a1aa',
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: 'center',
-    maxWidth: 320,
-  },
-  bootActions: {
-    marginTop: 24,
-    width: '100%',
-    maxWidth: 320,
-    gap: 10,
-  },
-  bootPrimary: {
-    backgroundColor: '#295294',
-    borderRadius: 9999,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  bootPrimaryText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  bootSecondary: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    borderRadius: 9999,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  bootSecondaryText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
   },
 
   errorContainer: {

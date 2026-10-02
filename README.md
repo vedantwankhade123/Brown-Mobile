@@ -1,13 +1,13 @@
 # Brown AI Mobile — Sovereign On-Device AI Companion (Android)
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.2-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.3-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
 [![Platform](https://img.shields.io/badge/Platform-Android%2010%2B-3DDC84?logo=android&logoColor=white)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
   <a href="https://usebrown.online/">
-    <img src="Assets/Brown-black.png" alt="Brown AI Logo" width="150" />
+    <img src="Assets/Brown-white.png" alt="Brown AI Logo" width="150" />
   </a>
 </p>
 

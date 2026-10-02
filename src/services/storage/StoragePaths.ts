@@ -48,13 +48,15 @@ export class StoragePaths {
   }
 
   static async setDataDir(dir: string): Promise<void> {
-    await AsyncStorage.setItem(DATA_KEY, dir.endsWith('/') ? dir : dir + '/');
-    await this.ensureDir(await this.getDataDir());
+    const normalized = dir.endsWith('/') ? dir : dir + '/';
+    await this.ensureDir(normalized);
+    await AsyncStorage.setItem(DATA_KEY, normalized);
   }
 
   static async setModelsDir(dir: string): Promise<void> {
-    await AsyncStorage.setItem(MODELS_KEY, dir.endsWith('/') ? dir : dir + '/');
-    await this.ensureDir(await this.getModelsDir());
+    const normalized = dir.endsWith('/') ? dir : dir + '/';
+    await this.ensureDir(normalized);
+    await AsyncStorage.setItem(MODELS_KEY, normalized);
   }
 
   static async isDefaultModelsDir(): Promise<boolean> {

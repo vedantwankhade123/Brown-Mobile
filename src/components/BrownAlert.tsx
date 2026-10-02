@@ -86,10 +86,15 @@ export const BrownAlertHost: React.FC = () => {
 
   const buttons = payload.buttons || [{ text: 'OK', style: 'primary' as const }];
   const hasCancel = buttons.some((b) => b.style === 'cancel');
+  const dismiss = () => {
+    const cancel = buttons.find((b) => b.style === 'cancel');
+    if (cancel) onButton(cancel);
+    else close();
+  };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={close} statusBarTranslucent>
-      <Pressable style={styles.backdrop} onPress={hasCancel ? close : undefined}>
+    <Modal visible transparent animationType="fade" onRequestClose={dismiss} statusBarTranslucent>
+      <Pressable style={styles.backdrop} onPress={hasCancel ? dismiss : undefined}>
         <Pressable style={styles.card} onPress={(e: any) => e.stopPropagation?.()}>
           <Text style={styles.title}>{payload.title}</Text>
           {!!payload.message && <Text style={styles.message}>{payload.message}</Text>}

@@ -28,6 +28,12 @@ declare namespace JSX {
 }
 
 declare module 'react-native' {
+  export const Linking: { openURL(url: string): Promise<any> };
+  export interface ViewProps {
+    style?: StyleProp<ViewStyle>;
+    children?: React.ReactNode;
+    pointerEvents?: 'auto' | 'none' | 'box-none' | 'box-only';
+  }
   export const View: any;
   export const Text: any;
   export const StyleSheet: {
@@ -68,6 +74,15 @@ declare module 'react-native' {
     currentState: string;
     addEventListener: (type: string, listener: (state: string) => void) => { remove: () => void };
   };
+  export const Vibration: {
+    vibrate: (pattern: number | number[], repeat?: boolean) => void;
+    cancel: () => void;
+  };
+  export const BackHandler: {
+    addEventListener(type: 'hardwareBackPress', handler: () => boolean): { remove: () => void };
+    removeEventListener(type: 'hardwareBackPress', handler: () => boolean): void;
+    exitApp(): void;
+  };
   export const Platform: { OS: 'ios' | 'android' | 'windows' | 'macos' | 'web' };
   export const Dimensions: {
     get: (dim: 'window' | 'screen') => { width: number; height: number; scale: number; fontScale: number };
@@ -98,6 +113,12 @@ declare module 'expo' {
 }
 
 declare module 'expo-file-system' {
+  export function readAsStringAsync(uri: string): Promise<string>;
+  export const StorageAccessFramework: {
+    requestDirectoryPermissionsAsync(initialFileUrl?: string): Promise<
+      { granted: true; directoryUri: string } | { granted: false }
+    >;
+  };
   export function getFreeDiskStorageAsync(): Promise<number>;
   export function getTotalDiskCapacityAsync(): Promise<number>;
 }

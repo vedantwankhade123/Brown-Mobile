@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeftIcon, RightArrowIcon } from './Icons';
 import { UpdateHero } from './UpdateHero';
 import { AppUpdateInfo, installOrOpenApkUpdate } from '../services/updater/GitHubUpdateService';
+import { pushNavBarColor } from '../theme/systemBars';
 
 interface UpdatePromptModalProps {
   visible: boolean;
@@ -90,6 +91,13 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
   const [written, setWritten] = useState(0);
   const [total, setTotal] = useState(0);
   const startedForVersion = useRef<string | null>(null);
+
+  // The sheet paints pure black over the chat gradient, so the system bar follows the sheet
+  // while it is up and the screen's own color comes back when it is dismissed.
+  useEffect(() => {
+    if (!visible) return;
+    return pushNavBarColor('#000000');
+  }, [visible]);
 
   const handleUpdateNow = async () => {
     if (!update?.apkDownloadUrl) {

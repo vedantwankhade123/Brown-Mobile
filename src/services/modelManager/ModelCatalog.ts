@@ -246,7 +246,7 @@ export const ONLINE_OLLAMA_MODELS: ModelMetadata[] = [
     sizeFormatted: 'Desktop Stream',
     recommendedRamMb: 0,
     ramTier: '3GB Performance',
-    description: 'Large reasoning model streamed from the paired Ultron Desktop.',
+    description: 'Large reasoning model streamed from the paired Brown Desktop.',
     downloadUrl: 'http://localhost:11434/api/generate.gguf',
     filename: 'llama-3.3-70b-ollama.gguf',
     contextLength: 32768,
@@ -270,7 +270,7 @@ export const ONLINE_OLLAMA_MODELS: ModelMetadata[] = [
     sizeFormatted: 'Desktop Stream',
     recommendedRamMb: 0,
     ramTier: '2GB Standard',
-    description: 'Deep chain-of-thought reasoning streamed from the paired Ultron Desktop.',
+    description: 'Deep chain-of-thought reasoning streamed from the paired Brown Desktop.',
     downloadUrl: 'http://localhost:11434/api/generate.gguf',
     filename: 'deepseek-r1-ollama.gguf',
     contextLength: 32768,
@@ -342,7 +342,7 @@ export function mapLiveOllamaModel(tag: { name: string; size?: number }): ModelM
     sizeFormatted: formatOllamaSize(tag.size),
     recommendedRamMb: 0,
     ramTier: '2GB Standard',
-    description: 'Installed on the paired Ultron Desktop.',
+    description: 'Installed on the paired Brown Desktop.',
     downloadUrl: 'http://127.0.0.1:11434/api/generate',
     filename: name,
     contextLength: 8192,
@@ -458,6 +458,23 @@ export function groupMobileModelsByTier(
     groups[mobileCapabilityTier(model)].push(model);
   }
   return groups;
+}
+
+export type ModelSizeBucket = 'small' | 'medium' | 'large';
+
+export const SIZE_BUCKET_ORDER: ModelSizeBucket[] = ['small', 'medium', 'large'];
+
+export const SIZE_BUCKET_COPY: Record<ModelSizeBucket, { label: string; range: string }> = {
+  small: { label: 'Small', range: 'Under 1 GB' },
+  medium: { label: 'Medium', range: '1 – 3 GB' },
+  large: { label: 'Large', range: 'Over 3 GB' },
+};
+
+/** Buckets on the GGUF file size itself, the same number the card prints. */
+export function sizeBucketOf(model: ModelMetadata): ModelSizeBucket {
+  if (model.sizeBytes < 1000000000) return 'small';
+  if (model.sizeBytes < 3000000000) return 'medium';
+  return 'large';
 }
 
 function mapHfToMetadata(row: any): ModelMetadata | null {

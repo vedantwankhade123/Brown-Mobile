@@ -21,10 +21,8 @@ import {
   SearchIcon,
   TrashIcon,
   SettingsIcon,
-  LaptopIcon,
   PencilIcon,
   MoreVerticalIcon,
-  ArrowUpRightIcon,
   QrCodeIcon,
 } from './Icons';
 import { ChatRepository } from '../services/storage/ChatRepository';
@@ -32,6 +30,7 @@ import { ConsentService } from '../services/storage/ConsentService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from './EmptyState';
+import { headerButtonStyle, GlassControl } from './ScreenHeader';
 import { animateOnce } from '../utils/motion';
 
 interface DrawerSidebarProps {
@@ -44,20 +43,8 @@ interface DrawerSidebarProps {
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onOpenSync: (options?: { scan?: boolean }) => void;
   onOpenSettings?: () => void;
-  /** Start a fresh chat pre-filled with a starter prompt */
-  onQuickAction?: (draft: string) => void;
   onClose: () => void;
 }
-
-/** Quick-start cards shown in the horizontal rail */
-const QUICK_CARDS = [
-  { id: 'write', label: 'Write', desc: 'Draft, rewrite or polish any text', draft: 'Help me write and improve this text:' },
-  { id: 'code', label: 'Code', desc: 'Explain, debug and improve code', draft: 'Explain what this code does and fix any problems:' },
-  { id: 'summarize', label: 'Summarize', desc: 'Condense long content to key points', draft: 'Summarize the key points of this text:' },
-  { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh angles and options', draft: 'Help me brainstorm ideas about:' },
-  { id: 'explain', label: 'Explain', desc: 'Break down complex topics clearly', draft: 'Explain this topic in simple terms:' },
-  { id: 'translate', label: 'Translate', desc: 'Translate between any languages', draft: 'Translate the following text:' },
-];
 
 /**
  * Formats conversation titles so the first letter of each word is in uppercase
@@ -239,7 +226,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   onRenameSession,
   onOpenSync,
   onOpenSettings,
-  onQuickAction,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
@@ -288,19 +274,19 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           toValue: closedDrawerOffset,
           duration: 230,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          // JS driver on purpose: native-driver transforms desync hit-testing from
+          // the visual position mid-slide, so a close tap during the animation is lost.
+          useNativeDriver: false,
         }),
         Animated.timing(fadeAnim, {
           toValue: 0,
           duration: 200,
           easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ],
       230,
       () => {
-        // Native-driver animations can lose their completion callback when interrupted;
-        // pin the closed state by hand so the drawer can never stay visible.
         slideAnim.setValue(closedDrawerOffset);
         fadeAnim.setValue(0);
         done?.();
@@ -318,13 +304,13 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             toValue: 0,
             duration: 290,
             easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
+            useNativeDriver: false,
           }),
           Animated.timing(fadeAnim, {
             toValue: 1,
             duration: 240,
             easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
+            useNativeDriver: false,
           }),
         ],
         290,
@@ -346,9 +332,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   if (!isOpen && !isClosing) return null;
 
   const handleClose = () => {
-    // onClose runs first so the parent state can never be left behind by a lost callback.
+    // Only flip the parent's state here — the isOpen effect owns the close animation.
+    // Calling runClose() as well started two competing timings on the same values,
+    // which is why one close tap sometimes needed to be repeated.
     onClose();
-    runClose();
   };
 
   const filteredSessions = sessions.filter((s) => {
@@ -415,75 +402,73 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Top row: profile avatar (→ Settings) + New chat */}
             <View style={styles.topBar}>
-              <TouchableOpacity
-                style={styles.avatarBtn}
-                onPress={() => {
-                  if (onOpenSettings) {
-                    onOpenSettings();
-                    handleClose();
-                  }
-                }}
-                activeOpacity={0.8}
-                accessibilityLabel={userName}
-              >
-                <Text style={styles.avatarText}>{userInitials}</Text>
-              </TouchableOpacity>
-
-              <View style={styles.topBarRight}>
-                <TouchableOpacity
-                  style={styles.newChatPill}
-                  onPress={() => {
-                    onNewChat();
-                    handleClose();
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <PencilIcon size={16} color="#ffffff" />
-                  <Text style={styles.newChatPillText}>New chat</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.closeDrawerBtn}
-                  onPress={handleClose}
-                  activeOpacity={0.75}
-                  accessibilityLabel="Close menu"
-                >
-                  <CloseIcon size={18} color="#ffffff" />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Hero */}
-            <Text style={styles.heroTitle}>
-              Ask anything,{'\n'}build everything.
-            </Text>
-
-            {/* Search — inline */}
-            <View style={styles.searchRow}>
-              <View style={styles.searchPill}>
-                <SearchIcon size={18} color="#8e8e93" />
-                <TextInput
-                  ref={searchInputRef}
-                  style={styles.searchInput}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Search chats"
-                  placeholderTextColor="#8e8e93"
-                  onFocus={() => setIsSearchActive(true)}
-                  returnKeyType="search"
-                  autoCorrect={false}
-                />
-                {inSearchMode ? (
-                  <TouchableOpacity
-                    style={styles.searchClearBtn}
-                    onPress={searchQuery.length > 0 ? () => setSearchQuery('') : closeSearch}
-                    activeOpacity={0.7}
+              {inSearchMode ? (
+                <View style={styles.searchPill}>
+                  <SearchIcon size={18} color="#8e8e93" />
+                  <TextInput
+                    ref={searchInputRef}
+                    autoFocus
+                    style={styles.searchInput}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Search chats"
+                    placeholderTextColor="#8e8e93"
+                    accessibilityLabel="Search chats"
+                    returnKeyType="search"
+                    autoCorrect={false}
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.searchClearBtn}
+                      onPress={() => setSearchQuery('')}
+                      accessibilityLabel="Clear search"
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <CloseIcon size={16} color="#8e8e93" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ) : (
+                <>
+                  <GlassControl
+                    radius={22}
+                    style={styles.avatarBtn}
+                    onPress={() => {
+                      if (onOpenSettings) {
+                        onOpenSettings();
+                        handleClose();
+                      }
+                    }}
+                    accessibilityLabel={userName}
                   >
-                    <CloseIcon size={16} color="#8e8e93" />
-                  </TouchableOpacity>
-                ) : null}
+                    <Text style={styles.avatarText}>{userInitials}</Text>
+                  </GlassControl>
+                  <View pointerEvents="none" style={styles.historyTitleSlot}>
+                    <Text style={styles.historyHeaderTitle} numberOfLines={1}>History</Text>
+                  </View>
+                </>
+              )}
+              <View style={styles.topBarRight}>
+                {!inSearchMode && (
+                  <GlassControl
+                    radius={22}
+                    style={styles.closeDrawerBtn}
+                    onPress={() => setIsSearchActive(true)}
+                    accessibilityLabel="Search chats"
+                  >
+                    <SearchIcon size={22} color="#ffffff" />
+                  </GlassControl>
+                )}
+                <GlassControl
+                  radius={22}
+                  style={styles.closeDrawerBtn}
+                  onPress={inSearchMode ? closeSearch : handleClose}
+                  activeOpacity={0.75}
+                  accessibilityLabel={inSearchMode ? 'Close search' : 'Close menu'}
+                >
+                  <CloseIcon size={22} color="#ffffff" />
+                </GlassControl>
               </View>
             </View>
 
@@ -506,56 +491,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 </View>
               )
             ) : (
-              <>
-                {/* Quick-start cards */}
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.cardsRow}
-                >
-                  {QUICK_CARDS.map(({ id, label, desc, draft }) => (
-                    <TouchableOpacity
-                      key={id}
-                      style={styles.quickCard}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        if (onQuickAction) {
-                          onQuickAction(draft);
-                        } else {
-                          onNewChat();
-                        }
-                        handleClose();
-                      }}
-                      accessibilityLabel={label}
-                    >
-                      <LinearGradient
-                        colors={['#111111', '#10131c', '#101e40']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                      <Text style={styles.quickCardLabel} numberOfLines={1}>
-                        {label}
-                      </Text>
-                      <Text style={styles.quickCardDesc} numberOfLines={3}>
-                        {desc}
-                      </Text>
-                      <View style={styles.quickCardArrow}>
-                        <ArrowUpRightIcon size={14} color="#111111" />
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
-                {/* History */}
-                <View style={styles.historyHeaderRow}>
-                  <Text style={styles.historyHeaderTitle}>History</Text>
-                </View>
-
+              <View style={sessions.length === 0 ? styles.centeredEmptyContent : undefined}>
                 {sessions.length === 0 ? (
                   <EmptyState
                     title="No chats yet"
-                    description={'No data here yet. Start a conversation\nand it will appear in this history list.'}
                   />
                 ) : (
                   <View style={styles.historyGroup}>
@@ -570,42 +509,37 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     </ScrollView>
                   </View>
                 )}
-              </>
+                <View style={styles.newChatRow}>
+                  <GlassControl
+                    radius={9999}
+                    style={styles.newChatPill}
+                    onPress={() => {
+                      onNewChat();
+                      handleClose();
+                    }}
+                    activeOpacity={0.8}
+                    accessibilityLabel="New chat"
+                  >
+                    <Text style={styles.newChatPillText}>New chat</Text>
+                  </GlassControl>
+                </View>
+              </View>
             )}
           </ScrollView>
 
-          {/* Connect PC — persistent footer, always visible while history scrolls */}
+          {/* QR scan and Settings — persistent bottom-right controls */}
           <View style={[styles.connectRow, { marginBottom: 14 + insets.bottom }]}>
-            <LinearGradient
-              colors={['#111111', '#10131c', '#101e40']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.connectCapsule}
+            <TouchableOpacity
+              style={styles.footerQrButton}
+              onPress={() => {
+                onOpenSync({ scan: true });
+                handleClose();
+              }}
+              activeOpacity={0.7}
+              accessibilityLabel="Scan QR Code"
             >
-              <TouchableOpacity
-                style={styles.connectCapsuleMain}
-                onPress={() => {
-                  onOpenSync();
-                  handleClose();
-                }}
-                activeOpacity={0.8}
-                accessibilityLabel="Connect PC"
-              >
-                <LaptopIcon size={18} color="#ffffff" />
-                <Text style={styles.connectCapsuleText}>Connect PC</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.connectCapsuleQr}
-                onPress={() => {
-                  onOpenSync({ scan: true });
-                  handleClose();
-                }}
-                activeOpacity={0.7}
-                accessibilityLabel="Scan QR Code"
-              >
-                <QrCodeIcon size={18} color="#ffffff" />
-              </TouchableOpacity>
-            </LinearGradient>
+              <QrCodeIcon size={24} color="#ffffff" />
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.connectCapsuleSettings}
               onPress={() => {
@@ -794,6 +728,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   drawerScrollContent: {
+    flexGrow: 1,
     paddingTop: 6,
     paddingBottom: 20,
   },
@@ -801,86 +736,66 @@ const styles = StyleSheet.create({
   /* Top row */
   topBar: {
     flexDirection: 'row',
+    gap: 10,
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 6,
     paddingBottom: 2,
   },
-  avatarBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#295294',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  avatarBtn: { ...headerButtonStyle },
   avatarText: {
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
+  centeredEmptyContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 230,
+    paddingVertical: 20,
+  },
+  newChatRow: {
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 18,
+  },
   newChatPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 26,
+    paddingVertical: 12,
+    minHeight: 48,
+    backgroundColor: '#1B1B1B',
     borderRadius: 9999,
-    backgroundColor: '#1c1c1e',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   newChatPillText: {
     color: '#ffffff',
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '600',
+    textAlign: 'center',
   },
   topBarRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  closeDrawerBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-
-  /* Hero */
-  heroTitle: {
-    color: '#ffffff',
-    fontSize: 30,
-    fontWeight: '700',
-    lineHeight: 37,
-    letterSpacing: -0.7,
-    paddingHorizontal: 16,
-    marginTop: 20,
-  },
+  closeDrawerBtn: { ...headerButtonStyle },
 
   /* Search */
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginHorizontal: 16,
-    marginTop: 18,
-  },
   searchPill: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 11,
-    height: 50,
-    paddingHorizontal: 18,
+    height: 44,
+    minWidth: 0,
+    paddingHorizontal: 14,
     borderRadius: 9999,
-    backgroundColor: '#282828',
+    backgroundColor: '#1B1B1B',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -909,57 +824,15 @@ const styles = StyleSheet.create({
     paddingBottom: 5,
   },
 
-  /* Quick cards */
-  cardsRow: {
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 22,
-    paddingBottom: 4,
-  },
-  quickCard: {
-    width: 150,
-    height: 176,
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: '#10131c',
-    borderWidth: 1,
-    borderColor: 'rgba(129, 166, 228, 0.16)',
-    justifyContent: 'flex-start',
-    overflow: 'hidden',
-  },
-  quickCardLabel: {
-    minWidth: 0,
-    color: '#ffffff',
-    fontSize: 17,
-    fontWeight: '600',
-    lineHeight: 22,
-    letterSpacing: -0.2,
-  },
-  quickCardDesc: {
-    color: '#ffffff',
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 12,
-  },
-  quickCardArrow: {
-    alignSelf: 'flex-start',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
+  /* History */
+  historyTitleSlot: {
+    position: 'absolute',
+    left: 118,
+    right: 118,
+    top: 6,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 'auto',
-  },
-
-  /* History */
-  historyHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    marginTop: 28,
-    marginBottom: 6,
   },
   historyHeaderTitle: {
     color: '#ffffff',
@@ -1027,54 +900,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  /* Connect PC capsule + separate Settings button (footer row) */
+  /* Bottom-right QR scan and Settings controls */
   connectRow: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
     gap: 10,
     marginHorizontal: 16,
     marginTop: 10,
   },
-  connectCapsule: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 50,
-    paddingLeft: 16,
-    paddingRight: 7,
-    borderRadius: 9999,
+  footerQrButton: {
+    backgroundColor: '#1B1B1B',
     borderWidth: 1,
-    borderColor: 'rgba(129, 166, 228, 0.18)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  connectCapsuleMain: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-    paddingVertical: 10,
-  },
-  connectCapsuleText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
-  connectCapsuleQr: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#295294',
+    borderColor: 'rgba(255,255,255,0.18)',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
   },
   connectCapsuleSettings: {
+    backgroundColor: '#1B1B1B',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
     width: 50,
     height: 50,
     borderRadius: 25,

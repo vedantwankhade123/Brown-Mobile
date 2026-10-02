@@ -6,8 +6,6 @@ import {
   FlatList,
   ListRenderItemInfo,
   TouchableOpacity,
-  SafeAreaView,
-  StatusBar,
   Alert,
   Animated,
   Easing,
@@ -15,12 +13,14 @@ import {
   Platform,
   Pressable,
 } from 'react-native';
-import { ArrowUpRightIcon } from '../components/Icons';
 import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
+import { RightArrowIcon } from '../components/Icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatBubble } from '../components/ChatBubble';
 import { MessageInput } from '../components/MessageInput';
 import { Header } from '../components/Header';
+import { hasHeaderOverlap } from '../utils/headerOverlap';
 import { DrawerSidebar } from '../components/DrawerSidebar';
 import { LlamaEngine } from '../services/inference/LlamaEngine';
 import { ChatRepository } from '../services/storage/ChatRepository';
@@ -48,8 +48,7 @@ import {
   wasVersionDismissed,
 } from '../services/updater/GitHubUpdateService';
 import { UpdatePromptModal } from '../components/UpdatePromptModal';
-import { notifyUpdateAvailable } from '../services/NotificationService';
-import { SoundService } from '../services/sound/SoundService';
+import { notifyUpdateAvailable, alertReplyReady } from '../services/NotificationService';
 import { ChatMessage, ChatSession } from '../types/chat';
 import { ModelMetadata } from '../types/model';
 import { colors } from '../theme/colors';
@@ -82,14 +81,14 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: 'brainstorm', label: 'Brainstorm', desc: 'Generate fresh ideas and angles', draft: 'Help me brainstorm ideas about:' },
 ];
 
-/** One quick-start list row — rises into place on mount and dips under the finger */
+/** One quick-start list row — rises into place on mount */
 const QuickActionCard: React.FC<{
   action: QuickAction;
   delay: number;
+  isFirst: boolean;
   onPress: () => void;
-}> = ({ action, delay, onPress }) => {
+}> = ({ action, delay, isFirst, onPress }) => {
   const enter = useRef(new Animated.Value(0)).current;
-  const press = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.timing(enter, {
@@ -101,22 +100,17 @@ const QuickActionCard: React.FC<{
     }).start();
   }, []);
 
-  const pressIn = () =>
-    Animated.timing(press, { toValue: 0.97, duration: 110, useNativeDriver: true }).start();
-  const pressOut = () =>
-    Animated.timing(press, { toValue: 1, duration: 170, useNativeDriver: true }).start();
-
   const { label, desc } = action;
 
   return (
     <Animated.View
       style={[
         styles.quickCardShell,
+        !isFirst && styles.quickCardDivider,
         {
           opacity: enter,
           transform: [
             { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
-            { scale: press },
           ],
         },
       ]}
@@ -124,22 +118,16 @@ const QuickActionCard: React.FC<{
       <TouchableOpacity
         style={styles.quickCard}
         onPress={onPress}
-        onPressIn={pressIn}
-        onPressOut={pressOut}
-        activeOpacity={1}
+        activeOpacity={0.55}
         accessibilityLabel={label}
       >
-        <View style={styles.quickCardTextCol}>
-          <Text style={styles.quickCardTitle} numberOfLines={1}>
-            {label}
-          </Text>
-          <Text style={styles.quickCardDesc} numberOfLines={1}>
-            {desc}
-          </Text>
-        </View>
-        <View style={styles.quickCardArrow}>
-          <ArrowUpRightIcon size={14} color="#111111" />
-        </View>
+        <Text style={styles.quickCardTitle} numberOfLines={1}>
+          {label}
+        </Text>
+        <Text style={styles.quickCardDesc} numberOfLines={1}>
+          {desc}
+        </Text>
+        <RightArrowIcon size={17} color="#ffffff" />
       </TouchableOpacity>
     </Animated.View>
   );
@@ -162,6 +150,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [ttsPaused, setTtsPaused] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [headerHeight, setHeaderHeight] = useState(56);
+  const chatOffset = useRef(0);
   const [greetingName, setGreetingName] = useState<string | null>(null);
   const [models, setModels] = useState<ModelMetadata[]>([]);
   const [draftText, setDraftText] = useState<string | null>(null);
@@ -290,8 +280,16 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const onChatScroll = useCallback((e: any) => {
     const y = e?.nativeEvent?.contentOffset?.y || 0;
-    setIsScrolled(y > 8);
-  }, []);
+    chatOffset.current = y;
+    setIsScrolled(hasHeaderOverlap(y, styles.listContent.paddingTop, headerHeight, messages.length > 0));
+  }, [headerHeight, messages.length]);
+
+  const onHeaderHeightChange = useCallback((height: number) => {
+    setHeaderHeight(height);
+    setIsScrolled(hasHeaderOverlap(chatOffset.current, styles.listContent.paddingTop, height, messages.length > 0));
+  }, [messages.length]);
+
+  useEffect(() => { chatOffset.current = 0; setIsScrolled(false); }, [currentSessionId, messages.length === 0]);
 
   const listContentStyle = useMemo(() => styles.listContent, []);
 
@@ -437,14 +435,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     sessionSavedRef.current = false;
     setCurrentSessionId(session.id);
     setMessages([]);
-  };
-
-  const handleQuickAction = async (draft: string) => {
-    setIsSidebarOpen(false);
-    if (messages.length > 0) {
-      await createNewChat();
-    }
-    setDraftText(draft);
   };
 
   const handleSelectModel = async (model: ModelMetadata) => {
@@ -603,7 +593,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           clearTimeout(promoteTimer);
           clearTimeout(secondPromoteTimer);
           setIsGenerating(false);
-          SoundService.playCompletion();
+          alertReplyReady(text);
           const finalMsg: ChatMessage = {
             id: assistantMsgId,
             sessionId: currentSessionId,
@@ -830,8 +820,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#111111" />
+    <SafeAreaView edges={Platform.OS === 'android' ? [] : ['bottom']} style={styles.container}>
 
       {/* Background: desktop session-column gradient (dark → navy blue) */}
       <LinearGradient
@@ -885,7 +874,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               style={[
                 styles.quickCollapse,
                 {
-                  height: cardsHeight,
+                  maxHeight: cardsHeight,
                   opacity: cardsOpacity,
                   transform: [
                     { translateY: cardsTranslateY },
@@ -901,6 +890,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                     key={action.id}
                     action={action}
                     delay={160 + i * 60}
+                    isFirst={i === 0}
                     onPress={() => setDraftText(action.draft)}
                   />
                 ))}
@@ -930,16 +920,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           />
         )}
 
-        {/* Top fade — chat softens under floating header (ChatGPT-style) */}
-        {messages.length > 0 && (
-          <LinearGradient
-            pointerEvents="none"
-            colors={['#111111', 'rgba(17,17,17,0.92)', 'rgba(17,17,17,0.55)', 'rgba(17,17,17,0)']}
-            locations={[0, 0.35, 0.7, 1]}
-            style={styles.topFade}
-          />
-        )}
-
         {/* Floating header — chat scrolls behind the individual pills */}
         <View style={styles.headerOverlay} pointerEvents="box-none">
           <Header
@@ -948,7 +928,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               setIsSidebarOpen(false);
               onOpenSettings();
             }}
-            isScrolled={isScrolled}
+            isScrolled={messages.length > 0 && isScrolled}
+            onHeightChange={onHeaderHeightChange}
             updateAvailable={Boolean(pendingUpdate?.available)}
             updateVersion={pendingUpdate?.latestVersion || null}
             onOpenUpdate={() => setShowUpdateModal(true)}
@@ -988,7 +969,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onNewChat={createNewChat}
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
-        onQuickAction={handleQuickAction}
         onOpenSync={onOpenDesktopSync}
         onOpenSettings={() => {
           setIsSidebarOpen(false);
@@ -1033,20 +1013,12 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 30,
   },
-  topFade: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 88,
-    zIndex: 20,
-  },
   emptyCanvas: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 68,
-    paddingBottom: 20,
+    paddingBottom: 68,
     paddingHorizontal: 24,
   },
   brandBlock: {
@@ -1083,48 +1055,35 @@ const styles = StyleSheet.create({
   quickList: {
     width: '100%',
     alignSelf: 'stretch',
-    gap: 12,
   },
   quickCardShell: {
     width: '100%',
   },
+  quickCardDivider: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.09)',
+  },
   quickCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 9,
     width: '100%',
-    minHeight: 66,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    backgroundColor: '#212121',
-  },
-  quickCardTextCol: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
+    paddingVertical: 15,
+    paddingHorizontal: 2,
   },
   quickCardTitle: {
     color: '#ffffff',
     fontSize: 15.5,
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: -0.2,
+    flexShrink: 0,
   },
   quickCardDesc: {
-    color: 'rgba(255,255,255,0.62)',
-    fontSize: 12.5,
-    lineHeight: 16,
-  },
-  quickCardArrow: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13.5,
+    lineHeight: 18,
+    flex: 1,
+    minWidth: 0,
   },
   listContent: {
     paddingTop: 64,

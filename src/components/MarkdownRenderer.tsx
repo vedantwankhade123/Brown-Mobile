@@ -163,6 +163,21 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     let listItems: ListItem[] = [];
     let listKind: ListKind = 'ul';
 
+    // Consecutive plain lines are one paragraph — pushing a Text per line made
+    // every soft wrap carry a full paragraph gap, so answers looked chopped up.
+    let paragraphBuffer: string[] = [];
+
+    const flushParagraph = (key: string) => {
+      if (paragraphBuffer.length === 0) return;
+      const merged = paragraphBuffer.join('\n');
+      paragraphBuffer = [];
+      out.push(
+        <Text key={`p-${key}`} style={styles.paragraph}>
+          {renderInline(merged, `p-${key}`)}
+        </Text>
+      );
+    };
+
     const flushList = (key: string) => {
       if (listItems.length === 0) return;
       const items = listItems;
@@ -351,6 +366,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           inCodeBlock = false;
         } else {
           flushList(`flush-${i}`);
+          flushParagraph(`flush-${i}`);
           inCodeBlock = true;
           codeLanguage = trimmed.slice(3).trim();
         }
@@ -365,6 +381,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       // Tables
       if (isTableStart(lines, i)) {
         flushList(`before-table-${i}`);
+        flushParagraph(`before-table-${i}`);
         i = pushTable(i);
         continue;
       }
@@ -375,6 +392,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       const numberMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
 
       if (taskMatch) {
+        flushParagraph(`li-${i}`);
         const indent = Math.floor((taskMatch[1] || '').length / 2);
         if (listItems.length > 0 && listKind !== 'task') flushList(`switch-${i}`);
         listKind = 'task';
@@ -387,6 +405,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       }
 
       if (bulletMatch) {
+        flushParagraph(`li-${i}`);
         const indent = Math.floor((bulletMatch[1] || '').length / 2);
         if (listItems.length > 0 && listKind !== 'ul') flushList(`switch-${i}`);
         listKind = 'ul';
@@ -395,6 +414,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       }
 
       if (numberMatch) {
+        flushParagraph(`li-${i}`);
         const indent = Math.floor((numberMatch[1] || '').length / 2);
         if (listItems.length > 0 && listKind !== 'ol') flushList(`switch-${i}`);
         listKind = 'ol';
@@ -407,6 +427,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       // Headings
       const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
       if (headingMatch) {
+        flushParagraph(`h-${i}`);
         const level = headingMatch[1].length;
         const style =
           level === 1
@@ -426,6 +447,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
       // Multi-line blockquotes
       if (trimmed.startsWith('>')) {
+        flushParagraph(`q-${i}`);
         const quoteLines: string[] = [];
         let j = i;
         while (j < lines.length && lines[j].trim().startsWith('>')) {
@@ -445,22 +467,21 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
       // Horizontal rule
       if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        flushParagraph(`hr-${i}`);
         out.push(<View key={`hr-${i}`} style={styles.hr} />);
         continue;
       }
 
-      // Paragraph (merge consecutive non-empty lines lightly)
+      // Paragraph: consecutive plain lines merge into one block; a blank line ends it.
       if (trimmed.length > 0) {
-        out.push(
-          <Text key={`p-${i}`} style={styles.paragraph}>
-            {renderInline(line, `p-${i}`)}
-          </Text>
-        );
+        paragraphBuffer.push(trimmed);
       } else {
+        flushParagraph(`end-${i}`);
         out.push(<View key={`space-${i}`} style={styles.paragraphGap} />);
       }
     }
 
+    flushParagraph('final');
     flushList('final');
 
     // Unclosed code fence
