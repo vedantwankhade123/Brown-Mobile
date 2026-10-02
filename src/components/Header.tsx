@@ -9,6 +9,7 @@ import {
   Platform,
   Animated,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   GridMenuIcon,
   SettingsIcon,
@@ -16,6 +17,7 @@ import {
   CheckIcon,
   SparklesIcon,
 } from './Icons';
+import { headerButtonStyle, GlassControl, GlassSurface } from './ScreenHeader';
 import { ModelMetadata } from '../types/model';
 import {
   modelCaption,
@@ -26,6 +28,7 @@ interface HeaderProps {
   onOpenSidebar: () => void;
   onOpenSettings: () => void;
   isScrolled?: boolean;
+  onHeightChange?: (height: number) => void;
   /** Show blue Update control to the left of Settings when a newer release exists */
   updateAvailable?: boolean;
   updateVersion?: string | null;
@@ -38,7 +41,6 @@ interface HeaderProps {
   onMenuOpen?: () => void;
 }
 
-const SCROLLED_BG = '#212121';
 const POPOVER_GAP = 6;
 const FALLBACK_TOP = Platform.OS === 'ios' ? 104 : 56;
 
@@ -46,6 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSidebar,
   onOpenSettings,
   isScrolled = false,
+  onHeightChange,
   updateAvailable = false,
   updateVersion = null,
   onOpenUpdate,
@@ -93,15 +96,15 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <View style={styles.outerWrapper} pointerEvents="box-none">
-      <View ref={headerRef} collapsable={false} style={styles.container} pointerEvents="box-none">
-        <View style={[styles.leftGroupPill, isScrolled && styles.scrolledPill]}>
+      <View ref={headerRef} collapsable={false} style={styles.container} onLayout={(event: { nativeEvent: { layout: { height: number } } }) => onHeightChange?.(event.nativeEvent.layout.height)} pointerEvents="box-none">
+        <GlassSurface radius={9999} active={isScrolled} style={styles.leftGroupPill}>
           <TouchableOpacity
             style={styles.iconButton}
             onPress={onOpenSidebar}
             activeOpacity={0.7}
             accessibilityLabel="Open History"
           >
-            <GridMenuIcon size={28} color="#ffffff" />
+            <GridMenuIcon size={24} color="#ffffff" />
           </TouchableOpacity>
 
           <View ref={titleAnchorRef} style={styles.modelTitleAnchor} collapsable={false}>
@@ -111,7 +114,9 @@ export const Header: React.FC<HeaderProps> = ({
               activeOpacity={0.7}
               accessibilityLabel="Change model"
             >
-              <Text style={styles.brandTitle}>Brown</Text>
+              <View style={styles.brandBlock}>
+                <Text style={styles.brandTitle}>Brown</Text>
+              </View>
               {modelShort ? (
                 <>
                   <View style={styles.titleDivider} />
@@ -123,12 +128,14 @@ export const Header: React.FC<HeaderProps> = ({
               <ChevronDownIcon size={16} color="#8e8e93" />
             </TouchableOpacity>
           </View>
-        </View>
+        </GlassSurface>
 
         <View style={styles.rightActions}>
           {updateAvailable && onOpenUpdate ? (
-            <TouchableOpacity
-              style={[styles.updateButton, isScrolled && styles.scrolledUpdateButton]}
+            <GlassControl
+              radius={9999}
+              active={isScrolled}
+              style={styles.updateButton}
               onPress={onOpenUpdate}
               activeOpacity={0.85}
               accessibilityLabel={
@@ -136,17 +143,18 @@ export const Header: React.FC<HeaderProps> = ({
               }
             >
               <Text style={styles.updateButtonText}>Update</Text>
-            </TouchableOpacity>
+            </GlassControl>
           ) : null}
 
-          <TouchableOpacity
-            style={[styles.settingsButton, isScrolled && styles.scrolledPill]}
+          <GlassControl
+            radius={22}
+            active={isScrolled}
+            style={styles.settingsButton}
             onPress={onOpenSettings}
-            activeOpacity={0.7}
             accessibilityLabel="Settings"
           >
-            <SettingsIcon size={28} color="#ffffff" />
-          </TouchableOpacity>
+            <SettingsIcon size={24} color="#ffffff" />
+          </GlassControl>
         </View>
       </View>
 
@@ -274,36 +282,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     minHeight: 56,
     backgroundColor: 'transparent',
   },
   leftGroupPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 0,
     maxWidth: '80%',
     minWidth: 0,
-    paddingLeft: 6,
-    paddingRight: 14,
-    paddingVertical: 4,
-    borderRadius: 9999,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'transparent',
+    paddingLeft: 0,
+    paddingRight: 6,
+    paddingVertical: 0,
   },
-  scrolledPill: {
-    backgroundColor: SCROLLED_BG,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
+  iconButton: { ...headerButtonStyle },
   modelTitleAnchor: {
     flexShrink: 1,
     minWidth: 0,
@@ -312,18 +306,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 6,
-    paddingRight: 8,
+    paddingVertical: 4,
+    paddingRight: 2,
     borderRadius: 9999,
     flexShrink: 1,
     minWidth: 0,
+  },
+  brandBlock: {
+    flexShrink: 0,
   },
   brandTitle: {
     color: '#ffffff',
     fontSize: 24,
     fontWeight: '500',
     letterSpacing: -0.4,
-    flexShrink: 0,
   },
   titleDivider: {
     width: 1,
@@ -349,10 +345,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 9999,
-    backgroundColor: '#2563eb',
-  },
-  scrolledUpdateButton: {
-    backgroundColor: '#1d4ed8',
   },
   updateButtonText: {
     color: '#ffffff',
@@ -360,16 +352,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 0.2,
   },
-  settingsButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9999,
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
+  settingsButton: { ...headerButtonStyle },
   menuRoot: {
     flex: 1,
     alignItems: 'flex-start',

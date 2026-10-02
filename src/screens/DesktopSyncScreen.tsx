@@ -14,7 +14,7 @@ import {
   KeyboardAvoidingView,
   Animated,
 } from 'react-native';
-import { DesktopSyncService, PairedDesktopHistoryItem } from '../services/sync/DesktopSync';
+import { DesktopSyncService, isPrivateLanAddress, PairedDesktopHistoryItem } from '../services/sync/DesktopSync';
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
 import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
@@ -79,7 +79,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
         { value: pageFade, from: 0, to: 1 },
         { value: pageSlide, from: 14, to: 0 },
       ],
-      240
+      240,
+      undefined,
+      false
     );
   }, [pageFade, pageSlide]);
 
@@ -232,6 +234,10 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
         const name = parsed.name || parsed.syncId || 'Brown Desktop';
 
         if (ip && code) {
+          if (!isPrivateLanAddress(ip)) {
+            Alert.alert('Untrusted QR', 'That QR code points at an address outside your local network.');
+            return;
+          }
           const device: DesktopInstance = {
             id: devId,
             name,
@@ -261,6 +267,10 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
       const devId = idMatch ? idMatch[1] : 'Desktop';
 
       if (ip && code) {
+        if (!isPrivateLanAddress(ip)) {
+          Alert.alert('Untrusted QR', 'That QR code points at an address outside your local network.');
+          return;
+        }
         const device: DesktopInstance = {
           id: devId,
           name: devId,
@@ -276,9 +286,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
       }
     }
 
-    // 3. 4-character code (like 7842)
+    // 3. bare 6-character pair code (like K7QM2X)
     const upper = clean.toUpperCase().replace(/[^A-Z0-9-]/g, '');
-    if (upper.length === 4) {
+    if (upper.length === 6) {
       setPinCode(upper);
       const targetDev = selectedDevice || (devices.length > 0 ? devices[0] : null);
       if (targetDev) {
@@ -395,7 +405,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
           </View>
 
           {syncStatus.isConnected && (() => {
-            const devName = syncStatus.activeDesktop?.name || 'Ultron Desktop';
+            const devName = syncStatus.activeDesktop?.name || 'Brown Desktop';
             const syncId = syncStatus.activeDesktop?.syncId || syncStatus.activeDesktop?.id || '';
 
             return (
@@ -498,12 +508,12 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
               <Text style={styles.cardKicker}>PAIRING CODE</Text>
               <Text style={styles.cardTitle}>Enter the code on your PC</Text>
               <Text style={styles.cardBody}>
-                A popup on Windows shows a 4-character code for{' '}
-                <Text style={styles.cardBodyStrong}>{selectedDevice.name}</Text>. It expires in 60 seconds.
+                A popup on Windows shows a 6-character code for{' '}
+                <Text style={styles.cardBodyStrong}>{selectedDevice.name}</Text>. It expires in 2 minutes.
               </Text>
 
               <TouchableOpacity style={styles.otpRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={0.9}>
-                {[0, 1, 2, 3].map((i) => (
+                {[0, 1, 2, 3, 4, 5].map((i) => (
                   <View key={i} style={[styles.otpBox, pinCode[i] && styles.otpBoxFilled]}>
                     <Text style={styles.otpChar}>{pinCode[i] || ''}</Text>
                   </View>
@@ -513,18 +523,18 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 ref={pinInputRef}
                 style={styles.hiddenInput}
                 value={pinCode}
-                onChangeText={(v: string) => setPinCode(v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 4))}
+                onChangeText={(v: string) => setPinCode(v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6))}
                 autoCapitalize="characters"
                 autoCorrect={false}
-                maxLength={4}
+                maxLength={6}
                 caretHidden
                 {...(Platform.OS === 'web' ? ({ outline: 'none' } as any) : {})}
               />
 
               <TouchableOpacity
-                style={[styles.primaryBtn, pinCode.length < 4 && styles.primaryBtnDisabled]}
+                style={[styles.primaryBtn, pinCode.length < 6 && styles.primaryBtnDisabled]}
                 onPress={handlePair}
-                disabled={pinCode.length < 4}
+                disabled={pinCode.length < 6}
                 activeOpacity={0.8}
               >
                 <Text style={styles.primaryBtnText}>Verify & pair</Text>
@@ -633,7 +643,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                   onPress={() => beginPairing(syncStatus.activeDesktop!)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.primaryBtnText}>Confirm with 4-digit code</Text>
+                  <Text style={styles.primaryBtnText}>Confirm with 6-character code</Text>
                 </TouchableOpacity>
               )}
 
@@ -1269,12 +1279,12 @@ const styles = StyleSheet.create({
   otpRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
     marginBottom: 16,
   },
   otpBox: {
-    width: 56,
-    height: 64,
+    width: 46,
+    height: 58,
     borderRadius: 14,
     backgroundColor: '#111111',
     borderWidth: 1,
@@ -1287,7 +1297,7 @@ const styles = StyleSheet.create({
   },
   otpChar: {
     color: '#ffffff',
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
   },
   hiddenInput: {

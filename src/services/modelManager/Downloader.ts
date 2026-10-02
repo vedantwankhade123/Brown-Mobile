@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import { StorageBudgetService } from './StorageBudget';
 import { StoragePaths } from '../storage/StoragePaths';
 import { CURATED_MODELS, getModelById, MOBILE_GGUF_LIBRARY } from './ModelCatalog';
+import { alertDownloadComplete, alertModelFailed } from '../NotificationService';
 
 const LEGACY_DOWNLOADS_KEY = '@ultron_downloaded_models';
 const DOWNLOADS_KEY = '@ultron_downloaded_models_v2';
@@ -528,6 +529,7 @@ export class ModelDownloader {
         await this.clearResumable(model.id);
         this.notifyListeners();
         await this.persistStates();
+        alertDownloadComplete(model.name);
         return;
       }
     } catch (err: any) {
@@ -572,6 +574,7 @@ export class ModelDownloader {
       this.downloadStates.set(model.id, { ...state });
       this.notifyListeners();
       await this.persistStates();
+      alertModelFailed(model.name, friendlyError);
       return;
     } finally {
       await deactivateKeepAwake(`gguf-${model.id}`);

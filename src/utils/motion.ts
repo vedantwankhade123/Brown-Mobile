@@ -52,7 +52,8 @@ export function animateOnce(
 export function revealValues(
   targets: Array<{ value: Animatable; from: number; to: number }>,
   durationMs: number,
-  easing: (t: number) => number = Easing.out(Easing.cubic)
+  easing: (t: number) => number = Easing.out(Easing.cubic),
+  nativeDriver = true
 ): void {
   try {
     targets.forEach((t) => t.value.setValue(t.from));
@@ -71,7 +72,7 @@ export function revealValues(
       toValue: t.to,
       duration: durationMs,
       easing,
-      useNativeDriver: true,
+      useNativeDriver: nativeDriver,
     })
   );
 
@@ -89,7 +90,8 @@ export function revealValue(
   value: Animatable,
   from: number,
   to: number,
-  durationMs = 200
+  durationMs = 200,
+  nativeDriver = true
 ): void {
-  revealValues([{ value, from, to }], durationMs);
+  revealValues([{ value, from, to }], durationMs, undefined, nativeDriver);
 }

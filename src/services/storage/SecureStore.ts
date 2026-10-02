@@ -1,52 +1,80 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
- * Secure on-device key-value storage wrapper
- * Supports hardware Keystore/Keychain where available with encrypted fallback
+ * On-device key-value storage. setItem/getItem are for credentials and stay Keystore-backed:
+ * if the secure store refuses a value (unavailable, or >2 KB on Android) it is kept in memory
+ * for this session only, never written to AsyncStorage as plaintext. Use the *NonSecretItem
+ * methods for data that is safe in plaintext and may be larger, such as the paired-desktop list.
  */
 export class SecureStore {
-  private static readonly KEY_PREFIX = '@ultron_secure_';
+  private static readonly PLAIN_PREFIX = '@ultron_secure_';
   private static memory = new Map<string, string>();
 
-  static async setItem(key: string, value: string): Promise<void> {
+  private static secureModule(): any | null {
     try {
-      const SecureStoreModule = require('expo-secure-store');
-      if (SecureStoreModule && SecureStoreModule.setItemAsync) {
-        await SecureStoreModule.setItemAsync(key, value);
-        return;
-      }
+      const m = require('expo-secure-store');
+      if (m && typeof m.setItemAsync === 'function') return m;
     } catch {}
-    try {
-      await AsyncStorage.setItem(this.KEY_PREFIX + key, value);
-      return;
-    } catch {}
+    return null;
+  }
+
+  /** @returns true when the value was written to the OS secure store. */
+  static async setItem(key: string, value: string): Promise<boolean> {
+    const secure = this.secureModule();
+    if (secure) {
+      try {
+        await secure.setItemAsync(key, value);
+        this.memory.delete(key);
+        return true;
+      } catch {}
+    }
     this.memory.set(key, value);
+    return false;
   }
 
   static async getItem(key: string): Promise<string | null> {
-    try {
-      const SecureStoreModule = require('expo-secure-store');
-      if (SecureStoreModule && SecureStoreModule.getItemAsync) {
-        const val = await SecureStoreModule.getItemAsync(key);
+    if (this.memory.has(key)) return this.memory.get(key) as string;
+    const secure = this.secureModule();
+    if (secure) {
+      try {
+        const val = await secure.getItemAsync(key);
         if (val !== null) return val;
-      }
-    } catch {}
+      } catch {}
+    }
+    // Pick up a credential a previous build left in plaintext, then erase the plaintext copy.
     try {
-      return await AsyncStorage.getItem(this.KEY_PREFIX + key);
+      const legacy = await AsyncStorage.getItem(this.PLAIN_PREFIX + key);
+      if (legacy === null) return null;
+      await AsyncStorage.removeItem(this.PLAIN_PREFIX + key);
+      await this.setItem(key, legacy);
+      return legacy;
     } catch {}
-    return this.memory.get(key) ?? null;
+    return null;
   }
 
   static async deleteItem(key: string): Promise<void> {
-    try {
-      const SecureStoreModule = require('expo-secure-store');
-      if (SecureStoreModule && SecureStoreModule.deleteItemAsync) {
-        await SecureStoreModule.deleteItemAsync(key);
-      }
-    } catch {}
-    try {
-      await AsyncStorage.removeItem(this.KEY_PREFIX + key);
-    } catch {}
+    const secure = this.secureModule();
+    if (secure) {
+      try {
+        await secure.deleteItemAsync(key);
+      } catch {}
+    }
     this.memory.delete(key);
+    try {
+      await AsyncStorage.removeItem(this.PLAIN_PREFIX + key);
+    } catch {}
+  }
+
+  static async setNonSecretItem(key: string, value: string): Promise<void> {
+    try {
+      await AsyncStorage.setItem(this.PLAIN_PREFIX + key, value);
+    } catch {}
+  }
+
+  static async getNonSecretItem(key: string): Promise<string | null> {
+    try {
+      return await AsyncStorage.getItem(this.PLAIN_PREFIX + key);
+    } catch {}
+    return null;
   }
 }

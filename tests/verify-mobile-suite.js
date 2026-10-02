@@ -9,8 +9,10 @@ const path = require('path');
 // Simple TS-to-JS loader using TypeScript compiler API if needed
 const ts = require('typescript');
 
+const moduleCache = new Map();
 function requireTs(filePath) {
   const fullPath = path.resolve(__dirname, filePath);
+  if (moduleCache.has(fullPath)) return moduleCache.get(fullPath).exports;
   const source = fs.readFileSync(fullPath, 'utf8');
   const result = ts.transpileModule(source, {
     compilerOptions: {
@@ -21,6 +23,7 @@ function requireTs(filePath) {
   });
 
   const m = { exports: {} };
+  moduleCache.set(fullPath, m);
   const wrapper = new Function('require', 'exports', 'module', '__filename', '__dirname', result.outputText);
   wrapper((modName) => {
     if (modName.startsWith('.') || modName.startsWith('/')) {
@@ -363,7 +366,7 @@ async function runTests() {
     const http = require('http');
     const crypto = require('crypto');
     const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const makeCode = () => Array.from({ length: 4 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join('');
+    const makeCode = () => Array.from({ length: 6 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join('');
     const state = { syncId: crypto.randomBytes(6).toString('hex'), pending: null, token: null, attempts: 0 };
     const discover = (port) => ({ ok: true, syncId: state.syncId, name: 'Stub Desktop', version: '1.0.2', port, addresses: ['127.0.0.1'] });
     const server = http.createServer((req, res) => {
@@ -444,7 +447,7 @@ async function runTests() {
     const session = await sync.requestPairing(target);
     assert(session.requestId);
     assert.strictEqual(session.expiresIn, 120);
-    const wrong = stub.state.pending.code === 'AAAA' ? 'BBBB' : 'AAAA';
+    const wrong = stub.state.pending.code === 'AAAAAA' ? 'BBBBBB' : 'AAAAAA';
     await assert.rejects(() => sync.pairWithDesktop(target, wrong), /Invalid pairing code/);
     assert.strictEqual(sync.getStatus().isConnected, false);
   });
@@ -452,7 +455,7 @@ async function runTests() {
   await testAsync('Rejects an expired pairing code', async () => {
     await sync.requestPairing(target);
     stub.state.pending.expiresAt = Date.now() - 1;
-    await assert.rejects(() => sync.pairWithDesktop(target, 'AAAA'), /expired/i);
+    await assert.rejects(() => sync.pairWithDesktop(target, 'AAAAAA'), /expired/i);
     assert.strictEqual(sync.getStatus().isConnected, false);
   });
 

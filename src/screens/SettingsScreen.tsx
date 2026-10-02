@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   Alert,
   Platform,
+  Linking,
   Animated,
   Image,
 } from 'react-native';
@@ -39,7 +40,7 @@ import {
   testProviderConnection,
 } from '../services/inference/CloudProviders';
 import { LlamaEngine } from '../services/inference/LlamaEngine';
-import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
+import { headerButtonStyle, GlassControl, GlassSurface, ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
 import {
   UpdatePromptModal,
@@ -114,6 +115,7 @@ import { getInstalledDeviceModels } from '../services/modelManager/ModelCatalog'
 import { ModelDownloader } from '../services/modelManager/Downloader';
 import { ModelMetadata } from '../types/model';
 import { ToggleSwitch } from '../components/ToggleSwitch';
+import { pickStorageFolder } from '../utils/storageFolderPicker';
 import { StoragePaths } from '../services/storage/StoragePaths';
 import { ProfileService } from '../services/storage/ProfileService';
 import { DesktopSyncService } from '../services/sync/DesktopSync';
@@ -147,6 +149,7 @@ const MONTHS_LIST = [
 const MODEL_TAG_FILTERS = ['All', 'Cloud', 'Offline', 'Thinking', 'Vision', 'Code', 'Embedding'];
 
 const LOCATION_STORAGE_KEY = 'ultron.home_location';
+const AUTO_DETECT_LOCATION_KEY = 'ultron.auto_detect_location';
 
 // Hoverable settings row with subtle bg highlight on hover
 const HoverableSettingsRow: React.FC<{
@@ -267,9 +270,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [autoSpeakTts, setAutoSpeakTts] = useState(true);
   const [speechRate, setSpeechRate] = useState(1.0);
   const [voiceSensitivity, setVoiceSensitivity] = useState('Balanced');
-  const [completionSound, setCompletionSound] = useState(true);
-  const [permissionSound, setPermissionSound] = useState(true);
-  const [questionSound, setQuestionSound] = useState(true);
+  const [completionSound, setCompletionSound] = useState(() => SoundService.isSoundEnabled('task-complete'));
+  const [permissionSound, setPermissionSound] = useState(() => SoundService.isSoundEnabled('permission'));
+  const [questionSound, setQuestionSound] = useState(() => SoundService.isSoundEnabled('question'));
 
   // Storage & Memory States (Desktop Parity)
   const [memoryPersistence, setMemoryPersistence] = useState(true);
@@ -323,14 +326,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const chatRepo = new ChatRepository();
 
-  // Trigger smooth enter animation on screen change
+  // Trigger smooth enter animation on screen change.
+  // JS driver on purpose: a native-driver fade whose end event is lost leaves the whole
+  // page pinned at opacity 0 (black screen) that no setValue can reclaim.
   useEffect(() => {
     revealValues(
       [
         { value: screenSlideAnim, from: 12, to: 0 },
         { value: screenFadeAnim, from: 0, to: 1 },
       ],
-      180
+      180,
+      undefined,
+      false
     );
   }, [currentView, screenSlideAnim, screenFadeAnim]);
 
@@ -355,9 +362,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         if (savedLocation) setHomeLocation(savedLocation);
       })
       .catch(() => {});
-    if (autoDetectLocation) {
-      performRealLocationDetection();
-    }
+    AsyncStorage.getItem(AUTO_DETECT_LOCATION_KEY)
+      .then((saved) => {
+        const enabled = saved !== '0';
+        setAutoDetectLocation(enabled);
+        // Only fill the field in when access was already granted - opening Settings
+        // must never raise a system permission dialog the user did not ask for.
+        if (enabled) performRealLocationDetection(false);
+      })
+      .catch(() => {});
     const downloader = ModelDownloader.getInstance();
     downloader.whenReady().then(() => setModelsRevision((n) => n + 1));
     const unsubDownloader = downloader.subscribe(() => {
@@ -609,7 +622,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       // A. OpenStreetMap Nominatim reverse geocoder
       const osmRes = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
-        { headers: { 'User-Agent': 'UltronMobile/1.0' } }
+        { headers: { 'User-Agent': 'BrownMobile/1.0' } }
       );
       if (osmRes.ok) {
         const geo = await osmRes.json();
@@ -648,14 +661,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     AsyncStorage.setItem(LOCATION_STORAGE_KEY, loc).catch(() => {});
   };
 
-  const performRealLocationDetection = async () => {
+  const performRealLocationDetection = async (askForPermission = true) => {
     setIsDetectingLocation(true);
     setLocationStatusText('Detecting…');
 
     // 1. Native GPS via expo-location (highest accuracy on Android/iOS)
     let coords: { latitude: number; longitude: number } | null = null;
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
+      const permission = askForPermission
+        ? await Location.requestForegroundPermissionsAsync()
+        : await Location.getForegroundPermissionsAsync();
+      if (!permission.granted && !askForPermission) {
+        setIsDetectingLocation(false);
+        setLocationStatusText('');
+        return;
+      }
       if (permission.granted) {
         const pos = await Promise.race([
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
@@ -750,13 +770,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             toValue: 12,
             duration: 140,
             easing: Easing.in(Easing.cubic),
-            useNativeDriver: true,
+            useNativeDriver: false,
           }),
           Animated.timing(screenFadeAnim, {
             toValue: 0,
             duration: 140,
             easing: Easing.in(Easing.cubic),
-            useNativeDriver: true,
+            useNativeDriver: false,
           }),
         ],
         140,
@@ -773,13 +793,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           toValue: 16,
           duration: 150,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(screenFadeAnim, {
           toValue: 0,
           duration: 150,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ],
       150,
@@ -796,13 +816,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           toValue: -10,
           duration: 130,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
         Animated.timing(screenFadeAnim, {
           toValue: 0,
           duration: 130,
           easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
+          useNativeDriver: false,
         }),
       ],
       130,
@@ -934,11 +954,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     setAutoCheckEnabled(value).catch(() => {});
   };
 
+  const chooseStorageFolder = async (kind: 'data' | 'models') => {
+    try {
+      const folder = await pickStorageFolder();
+      if (!folder) return;
+      if (kind === 'data') {
+        await StoragePaths.setDataDir(folder);
+        setCustomDataDir(StoragePaths.displayPath(folder));
+      } else {
+        await StoragePaths.setModelsDir(folder);
+        setCustomConnectorsDir(StoragePaths.displayPath(folder));
+      }
+    } catch (error: any) {
+      Alert.alert('Could not select folder', error?.message || 'Please try another folder.');
+    }
+  };
+
   const userName = profile?.fullName || 'Vedant Wankhade';
   const userEmail = profile?.email || 'vedantwankhade47@gmail.com';
   const userInitial = userName.charAt(0).toUpperCase();
 
-  const ULTRON_DOWNLOAD_URL = 'https://ultron.dev/download';
+  const ULTRON_DOWNLOAD_URL = 'https://usebrown.online/download';
 
   // Platform-aware "Also Available On" links (Windows & Android only for now)
   const currentPlatform = Platform.OS; // 'android' | 'ios' | 'web' | 'windows' | 'macos'
@@ -961,13 +997,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  const handleOpenDownloadLink = (url: string) => {
+  const handleOpenDownloadLink = async (url: string) => {
     try {
       if (Platform.OS === 'web' && typeof window !== 'undefined') {
         window.open(url, '_blank');
       } else {
-        // For native platforms, use Alert as fallback
-        Alert.alert('Download Brown', url);
+        await Linking.openURL(url);
       }
     } catch {
       Alert.alert('Unable to open link', url);
@@ -1047,7 +1082,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           title: 'Software Updates',
           iconType: 'update',
           iconColor: '#fb923c',
-          detail: 'v1.0',
+          detail: `v${currentAppVersion}`,
           action: () => navigateToView('updates'),
         },
       ],
@@ -1062,7 +1097,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           title: 'About Brown',
           iconType: 'about',
           iconColor: '#e4e4e7',
-          detail: 'v1.0',
+          detail: `v${currentAppVersion}`,
           action: () => navigateToView('about'),
         },
       ],
@@ -1163,7 +1198,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // VIEW HELPER: FULL-PAGE HEADER COMPONENT
   // ==========================================
   const renderFullPageHeader = (title: string, onCustomBack?: () => void) => (
-    <ScreenHeader title={title} onBack={onCustomBack || handleSmoothBack} scrolled={settingsScrolled} />
+    <ScreenHeader centered title={title} onBack={onCustomBack || handleSmoothBack} scrolled={settingsScrolled} />
   );
 
   // ==========================================
@@ -1394,9 +1429,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.accountAvatarLarge}>
                 <Text style={styles.avatarBigText}>{userInitial}</Text>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.accountNameText}>{userName}</Text>
-                <Text style={styles.accountEmailText}>{userEmail}</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.accountNameText} numberOfLines={1}>{userName}</Text>
+                <Text style={styles.accountEmailText} numberOfLines={1}>{userEmail}</Text>
               </View>
               <TouchableOpacity
                 style={styles.accountEditHeaderBtn}
@@ -1408,7 +1443,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Location Card — minimal ChatGPT-style */}
+            {/* Location preferences */}
             <View style={styles.locationCardGroup}>
               <View style={styles.locationHeaderRow}>
                 <Text style={styles.locationSectionTitle}>Location</Text>
@@ -1418,13 +1453,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     value={autoDetectLocation}
                     onValueChange={(val: boolean) => {
                       setAutoDetectLocation(val);
-                      if (val) performRealLocationDetection();
+                      AsyncStorage.setItem(AUTO_DETECT_LOCATION_KEY, val ? '1' : '0').catch(() => {});
+                      if (val) performRealLocationDetection(true);
                     }}
                   />
                 </View>
               </View>
 
               <View style={styles.locationInputBox}>
+                <MapPinIcon size={20} color="#a1a1aa" />
                 <TextInput
                   style={[styles.locationTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
                   value={homeLocation}
@@ -1432,7 +1469,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     setHomeLocation(val);
                     AsyncStorage.setItem(LOCATION_STORAGE_KEY, val).catch(() => {});
                   }}
-                  placeholder="Enter your location"
+                  accessibilityLabel="Your location"
+                  placeholder="City, region or country"
                   placeholderTextColor="#71717a"
                 />
               </View>
@@ -1440,12 +1478,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.locationFooterRow}>
                 <TouchableOpacity
                   style={[styles.detectLocationBtn, isDetectingLocation && { opacity: 0.6 }]}
-                  onPress={performRealLocationDetection}
+                  onPress={() => performRealLocationDetection(true)}
                   activeOpacity={0.8}
                   disabled={isDetectingLocation}
                 >
                   <Text style={styles.detectLocationBtnText}>
-                    {isDetectingLocation ? 'Detecting…' : 'Detect'}
+                    {isDetectingLocation ? 'Detecting…' : 'Use current location'}
                   </Text>
                 </TouchableOpacity>
                 {locationStatusText ? (
@@ -1455,10 +1493,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 ) : null}
               </View>
             </View>
-
-            <Text style={styles.accountFooterNote}>
-              Google OAuth and local cryptographic keystores operate on-device for secure sovereign execution.
-            </Text>
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
@@ -2394,7 +2428,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
                 <ToggleSwitch
                   value={completionSound}
-                  onValueChange={setCompletionSound}
+                  onValueChange={(v) => {
+                    setCompletionSound(v);
+                    SoundService.setSoundEnabled('task-complete', v);
+                    if (v) SoundService.playCompletion();
+                  }}
                 />
               </View>
 
@@ -2405,7 +2443,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
                 <ToggleSwitch
                   value={permissionSound}
-                  onValueChange={setPermissionSound}
+                  onValueChange={(v) => {
+                    setPermissionSound(v);
+                    SoundService.setSoundEnabled('permission', v);
+                    if (v) SoundService.playPermission();
+                  }}
                 />
               </View>
 
@@ -2416,7 +2458,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </View>
                 <ToggleSwitch
                   value={questionSound}
-                  onValueChange={setQuestionSound}
+                  onValueChange={(v) => {
+                    setQuestionSound(v);
+                    SoundService.setSoundEnabled('question', v);
+                    if (v) SoundService.playQuestion();
+                  }}
                 />
               </View>
             </View>
@@ -2519,7 +2565,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sectionCardTitle}>Auto-Connect to Paired PC</Text>
                   <Text style={styles.sectionCardSubtitle}>
-                    Silently reconnect on the same Wi-Fi using the saved session token. Unfamiliar networks still ask for the 4-digit code.
+                    Silently reconnect on the same Wi-Fi using the saved session token. Unfamiliar networks still ask for the 6-character code.
                   </Text>
                 </View>
                 <ToggleSwitch
@@ -2557,7 +2603,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         `${result.sessions} new threads, ${result.messages} new messages.`
                       );
                     } catch (err: any) {
-                      Alert.alert('Sync failed', err?.message || 'Pair with Ultron Desktop first.');
+                      Alert.alert('Sync failed', err?.message || 'Pair with Brown Desktop first.');
                     } finally {
                       setSyncBusy(false);
                     }
@@ -2579,7 +2625,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       const result = await sync.exportPhoneChats();
                       Alert.alert('Exported to PC', `${result.sessions} conversation(s) saved on the workstation.`);
                     } catch (err: any) {
-                      Alert.alert('Export failed', err?.message || 'Pair with Ultron Desktop first.');
+                      Alert.alert('Export failed', err?.message || 'Pair with Brown Desktop first.');
                     } finally {
                       setSyncBusy(false);
                     }
@@ -2632,14 +2678,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={{ marginTop: 12 }}>
                 <Text style={styles.inputFieldLabel}>{'Agent Storage & Memory'}</Text>
                 <View style={styles.storageInputRow}>
-                  <TextInput
-                    style={[styles.storageTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                    value={customDataDir}
-                    onChangeText={async (v: string) => {
-                      setCustomDataDir(v);
-                      await StoragePaths.setDataDir(v);
-                    }}
-                  />
+                  <TouchableOpacity
+                    style={[styles.storageTextInput, { justifyContent: 'center' }]}
+                    onPress={() => chooseStorageFolder('data')}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Choose agent storage folder"
+                  >
+                    <Text style={styles.storagePathText} numberOfLines={1} ellipsizeMode="middle">{customDataDir}</Text>
+                    <Text style={styles.storageChooseLabel}>Choose folder</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.browseStorageBtn}
                     onPress={async () => {
@@ -2647,11 +2694,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       const data = `${root}data/`;
                       setCustomDataDir(StoragePaths.displayPath(data));
                       await StoragePaths.setDataDir(data);
-                      Alert.alert('Storage Location', 'Using UltronAI data folder in app storage.');
+                      Alert.alert('Storage Location', `Using ${StoragePaths.displayPath(data)}`);
                     }}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.browseStorageBtnText}>Browse</Text>
+                    <Text style={styles.browseStorageBtnText}>Use default</Text>
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.storageHintText}>
@@ -2663,14 +2710,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={{ marginTop: 16, paddingTop: 6 }}>
                 <Text style={styles.inputFieldLabel}>{'Connectors & Downloads'}</Text>
                 <View style={styles.storageInputRow}>
-                  <TextInput
-                    style={[styles.storageTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                    value={customConnectorsDir}
-                    onChangeText={async (v: string) => {
-                      setCustomConnectorsDir(v);
-                      await StoragePaths.setModelsDir(v);
-                    }}
-                  />
+                  <TouchableOpacity
+                    style={[styles.storageTextInput, { justifyContent: 'center' }]}
+                    onPress={() => chooseStorageFolder('models')}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Choose download folder"
+                  >
+                    <Text style={styles.storagePathText} numberOfLines={1} ellipsizeMode="middle">{customConnectorsDir}</Text>
+                    <Text style={styles.storageChooseLabel}>Choose folder</Text>
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.browseStorageBtn}
                     onPress={async () => {
@@ -2678,11 +2726,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       const models = `${root}models/`;
                       setCustomConnectorsDir(StoragePaths.displayPath(models));
                       await StoragePaths.setModelsDir(models);
-                      Alert.alert('Connectors Location', 'Models will save to /UltronAI/models/.');
+                      Alert.alert('Connectors Location', `Models will save to ${StoragePaths.displayPath(models)}`);
                     }}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.browseStorageBtnText}>Browse</Text>
+                    <Text style={styles.browseStorageBtnText}>Use default</Text>
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.storageHintText}>
@@ -2900,7 +2948,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={styles.aboutAppTitle}>Brown</Text>
                     <View style={styles.aboutVersionBadge}>
-                      <Text style={styles.aboutVersionBadgeText}>v1.0</Text>
+                      <Text style={styles.aboutVersionBadgeText}>v{currentAppVersion}</Text>
                     </View>
                   </View>
                   <Text style={styles.aboutTagline}>{'Local & Offline Mobile AI Companion'}</Text>
@@ -2919,7 +2967,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <View style={styles.aboutSpecsGrid}>
                 <View style={styles.aboutSpecItem}>
                   <Text style={styles.aboutSpecLabel}>VERSION</Text>
-                  <Text style={styles.aboutSpecValue}>v1.0 Mobile</Text>
+                  <Text style={styles.aboutSpecValue}>v{currentAppVersion} Mobile</Text>
                 </View>
                 <View style={styles.aboutSpecItem}>
                   <Text style={styles.aboutSpecLabel}>PLATFORM</Text>
@@ -3028,7 +3076,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {/* Top Header Row: Transitions into Search Field in the exact same row when search is active */}
         {isSpotlightOpen ? (
           <View style={[styles.mainHeaderRow, styles.mainHeaderSearchActive, settingsScrolled && styles.mainHeaderRowScrolled]}>
-            <View style={styles.headerSearchBar}>
+            <GlassSurface radius={9999} active={true} style={styles.headerSearchBar}>
               <SearchIcon size={17} color="#9ca3af" />
               <TextInput
                 style={[
@@ -3051,54 +3099,50 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <CloseIcon size={16} color="#a1a1aa" />
                 </TouchableOpacity>
               )}
-            </View>
-            <TouchableOpacity
+            </GlassSurface>
+            <GlassControl radius={22} active={true}
               style={styles.searchCloseBtn}
               onPress={() => {
                 setIsSpotlightOpen(false);
                 setSearchQuery('');
               }}
               activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityLabel="Close Search"
             >
               <CloseIcon size={20} color="#e4e4e7" />
-            </TouchableOpacity>
+            </GlassControl>
           </View>
         ) : (
           <View style={[styles.mainHeaderRow, settingsScrolled && styles.mainHeaderRowScrolled]}>
-            <TouchableOpacity
+            <GlassControl radius={22} active={true}
               style={styles.settingsBackBtn}
               onPress={handleSmoothBack}
               activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityLabel="Back to Chat"
             >
               <BackArrowIcon size={22} color="#ffffff" strokeWidth={2.2} />
-            </TouchableOpacity>
+            </GlassControl>
             <Text style={styles.settingsTitleText} numberOfLines={1}>
               Settings
             </Text>
             <View style={{ flex: 1 }} />
             <View style={styles.headerRightGroup}>
-              <TouchableOpacity
+              <GlassControl radius={22} active={true}
                 style={styles.headerIconBtn}
                 onPress={() => setIsSpotlightOpen(true)}
                 activeOpacity={0.7}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityLabel="Spotlight Search"
               >
                 <SearchIcon size={20} color="#e4e4e7" />
-              </TouchableOpacity>
-              <TouchableOpacity
+              </GlassControl>
+              <GlassControl radius={22} active={true}
                 style={styles.headerIconBtn}
                 onPress={() => navigateToView('about')}
                 activeOpacity={0.7}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityLabel="About Brown"
               >
                 <HelpCircleIcon size={20} color="#e4e4e7" />
-              </TouchableOpacity>
+              </GlassControl>
             </View>
           </View>
         )}
@@ -3235,7 +3279,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </React.Fragment>
               ))}
             </View>
-            <Text style={styles.bottomVersionLabel}>V1.0.0</Text>
+            <Text style={styles.bottomVersionLabel}>V{currentAppVersion}</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -3254,7 +3298,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
   },
   headerLeftGroup: {
     flexDirection: 'row',
@@ -3265,6 +3309,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   screenTitle: {
+    textAlign: 'center',
     color: '#ffffff',
     fontSize: 19,
     fontWeight: '700',
@@ -3275,13 +3320,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  headerIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  headerIconBtn: { ...headerButtonStyle },
   mainHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3289,19 +3328,14 @@ const styles = StyleSheet.create({
     paddingRight: 14,
     paddingTop: 8,
     paddingBottom: 8,
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
     minHeight: 58,
     width: '100%',
     maxWidth: 600,
     alignSelf: 'center',
   },
   mainHeaderRowScrolled: {
-    backgroundColor: '#0a0a0c',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.55,
-    shadowRadius: 12,
-    elevation: 12,
+    backgroundColor: 'transparent',
   },
   mainHeaderSearchActive: {
     paddingLeft: 14,
@@ -3312,12 +3346,9 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
     borderRadius: 9999,
     paddingHorizontal: 12,
     height: 42,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
     gap: 8,
   },
   headerSearchInput: {
@@ -3326,21 +3357,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingVertical: 0,
   },
-  searchCloseBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  settingsBackBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
-  },
+  searchCloseBtn: { ...headerButtonStyle },
+  settingsBackBtn: { ...headerButtonStyle },
   settingsTitleText: {
     position: 'absolute',
     left: 64,
@@ -3565,6 +3583,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   sectionCardTitle: {
+    textAlign: 'left',
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '600',
@@ -3576,6 +3595,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   desktopSectionHeading: {
+    textAlign: 'left',
     color: '#ffffff',
     fontSize: 17,
     fontWeight: '700',
@@ -3602,6 +3622,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   pageMainHeading: {
+    textAlign: 'center',
     color: '#ffffff',
     fontSize: 19,
     fontWeight: '700',
@@ -4272,9 +4293,9 @@ const styles = StyleSheet.create({
   accountProfileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
-    borderRadius: 22,
-    padding: 16,
+    backgroundColor: '#1B1B1B',
+    borderRadius: 9999,
+    padding: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -4317,10 +4338,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   locationCardGroup: {
-    backgroundColor: '#212121',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingTop: 28,
+    paddingBottom: 8,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   locationHeaderRow: {
@@ -4330,8 +4350,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   locationSectionTitle: {
+    textAlign: 'left',
     color: '#ffffff',
-    fontSize: 15.5,
+    fontSize: 18,
     fontWeight: '600',
   },
   autoLocationToggleRow: {
@@ -4346,31 +4367,39 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   locationInputBox: {
-    backgroundColor: '#2c2c2e',
-    borderRadius: 12,
+    backgroundColor: '#1B1B1B',
+    borderRadius: 24,
     paddingHorizontal: 14,
-    height: 46,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   locationTextInput: {
     flex: 1,
+    minWidth: 0,
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '400',
-    paddingVertical: 0,
+    paddingVertical: 14,
   },
   locationFooterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    marginTop: 12,
+    marginTop: 14,
+    flexWrap: 'wrap',
   },
   detectLocationBtn: {
-    backgroundColor: '#0a84ff',
-    borderRadius: 10,
+    backgroundColor: '#1B1B1B',
+    borderRadius: 9999,
     paddingHorizontal: 18,
-    height: 36,
+    minHeight: 44,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4381,17 +4410,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   locationStatusHintText: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
     color: '#8e8e93',
     fontSize: 12,
     fontWeight: '400',
-  },
-  accountFooterNote: {
-    color: '#71717a',
-    fontSize: 12,
-    lineHeight: 16,
-    textAlign: 'center',
-    marginTop: 10,
   },
 
   /* Storage Screen Styles */
@@ -4403,6 +4426,7 @@ const styles = StyleSheet.create({
   },
   storageInputRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   storageTextInput: {
@@ -4416,7 +4440,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
+  storagePathText: { color: '#ffffff', fontSize: 12.5 },
+  storageChooseLabel: { color: '#60a5fa', fontSize: 12, marginTop: 4 },
   browseStorageBtn: {
+    paddingVertical: 6,
     backgroundColor: '#ffffff',
     borderRadius: 9999,
     paddingHorizontal: 16,
@@ -4467,6 +4494,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   updateSectionTitle: {
+    textAlign: 'left',
     color: '#ffffff',
     fontFamily: typography.fontFamily.semiBold,
     fontSize: 17,
@@ -4630,6 +4658,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   aboutSectionTitle: {
+    textAlign: 'left',
     color: '#ffffff',
     fontSize: 14.5,
     fontWeight: '700',

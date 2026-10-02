@@ -11,6 +11,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { GlassControl } from './ScreenHeader';
 import { CloseIcon, QrCodeIcon, CheckIcon } from './Icons';
 
 interface QRScannerModalProps {
@@ -68,14 +69,14 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
             <QrCodeIcon size={22} color="#ffffff" />
             <Text style={styles.headerTitle}>Scan Desktop QR Code</Text>
           </View>
-          <TouchableOpacity
+          <GlassControl radius={18}
             style={styles.closeBtn}
             onPress={onClose}
             activeOpacity={0.7}
             accessibilityLabel="Close scanner"
           >
             <CloseIcon size={20} color="#a1a1aa" />
-          </TouchableOpacity>
+          </GlassControl>
         </View>
 
         {/* Camera Scanner or Permission Fallback */}
@@ -135,7 +136,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
               style={styles.manualInput}
               value={manualCode}
               onChangeText={(t: string) => setManualCode(t.toUpperCase())}
-              placeholder="e.g. 7842 or BROWN-WIN-..."
+              placeholder="e.g. K7QM2X or BROWN-WIN-..."
               placeholderTextColor="#71717a"
               autoCapitalize="characters"
               autoCorrect={false}
@@ -169,9 +170,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 14,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: '#121214',
+    backgroundColor: 'transparent',
   },
   headerTitleRow: {
     flexDirection: 'row',
@@ -189,7 +190,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
   },
   cameraContainer: {
     flex: 1,

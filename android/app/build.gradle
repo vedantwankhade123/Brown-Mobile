@@ -120,8 +120,8 @@ android {
         applicationId 'com.brown.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.0.2"
+        versionCode 12
+        versionName "1.0.3"
     }
     signingConfigs {
         debug {
@@ -223,31 +223,16 @@ tasks.register("copyReleaseApkToUltronReleases") {
             return
         }
         try {
-            def destDir = file("${rootProject.projectDir}/../../Downloadable Files")
+            def destDir = file("${rootProject.projectDir}/../../Downloadable Files/Mobile App")
             destDir.mkdirs()
             def versionName = android.defaultConfig.versionName ?: "1.0"
-            // Spaced name for local Downloadable Files; GitHub Releases rewrites spaces to hyphens
             def targetName = "Brown AI Mobile v${versionName}.apk"
-            def githubSafeName = "Brown-AI-Mobile-v${versionName}.apk"
             copy {
                 from built
                 into destDir
                 rename { targetName }
             }
-            copy {
-                from built
-                into destDir
-                rename { githubSafeName }
-            }
-            def alsoCopy = file("${destDir}/app-release.apk")
-            java.nio.file.Files.copy(
-                built.toPath(),
-                alsoCopy.toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING
-            )
             println "Release APK copied to: ${new File(destDir, targetName).absolutePath}"
-            println "GitHub-safe copy: ${new File(destDir, githubSafeName).absolutePath}"
-            println "Also available as: ${alsoCopy.absolutePath}"
         } catch (Exception e) {
             println "Notice: Could not copy to local Downloadable Files folder: ${e.message}"
         }
@@ -256,4 +241,16 @@ tasks.register("copyReleaseApkToUltronReleases") {
 
 tasks.matching { it.name == "assembleRelease" }.configureEach {
     finalizedBy("copyReleaseApkToUltronReleases")
+}
+
+// expo-constants declares no inputs on createExpoConfig, so Gradle serves the baked
+// assets/app.config from cache forever and the APK ships a stale version string.
+// That makes the update checker compare GitHub's latest against an old version.
+gradle.projectsEvaluated {
+    rootProject.allprojects.each { p ->
+        def generateConfig = p.tasks.findByName("createExpoConfig")
+        if (generateConfig != null) {
+            generateConfig.outputs.upToDateWhen { false }
+        }
+    }
 }

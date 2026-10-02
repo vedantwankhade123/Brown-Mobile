@@ -1,3 +1,5 @@
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
@@ -19,7 +21,6 @@ import {
   ChevronRightIcon,
   PlusIcon,
   DocumentIcon,
-  ImageIcon,
   CloseIcon,
 } from './Icons';
 import { ModelMetadata } from '../types/model';
@@ -90,6 +91,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const lastSentAtRef = useRef(0);
   const lastSentTextRef = useRef('');
   const textInputRef = useRef<any>(null);
+  // Composer content captured when voice listening starts; live partials are
+  // rendered on top of it and rolled back on cancel.
+  const voiceBaseRef = useRef<string | null>(null);
+  const textRef = useRef('');
+  textRef.current = text;
 
   const focusComposer = useCallback(() => {
     if (disabled || isListening) return;
@@ -104,14 +110,23 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     setTimeout(run, 32);
   }, [disabled, isListening]);
 
-  // Insert dictated text into the composer for review (do not auto-send)
+  // Insert dictated text into the composer for review (do not auto-send).
+  // Declared before the isListening effect so the commit replaces the live
+  // partial instead of the cancel-restore overwriting it afterwards.
   useEffect(() => {
     const insert = (voiceInsertText || '').trim();
     if (!insert) return;
-    setText((prev) => {
-      const base = prev.trim();
-      return base ? `${base} ${insert}` : insert;
-    });
+    const base = voiceBaseRef.current;
+    if (base !== null) {
+      voiceBaseRef.current = null;
+      const head = base.trim() ? `${base.replace(/\s+$/, '')} ` : '';
+      setText(`${head}${insert}`);
+    } else {
+      setText((prev) => {
+        const b = prev.trim();
+        return b ? `${b} ${insert}` : insert;
+      });
+    }
     onVoiceInsertConsumed?.();
   }, [voiceInsertText]);
 
@@ -132,6 +147,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   useEffect(() => {
     let timer: any = null;
     if (isListening) {
+      voiceBaseRef.current = textRef.current;
       setRecordingSeconds(0);
       setShowAttachMenu(false);
       timer = setInterval(() => {
@@ -139,11 +155,28 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       }, 1000);
     } else {
       setRecordingSeconds(0);
+      // Cancelled (or errored) before a commit cleared the ref — roll the
+      // composer back to what it held when listening started.
+      if (voiceBaseRef.current !== null) {
+        const base = voiceBaseRef.current;
+        voiceBaseRef.current = null;
+        setText(base);
+      }
     }
     return () => {
       if (timer) clearInterval(timer);
     };
   }, [isListening]);
+
+  // Stream live transcription into the input field itself (waveform stays blank-safe).
+  useEffect(() => {
+    if (!isListening) return;
+    const base = voiceBaseRef.current;
+    if (base === null) return;
+    const partial = (voicePartialText || '').trim();
+    const head = base.trim() ? `${base.replace(/\s+$/, '')} ` : '';
+    setText(partial ? `${head}${partial}` : base);
+  }, [isListening, voicePartialText]);
 
   const formatTimer = (secs: number) => {
     const mins = Math.floor(secs / 60);
@@ -242,59 +275,59 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     setInputHeight(newHeight);
   };
 
-  const handleAttachFile = (fileType: string) => {
+  const handleAttachFile = async () => {
     setShowAttachMenu(false);
-    if (Platform.OS === 'web' && typeof document !== 'undefined') {
-      const input = document.createElement('input');
-      input.type = 'file';
-      if (fileType === 'doc') {
-        input.accept = '.pdf,.docx,.doc,.txt,.md,.json,.csv';
-      } else if (fileType === 'img') {
-        input.accept = 'image/*';
-      } else if (fileType === 'audio') {
-        input.accept = 'audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm';
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*', copyToCacheDirectory: true, multiple: false,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const file = result.assets[0];
+      const mime = file.mimeType || '';
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      if (mime.startsWith('image/')) {
+        Alert.alert('Image attachment unavailable', modelSupportsImages(activeModel)
+          ? 'Image file processing is not available in this chat yet.'
+          : 'Choose a vision model to use images. Image file processing is not available in this chat yet.');
+        return;
       }
-      input.onchange = (e: any) => {
-        const file = e.target.files?.[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (fileType === 'doc') {
-              const prefix = `[Document: ${file.name}]\n`;
-              setText((prev) => (prev ? `${prev}\n${prefix}` : prefix));
-            } else if (fileType === 'img') {
-              const prefix = `[Image: ${file.name}]\n`;
-              setText((prev) => (prev ? `${prev}\n${prefix}` : prefix));
-            } else if (fileType === 'audio') {
-              const prefix = `[Voice Audio: ${file.name}]\n(Transcribed offline on-device)\n`;
-              setText((prev) => (prev ? `${prev}\n${prefix}` : prefix));
-            }
-          };
-          if (file.name.endsWith('.pdf') || file.type.startsWith('image/') || file.type.startsWith('audio/')) {
-            reader.readAsDataURL(file);
-          } else {
-            reader.readAsText(file);
-          }
-        }
-      };
-      input.click();
-    } else {
-      if (fileType === 'doc') {
-        setText((prev) => (prev ? `${prev}\n[Attached: Document.pdf] ` : `[Attached: Document.pdf] `));
-        Alert.alert('Document Attached', 'Document.pdf parsed and added to offline context.');
-      } else if (fileType === 'img') {
-        setText((prev) => (prev ? `${prev}\n[Attached: Photo.png] ` : `[Attached: Photo.png] `));
-        Alert.alert('Image Attached', 'Photo.png attached for on-device analysis.');
-      } else if (fileType === 'audio') {
-        setText((prev) => (prev ? `${prev}\n[Voice Audio: memo.m4a]\n(Transcribed on-device) ` : `[Voice Audio: memo.m4a]\n(Transcribed on-device) `));
-        Alert.alert('Voice File Transcribed', 'Audio file parsed and converted to text offline.');
+      const readable = mime.startsWith('text/') || ['txt', 'md', 'csv', 'tsv', 'json', 'xml', 'yaml', 'yml', 'log', 'js', 'ts', 'py', 'html', 'css'].includes(extension);
+      if (!readable) {
+        Alert.alert('File type not supported', 'Choose a text document, code file, CSV or JSON. PDF, Office, audio and other binary files cannot be read in this chat yet.');
+        return;
       }
+      if (!modelSupportsDocuments(activeModel)) {
+        Alert.alert('Files not supported', 'Choose a model that supports document content.');
+        return;
+      }
+      if ((file.size || 0) > 1024 * 1024) {
+        Alert.alert('File too large', 'Choose a text file smaller than 1 MB.');
+        return;
+      }
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Alert.alert('Add this file?', file.name, [
+          { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+          { text: 'Add file', onPress: () => resolve(true) },
+        ]);
+      });
+      if (!confirmed) return;
+      const contents = Platform.OS === 'web' && file.file
+        ? await file.file.text()
+        : await FileSystem.readAsStringAsync(file.uri);
+      const prefix = `[File: ${file.name}]\n`;
+      const draft = (text.trim() ? `${text}\n` : '') + prefix + contents;
+      if (draft.length > 4000) {
+        Alert.alert('File too long', 'This file and your draft exceed the 4,000-character input limit. Choose a shorter file or clear your draft.');
+        return;
+      }
+      setText(draft);
+      textInputRef.current?.focus();
+    } catch (error: any) {
+      Alert.alert('Could not open file', error?.message || 'Please try another file.');
     }
   };
 
   const hasText = text.trim().length > 0;
-  const canAttachDoc = modelSupportsDocuments(activeModel);
-  const canAttachImg = modelSupportsImages(activeModel);
 
   return (
     <KeyboardAvoidingView
@@ -381,87 +414,31 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         ]}
                       >
                         <TouchableOpacity
-                          style={[
-                            styles.contextMenuItem,
-                            !canAttachDoc && styles.contextMenuItemDisabled,
-                            hoveredOption === 'doc' && canAttachDoc && styles.contextMenuItemHovered,
-                          ]}
-                          onPress={() => {
-                            if (!canAttachDoc) {
-                              Alert.alert(
-                                'Files not supported',
-                                `The current model (${activeModel?.name || 'Selected Model'}) does not support document attachments.`
-                              );
-                              return;
-                            }
-                            handleAttachFile('doc');
-                          }}
-                          activeOpacity={canAttachDoc ? 0.7 : 1}
-                          {...(Platform.OS === 'web'
-                            ? ({
-                                onMouseEnter: () => setHoveredOption('doc'),
-                                onMouseLeave: () => setHoveredOption(null),
-                              } as any)
-                            : {})}
+                          style={[styles.contextMenuItem, hoveredOption === 'file' && styles.contextMenuItemHovered]}
+                          onPress={handleAttachFile}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Add files"
+                          {...(Platform.OS === 'web' ? ({
+                            onMouseEnter: () => setHoveredOption('file'),
+                            onMouseLeave: () => setHoveredOption(null),
+                          } as any) : {})}
                         >
-                          <View style={[styles.contextMenuIconBox, hoveredOption === 'doc' && canAttachDoc && { backgroundColor: 'rgba(59, 130, 246, 0.22)' }]}>
-                            <DocumentIcon size={16} color={canAttachDoc ? (hoveredOption === 'doc' ? '#93c5fd' : '#60a5fa') : '#52525b'} />
+                          <View style={styles.contextMenuIconBox}>
+                            <DocumentIcon size={16} color="#60a5fa" />
                           </View>
-                          <Text style={[styles.contextMenuText, !canAttachDoc && styles.contextMenuTextDisabled, hoveredOption === 'doc' && canAttachDoc && styles.contextMenuTextHovered]}>
-                            Add Files
-                          </Text>
-                          {canAttachDoc ? (
-                            <ChevronRightIcon
-                              size={14}
-                              color={hoveredOption === 'doc' ? '#ffffff' : '#71717a'}
-                            />
-                          ) : (
-                            <View style={styles.disabledBadge}>
-                              <Text style={styles.disabledBadgeText}>Unavailable</Text>
-                            </View>
-                          )}
+                          <Text style={styles.contextMenuText}>Add files</Text>
+                          <ChevronRightIcon size={14} color="#71717a" />
                         </TouchableOpacity>
-
                         <TouchableOpacity
-                          style={[
-                            styles.contextMenuItem,
-                            !canAttachImg && styles.contextMenuItemDisabled,
-                            hoveredOption === 'img' && canAttachImg && styles.contextMenuItemHovered,
-                          ]}
-                          onPress={() => {
-                            if (canAttachImg) {
-                              handleAttachFile('img');
-                            } else {
-                              Alert.alert(
-                                'Images not supported',
-                                `The current model (${activeModel?.name || 'Selected Model'}) does not accept images. Switch to a vision model (e.g. Gemini) to analyze photos.`
-                              );
-                            }
-                          }}
-                          activeOpacity={canAttachImg ? 0.7 : 1}
-                          {...(Platform.OS === 'web'
-                            ? ({
-                                onMouseEnter: () => setHoveredOption('img'),
-                                onMouseLeave: () => setHoveredOption(null),
-                              } as any)
-                            : {})}
+                          style={styles.contextMenuItem}
+                          onPress={() => setShowAttachMenu(false)}
+                          accessibilityLabel="Cancel file upload"
+                          activeOpacity={0.7}
                         >
-                          <View style={[styles.contextMenuIconBox, hoveredOption === 'img' && canAttachImg && { backgroundColor: 'rgba(16, 185, 129, 0.22)' }]}>
-                            <ImageIcon size={16} color={canAttachImg ? (hoveredOption === 'img' ? '#6ee7b7' : '#34d399') : '#52525b'} />
+                          <View style={styles.contextMenuIconBox}>
+                            <CloseIcon size={16} color="#a1a1aa" />
                           </View>
-                          <Text style={[styles.contextMenuText, !canAttachImg && styles.contextMenuTextDisabled, hoveredOption === 'img' && canAttachImg && styles.contextMenuTextHovered]}>
-                            Add Image
-                          </Text>
-                          {canAttachImg ? (
-                            <ChevronRightIcon
-                              size={14}
-                              color={hoveredOption === 'img' ? '#ffffff' : '#71717a'}
-                            />
-                          ) : (
-                            <View style={styles.disabledBadge}>
-                              <Text style={styles.disabledBadgeText}>No vision</Text>
-                            </View>
-                          )}
+                          <Text style={styles.contextMenuText}>Cancel</Text>
                         </TouchableOpacity>
                       </Animated.View>
                     )}
@@ -495,9 +472,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
                       <View style={styles.voiceVisualizerWrapper}>
                         <AudioWaveform isActive={true} barCount={5} barColor="rgba(255, 255, 255, 0.7)" maxHeight={16} />
-                        <Text style={styles.voiceListeningText} numberOfLines={1}>
-                          {voicePartialText.trim() || 'Listening…'}
-                        </Text>
                       </View>
 
                       <View style={styles.voicePillRight}>
@@ -663,7 +637,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   inputCard: {
-    backgroundColor: '#212121',
+    backgroundColor: '#1B1B1B',
     borderRadius: 30,
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -785,12 +759,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     overflow: 'hidden',
-  },
-  voiceListeningText: {
-    color: '#ffffff',
-    fontSize: 12.5,
-    fontWeight: '600',
-    flexShrink: 1,
   },
   voicePillRight: {
     flexDirection: 'row',

@@ -13,8 +13,6 @@ import {
   Platform,
   Animated,
 } from 'react-native';
-import { Audio } from 'expo-av';
-import { Svg, Polygon, Line } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
@@ -31,7 +29,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronDownIcon,
-  SpeakerIcon,
 } from '../components/Icons';
 import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -49,52 +46,6 @@ const Easing = (Animated as any).Easing || {
   cubic: (t: any) => t,
   ease: (t: any) => t,
 };
-
-const ONBOARD_VOICE_FILES: Record<number, number> = {
-  0: require('../../Assets/sounds/step-0-welcome.mp3'),
-  1: require('../../Assets/sounds/step-1-name.mp3'),
-  2: require('../../Assets/sounds/step-2-birthdate.mp3'),
-  3: require('../../Assets/sounds/step-3-email.mp3'),
-  4: require('../../Assets/sounds/step-4-requirements.mp3'),
-  5: require('../../Assets/sounds/step-5-ready.mp3'),
-};
-
-const VoiceWaveBars: React.FC = () => {
-  const bar1 = useRef(new Animated.Value(0.35)).current;
-  const bar2 = useRef(new Animated.Value(0.35)).current;
-  const bar3 = useRef(new Animated.Value(0.35)).current;
-
-  useEffect(() => {
-    const mk = (v: any, delay: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(v, { toValue: 1, duration: 360, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0.35, duration: 360, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ])
-      );
-    const loops = [mk(bar1, 0), mk(bar2, 120), mk(bar3, 240)];
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
-  }, [bar1, bar2, bar3]);
-
-  const bars = [bar1, bar2, bar3];
-  return (
-    <View style={styles.voiceWaveRow}>
-      {bars.map((b, i) => (
-        <Animated.View key={i} style={[styles.voiceWaveBar, { transform: [{ scaleY: b }] }]} />
-      ))}
-    </View>
-  );
-};
-
-const MutedSpeakerIcon: React.FC<{ size?: number; color?: string }> = ({ size = 15, color = '#a1a1aa' }) => (
-  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-    <Polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-    <Line x1="23" y1="9" x2="17" y2="15" />
-    <Line x1="17" y1="9" x2="23" y2="15" />
-  </Svg>
-);
 
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState<number>(0);
@@ -120,81 +71,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState<boolean>(false);
 
-  const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
-  const [voiceSpeaking, setVoiceSpeaking] = useState<boolean>(false);
-  const voiceSoundRef = useRef<any>(null);
-  const voiceTokenRef = useRef<number>(0);
-
-  const releaseVoice = () => {
-    voiceTokenRef.current += 1;
-    const sound = voiceSoundRef.current;
-    voiceSoundRef.current = null;
-    setVoiceSpeaking(false);
-    if (sound) {
-      Promise.resolve(sound.unloadAsync()).catch(() => {});
-    }
-  };
-
-  const speakStep = (step: number) => {
-    const source = ONBOARD_VOICE_FILES[step];
-    if (!source) return;
-    releaseVoice();
-    const token = voiceTokenRef.current;
-    Audio.setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
-    Audio.Sound.createAsync(
-      source,
-      { shouldPlay: true },
-      (status: any) => {
-        if (status && status.didJustFinish) {
-          setVoiceSpeaking(false);
-          const sound = voiceSoundRef.current;
-          voiceSoundRef.current = null;
-          if (sound) {
-            Promise.resolve(sound.unloadAsync()).catch(() => {});
-          }
-        }
-      }
-    )
-      .then(({ sound }: any) => {
-        if (token !== voiceTokenRef.current) {
-          Promise.resolve(sound.unloadAsync()).catch(() => {});
-          return;
-        }
-        voiceSoundRef.current = sound;
-        setVoiceSpeaking(true);
-      })
-      .catch(() => {
-        if (token === voiceTokenRef.current) setVoiceSpeaking(false);
-      });
-  };
-
-  useEffect(() => {
-    if (!voiceMuted && currentStep in ONBOARD_VOICE_FILES) {
-      speakStep(currentStep);
-    }
-    return () => {
-      releaseVoice();
-    };
-  }, [currentStep]);
-
-  useEffect(() => {
-    return () => {
-      releaseVoice();
-    };
-  }, []);
-
-  const handleVoiceToggle = () => {
-    if (voiceSpeaking) {
-      setVoiceMuted(true);
-      releaseVoice();
-    } else if (voiceMuted) {
-      setVoiceMuted(false);
-      speakStep(currentStep);
-    } else {
-      speakStep(currentStep);
-    }
-  };
-
   useEffect(() => {
     // Pre-fill existing user info if available
     AsyncStorage.getItem('@ultron_user_profile').then((data) => {
@@ -217,7 +93,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     if (prevStepRef.current === currentStep) return;
     prevStepRef.current = currentStep;
 
-    revealValue(stepFadeAnim, 0, 1, 240);
+    revealValue(stepFadeAnim, 0, 1, 240, false);
   }, [currentStep, stepFadeAnim]);
 
   const handleStart = () => {
@@ -289,7 +165,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   };
 
   const finishOnboarding = async () => {
-    releaseVoice();
     // 1. Permanently record and archive user's legal agreement on device
     const consent = await ConsentService.recordConsent({
       fullName,
@@ -415,25 +290,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Top-left Voice Guide narrator toggle */}
-      <View style={styles.voiceGuideBar}>
-        <TouchableOpacity
-          style={styles.voiceGuideBtn}
-          onPress={handleVoiceToggle}
-          activeOpacity={0.7}
-          accessibilityLabel={voiceSpeaking ? 'Mute voice guide' : voiceMuted ? 'Unmute voice guide' : 'Play voice guide'}
-        >
-          {voiceSpeaking ? (
-            <VoiceWaveBars />
-          ) : voiceMuted ? (
-            <MutedSpeakerIcon size={15} color="#a1a1aa" />
-          ) : (
-            <SpeakerIcon size={15} color="#a1a1aa" />
-          )}
-          <Text style={styles.voiceGuideLabel}>Voice Guide</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Top Skip Button for Personalization (Steps 1-4) */}
       {currentStep >= 1 && currentStep < 5 && (
         <View style={styles.onboardTopBar}>
@@ -1407,41 +1263,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 4,
   },
-  voiceGuideBar: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 12 : 16,
-    left: 18,
-    zIndex: 10,
-  },
-  voiceGuideBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    borderRadius: 9999,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-  },
-  voiceGuideLabel: {
-    color: '#ffffff',
-    fontSize: 13.5,
-    fontWeight: '500',
-  },
-  voiceWaveRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    width: 15,
-    height: 15,
-    justifyContent: 'center',
-  },
-  voiceWaveBar: {
-    width: 2.5,
-    height: 13,
-    borderRadius: 1.5,
-    backgroundColor: '#60a5fa',
-  },
   onboardInput: {
     width: '100%',
     paddingHorizontal: 18,
@@ -2043,9 +1864,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0,
     borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
+    backgroundColor: 'transparent',
   },
   fullPageBackBtn: {
     flexDirection: 'row',
