@@ -53,11 +53,41 @@ function parseAlignments(sepLine: string): Array<'left' | 'center' | 'right'> {
   });
 }
 
+/**
+ * Small on-device models routinely glue a heading onto the tail of the previous sentence
+ * ("...and nitrogen (N2).### Earth: A Planet with Life"). The block parser only recognises a
+ * heading at the start of a line, so the raw `###` was shown to the user. Split those out,
+ * skipping fenced code so `x = 1  # comment` is left alone.
+ */
+function splitGluedHeadings(lines: string[]): string[] {
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    out.push(
+      // Only a capitalised run of hashes counts, so `example.com#frag`, `#1` and `C#b` stay intact.
+      ...line.replace(/([^#\s/&=%_\d-])(#{1,6})(?=[ \t]*[A-Z])/g, '$1\n\n$2').split('\n')
+    );
+  }
+  return out;
+}
+
 /** Recursive inline markdown: bold, italic, strike, code, math, links */
 function renderInline(text: string, keyPrefix = 'i'): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
+  // Deliberately excludes `_emphasis_`: it italicises every snake_case identifier and URL
+  // (`user_name`, `…/a_b_c`), which is far more common in answers than underscore emphasis.
+  // Inline math requires the delimiters to hug their content so "$5 and $10" stays plain text.
   const pattern =
-    /(`[^`]+`|\$\$[^$\n]+?\$\$|\$[^$\n]+?\$|\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\*[^*\n]+?\*|_[^_\n]+?_|\[([^\]]+)\]\(([^)]+)\))/g;
+    /(`[^`]+`|\$\$[^$\n]+?\$\$|\$\S(?:[^$\n]*\S)?\$|\*\*[^*\n]+?\*\*|__[^_\n]+?__|~~[^~\n]+?~~|\*[^*\n]+?\*|\[([^\]]+)\]\(([^)]+)\))/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -103,7 +133,7 @@ function renderInline(text: string, keyPrefix = 'i'): React.ReactNode[] {
           {renderInline(token.slice(2, -2), key)}
         </Text>
       );
-    } else if (token.startsWith('*') || token.startsWith('_')) {
+    } else if (token.startsWith('*')) {
       nodes.push(
         <Text key={key} style={styles.italicText}>
           {renderInline(token.slice(1, -1), key)}
@@ -153,7 +183,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
   const blocks = useMemo(() => {
     const out: React.ReactNode[] = [];
-    const lines = String(content || '').replace(/\r\n/g, '\n').split('\n');
+    const lines = splitGluedHeadings(
+      String(content || '').replace(/\r\n/g, '\n').split('\n')
+    );
 
     let inCodeBlock = false;
     let codeLanguage = '';

@@ -109,7 +109,11 @@ export const ModelCard: React.FC<ModelCardProps> = ({
   const ramLabel = model.recommendedRamMb ? `${(model.recommendedRamMb / 1024).toFixed(model.recommendedRamMb % 1024 === 0 ? 0 : 1)} GB RAM` : null;
 
   const downloadedLabel = formatBytes(downloadState.downloadedBytes);
-  const totalLabel = formatBytes(downloadState.totalBytes || model.sizeBytes);
+  // The card prints model.sizeFormatted (decimal MB), so the pre-download total has to use the
+  // same string — the binary formatter turned "398 MB" into "380 MB" for one frame.
+  const totalLabel = downloadState.totalBytes
+    ? formatBytes(downloadState.totalBytes)
+    : model.sizeFormatted || formatBytes(model.sizeBytes);
   const speedLabel =
     downloadState.speedBytesPerSec > 0
       ? `${(downloadState.speedBytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`

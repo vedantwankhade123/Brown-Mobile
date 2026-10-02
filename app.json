@@ -2,7 +2,7 @@
   "expo": {
     "name": "Brown AI",
     "slug": "brown-mobile",
-    "version": "1.0.3",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./Assets/Brown-icon.png",
     "userInterfaceStyle": "dark",
@@ -43,7 +43,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC"
       ],
-      "versionCode": 12
+      "versionCode": 15
     },
     "androidNavigationBar": {
       "backgroundColor": "#00000000",

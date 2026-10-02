@@ -367,7 +367,8 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
         <Animated.View style={{ flex: 1, opacity: pageFade, transform: [{ translateY: pageSlide }] }}>
         <ScreenHeader title="Desktop Sync" onBack={onBack} scrolled={syncScrolled} />

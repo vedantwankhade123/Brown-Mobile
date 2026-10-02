@@ -34,6 +34,7 @@ import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { ConsentService } from '../services/storage/ConsentService';
 import { revealValue } from '../utils/motion';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -49,6 +50,7 @@ const Easing = (Animated as any).Easing || {
 
 export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState<number>(0);
+  const keyboardInset = useKeyboardInset(0);
   const [fullName, setFullName] = useState<string>('');
   const [birthdate, setBirthdate] = useState<string>('');
   const [email, setEmail] = useState<string>('');
@@ -306,6 +308,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
       <ScrollView
         keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}
+        style={keyboardInset > 0 ? { paddingBottom: keyboardInset } : undefined}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
@@ -319,7 +322,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           >
             {/* Logo Image */}
             {currentStep === 0 ? (
-              <BrownLogoAnimation size={64} style={styles.getStartedLogoImg} />
+              <BrownLogoAnimation size={132} style={styles.getStartedLogoImg} />
             ) : (
               <Image
                 source={require('../../Assets/Brown-white.png')}
@@ -334,8 +337,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {/* Step 0: Welcome */}
           {currentStep === 0 && (
             <View style={styles.onboardWelcome}>
-              <Text style={styles.onboardingTitle}>Welcome to Brown AI</Text>
-              <Text style={styles.onboardingTagline}>The Autonomous AI Agent for Mobiles</Text>
               <View style={styles.onboardBtnStack}>
                 <TouchableOpacity
                   style={styles.btnOnboardPrimary}
@@ -1188,18 +1189,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   getStartedLogoImg: {
-    width: 64,
-    height: 64,
-    marginBottom: 2,
+    width: 132,
+    height: 132,
+    marginBottom: 10,
   },
   onboardingBrandText: {
-    fontSize: 26,
-    fontFamily: 'Outfit_400Regular',
-    fontWeight: '400',
+    fontSize: 32,
+    fontFamily: 'Outfit_500Medium',
+    fontWeight: '500',
     color: '#ffffff',
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 34,
   },
   logoImg: {
     width: 96,
@@ -1212,23 +1213,6 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     alignItems: 'center',
     textAlign: 'center',
-  },
-  onboardingTitle: {
-    fontSize: 28,
-    fontWeight: '600',
-    lineHeight: 32,
-    color: '#f3f4f6',
-    letterSpacing: -0.8,
-    textAlign: 'center',
-    marginBottom: 2,
-  },
-  onboardingTagline: {
-    fontSize: 15,
-    lineHeight: 20,
-    color: '#FFFFFF',
-    fontWeight: '400',
-    textAlign: 'center',
-    marginBottom: 12,
   },
   onboardBtnStack: {
     width: '100%',

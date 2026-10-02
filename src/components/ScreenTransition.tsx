@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { revealValues } from '../utils/motion';
 
 interface Props {
   screen: string;
-  renderScreen: (route: string) => React.ReactNode;
+  renderScreen: (route: string, active: boolean) => React.ReactNode;
 }
 
 const DURATION = 220;
@@ -21,7 +22,6 @@ export const ScreenTransition: React.FC<Props> = ({ screen, renderScreen }) => {
   const [visited, setVisited] = useState<string[]>([screen]);
   const activeRef = useRef(screen);
   const opacities = useRef(new Map<string, AnimatedValue>());
-  const generation = useRef(0);
 
   const opacityFor = (route: string, initial: number): AnimatedValue => {
     let value = opacities.current.get(route);
@@ -45,31 +45,12 @@ export const ScreenTransition: React.FC<Props> = ({ screen, renderScreen }) => {
 
     const fromOpacity = opacityFor(from, 1);
     const toOpacity = opacityFor(screen, 0);
-    toOpacity.setValue(0);
-    const token = ++generation.current;
-    const animation = Animated.parallel([
-      Animated.timing(fromOpacity, {
-        toValue: 0,
-        duration: DURATION,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-      Animated.timing(toOpacity, {
-        toValue: 1,
-        duration: DURATION,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]);
-    animation.start(({ finished }: { finished: boolean }) => {
-      if (!finished || generation.current !== token) return;
-      fromOpacity.setValue(0);
-      toOpacity.setValue(1);
-    });
-    return () => {
-      generation.current += 1;
-      animation.stop();
-    };
+
+    // Both fades go through revealValues so the end state is forced even if the
+    // animation is interrupted: a stopped native-driver cross-fade used to leave the
+    // incoming surface pinned at opacity 0 over the black container — a black screen.
+    revealValues([{ value: toOpacity, from: 0, to: 1 }], DURATION, undefined, false);
+    revealValues([{ value: fromOpacity, from: 1, to: 0 }], DURATION, undefined, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
@@ -86,7 +67,7 @@ export const ScreenTransition: React.FC<Props> = ({ screen, renderScreen }) => {
             importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
           >
             <SafeAreaView edges={route === 'chat' ? [] : ['bottom']} style={styles.surface}>
-              {renderScreen(route)}
+              {renderScreen(route, active)}
             </SafeAreaView>
           </Animated.View>
         );
