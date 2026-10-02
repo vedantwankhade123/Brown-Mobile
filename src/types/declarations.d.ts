@@ -67,7 +67,7 @@ declare module 'react-native' {
   export const Modal: any;
   export const KeyboardAvoidingView: any;
   export const Keyboard: {
-    addListener: (type: string, listener: () => void) => { remove: () => void };
+    addListener: (type: string, listener: (e?: any) => void) => { remove: () => void };
     dismiss: () => void;
   };
   export const AppState: {

@@ -276,6 +276,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }, animated ? 80 : 0);
   }, []);
 
+  // The composer reserves the keyboard height, which shrinks the thread viewport — without this
+  // the newest reply ends up clipped behind the keyboard the moment the user taps to type.
+  useEffect(() => {
+    if (keyboardUp && messages.length > 0) scheduleScrollToEnd(false);
+  }, [keyboardUp, messages.length, scheduleScrollToEnd]);
+
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
 
   const onChatScroll = useCallback((e: any) => {

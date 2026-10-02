@@ -24,6 +24,8 @@ const Easing = (Animated as any).Easing || {
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService, ConsentRecord } from '../services/storage/ConsentService';
 import { SoundService } from '../services/sound/SoundService';
+import { getNotificationPermission, requestNotificationPermission, sendTestNotification } from '../services/NotificationService';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 import { saveGeminiApiKey, getGeminiApiKey, discoverGeminiModels, getCachedGeminiModels } from '../services/inference/GeminiClient';
 import {
   CLOUD_PROVIDERS,
@@ -134,6 +136,9 @@ export type SettingsView =
   | 'about';
 
 interface SettingsScreenProps {
+  // ScreenTransition keeps every visited screen mounted, so this is the only signal that
+  // the page is actually on top again.
+  isActive?: boolean;
   onBack: () => void;
   onClearHistory: () => void;
   onRerunOnboarding?: () => void;
@@ -150,6 +155,22 @@ const MODEL_TAG_FILTERS = ['All', 'Cloud', 'Offline', 'Thinking', 'Vision', 'Cod
 
 const LOCATION_STORAGE_KEY = 'ultron.home_location';
 const AUTO_DETECT_LOCATION_KEY = 'ultron.auto_detect_location';
+
+// Hands a written file to the system viewer through a content URI, the same route the
+// APK installer uses; without it the backup is only reachable through a file manager.
+const openExportedFile = async (path: string): Promise<void> => {
+  const FileSystem = require('expo-file-system');
+  const IntentLauncher = require('expo-intent-launcher');
+  if (!IntentLauncher?.startActivityAsync || !FileSystem?.getContentUriAsync) {
+    throw new Error('No file viewer is available.');
+  }
+  const contentUri = await FileSystem.getContentUriAsync(path);
+  await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+    data: contentUri,
+    flags: 1,
+    type: 'application/json',
+  });
+};
 
 // Hoverable settings row with subtle bg highlight on hover
 const HoverableSettingsRow: React.FC<{
@@ -184,6 +205,7 @@ const HoverableSettingsRow: React.FC<{
 };
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
+  isActive = true,
   onBack,
   onClearHistory,
   onOpenModelStore,
@@ -273,6 +295,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [completionSound, setCompletionSound] = useState(() => SoundService.isSoundEnabled('task-complete'));
   const [permissionSound, setPermissionSound] = useState(() => SoundService.isSoundEnabled('permission'));
   const [questionSound, setQuestionSound] = useState(() => SoundService.isSoundEnabled('question'));
+  const [notifGranted, setNotifGranted] = useState(true);
+  // The page ScrollViews sit inside a SafeAreaView, so their bottom edge already clears the system
+  // nav bar — the keyboard height alone is what covers them.
+  const keyboardInset = useKeyboardInset(0);
+  const scrollStyle = useMemo(
+    () => [styles.scrollContainer, keyboardInset > 0 && { paddingBottom: keyboardInset }],
+    [keyboardInset]
+  );
+  const [requestingNotif, setRequestingNotif] = useState(false);
+  const [testingNotif, setTestingNotif] = useState(false);
+  const [testNotifResult, setTestNotifResult] = useState('');
+
+  // Re-read on every visit: the answer lives in the system settings, which the user can
+  // change without the app ever unmounting.
+  useEffect(() => {
+    if (currentView !== 'sounds') return;
+    getNotificationPermission().then(setNotifGranted).catch(() => {});
+  }, [currentView]);
 
   // Storage & Memory States (Desktop Parity)
   const [memoryPersistence, setMemoryPersistence] = useState(true);
@@ -329,7 +369,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // Trigger smooth enter animation on screen change.
   // JS driver on purpose: a native-driver fade whose end event is lost leaves the whole
   // page pinned at opacity 0 (black screen) that no setValue can reclaim.
+  // isActive is part of the key because the page owns its own exit fade to 0 and stays
+  // mounted: without re-revealing on every visit, the second visit rendered transparent.
   useEffect(() => {
+    if (!isActive) return;
     revealValues(
       [
         { value: screenSlideAnim, from: 12, to: 0 },
@@ -339,7 +382,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       undefined,
       false
     );
-  }, [currentView, screenSlideAnim, screenFadeAnim]);
+  }, [isActive, currentView, screenSlideAnim, screenFadeAnim]);
 
   useEffect(() => {
     loadConsentProfile();
@@ -756,8 +799,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   // Settings owns the back button while it is on screen: pop the internal view
-  // history first, then hand control back to the app-level screen stack.
-  useBackLayer(true, () => {
+  // history first, then hand control back to the app-level screen stack. Registering
+  // unconditionally kept stealing the back button from chat after one visit.
+  useBackLayer(isActive, () => {
     handleSmoothBack();
     return true;
   });
@@ -921,12 +965,53 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     );
   };
 
-  const handleExportData = () => {
-    Alert.alert(
-      'Export Backup',
-      'Encrypted JSON backup file generated successfully in local device storage: /Documents/Brown_Backup.json',
-      [{ text: 'OK' }]
-    );
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const bundle = await chatRepo.exportAll();
+      const json = JSON.stringify(
+        { app: 'Brown', platform: 'android', exportedAt: new Date().toISOString(), ...bundle },
+        null,
+        2
+      );
+      const FileSystem = require('expo-file-system');
+      const base = FileSystem?.documentDirectory;
+      if (!base || !FileSystem.writeAsStringAsync) {
+        throw new Error('This device is not exposing app storage, so the backup cannot be written.');
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      const path = `${base}Brown_Backup_${stamp}.json`;
+      await FileSystem.writeAsStringAsync(path, json);
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info?.exists) throw new Error('The backup file was not created.');
+
+      const sizeKb = Math.max(1, Math.round((info.size || json.length) / 1024));
+      const summary = `${bundle.sessions.length} conversation${
+        bundle.sessions.length === 1 ? '' : 's'
+      } and ${bundle.messages.length} messages · ${sizeKb} KB\n\nSaved to ${StoragePaths.displayPath(path)}`;
+
+      Alert.alert('Backup Exported', summary, [
+        { text: 'Done', style: 'cancel' },
+        {
+          text: 'Open',
+          onPress: () => {
+            openExportedFile(path).catch(() =>
+              Alert.alert(
+                'Cannot Open',
+                'No app on this phone can display the backup. It is still saved at the path shown above.'
+              )
+            );
+          },
+        },
+      ]);
+    } catch (err: any) {
+      Alert.alert('Export Failed', err?.message || 'The backup could not be written to storage.');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const handleCheckUpdates = async () => {
@@ -1037,7 +1122,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           title: 'Location',
           iconType: 'location',
           iconColor: '#f87171',
-          detail: homeLocation ? (homeLocation.length > 18 ? `${homeLocation.slice(0, 18)}…` : homeLocation) : 'Detecting…',
+          detail: homeLocation
+            ? (homeLocation.length > 18 ? `${homeLocation.slice(0, 18)}…` : homeLocation)
+            : (isDetectingLocation ? 'Detecting…' : 'Not set'),
           action: () => navigateToView('account'),
         },
         {
@@ -1218,7 +1305,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             />
           )}
 
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.scrollContainer} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={scrollStyle} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.centerSection}>
               <View style={styles.editAvatarBigCircle}>
                 <Text style={styles.editAvatarInitialText}>{userInitial}</Text>
@@ -1418,7 +1505,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('User Account')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -1508,7 +1595,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Models')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2253,7 +2340,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Agent Sounds')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2465,6 +2552,57 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   }}
                 />
               </View>
+
+              {!notifGranted && (
+                <View style={styles.notifPermissionRow}>
+                  <Text style={styles.toggleDesc}>
+                    Chimes sound while Brown is open. Allow notifications so a finished answer
+                    still reaches you when the app is in the background.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.notifPermissionBtn}
+                    activeOpacity={0.8}
+                    disabled={requestingNotif}
+                    onPress={() => {
+                      setRequestingNotif(true);
+                      requestNotificationPermission()
+                        .then(setNotifGranted)
+                        .catch(() => setNotifGranted(false))
+                        .finally(() => setRequestingNotif(false));
+                    }}
+                  >
+                    <Text style={styles.notifPermissionBtnText}>
+                      {requestingNotif ? 'Asking…' : 'Allow Notifications'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <View style={styles.notifPermissionRow}>
+                <Text style={styles.toggleDesc}>
+                  A finished answer notifies you only while Brown is still running in the
+                  background. Check the whole path with a test notification.
+                </Text>
+                <TouchableOpacity
+                  style={styles.notifPermissionBtn}
+                  activeOpacity={0.8}
+                  disabled={testingNotif}
+                  onPress={() => {
+                    setTestingNotif(true);
+                    sendTestNotification()
+                      .then((ok) => setTestNotifResult(ok ? 'Sent' : 'Blocked by Android'))
+                      .catch(() => setTestNotifResult('Blocked by Android'))
+                      .finally(() => setTestingNotif(false));
+                  }}
+                >
+                  <Text style={styles.notifPermissionBtnText}>
+                    {testingNotif ? 'Sending…' : 'Send Test Notification'}
+                  </Text>
+                </TouchableOpacity>
+                {!!testNotifResult && (
+                  <Text style={styles.toggleDesc}>{testNotifResult}</Text>
+                )}
+              </View>
             </View>
 
             {/* Test Play Buttons (Fully Rounded) */}
@@ -2508,7 +2646,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Desktop Sync')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2653,7 +2791,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Storage & Memory')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2746,9 +2884,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 Permanently delete all conversations, chat history, and message logs from storage.
               </Text>
               <View style={styles.storageActionColumn}>
-                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleExportData} activeOpacity={0.8}>
+                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleExportData} disabled={exporting} activeOpacity={0.8}>
                   <DownloadIcon size={16} color="#ffffff" />
-                  <Text style={styles.exportBackupBtnText}>Export Backup</Text>
+                  <Text style={styles.exportBackupBtnText}>{exporting ? 'Exporting…' : 'Export Backup'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.clearChatsBtn} onPress={handleClearHistory} activeOpacity={0.8}>
@@ -2799,7 +2937,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Software update')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2931,7 +3069,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('About')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+            keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -3149,7 +3287,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* Main Settings Scroll Container */}
         <ScrollView
-          keyboardShouldPersistTaps="handled" style={styles.scrollContainer}
+          keyboardShouldPersistTaps="handled" style={scrollStyle}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={settingsScroll}
@@ -3835,6 +3973,22 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   secondaryFullBtnText: {
+    color: '#ffffff',
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  notifPermissionRow: {
+    marginTop: 14,
+    gap: 12,
+  },
+  notifPermissionBtn: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#295294',
+    borderRadius: 9999,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+  },
+  notifPermissionBtnText: {
     color: '#ffffff',
     fontSize: 13.5,
     fontWeight: '600',

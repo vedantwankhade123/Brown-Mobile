@@ -18,6 +18,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as NavigationBar from 'expo-navigation-bar';
 import { setNavBarColor } from './src/theme/systemBars';
 import { ScreenTransition } from './src/components/ScreenTransition';
+import { BrownLogoAnimation } from './src/components/BrownLogoAnimation';
+import { animateOnce } from './src/utils/motion';
 import { consumeBackPress } from './src/utils/backStack';
 import { saveSelectedModel } from './src/services/modelManager/ModelSelection';
 import {
@@ -48,6 +50,9 @@ type ScreenType = 'onboarding' | 'chat' | 'modelStore' | 'settings' | 'desktopSy
 
 // Keep the native launch screen until startup and fonts are ready.
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Shortest time the animated mark is on screen, so a warm start still reads as a launch.
+const MIN_SPLASH_MS = 2000;
 
 // Inject Outfit Google Font & Obsidian Dark theme globally on Web
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -177,10 +182,49 @@ export default function App() {
   const [requestedModel, setRequestedModel] = useState<ModelMetadata | null>(null);
   const [fontsFallback, setFontsFallback] = useState<boolean>(false);
 
-  const booting = isLoading || (!fontsLoaded && !fontsFallback);
+  // One branded splash, not two. The native layer is a plain black frame; the animated
+  // mark lives here and stays up for a beat even when boot is instant, so the app reads
+  // as "Brown starting" instead of flashing a bare spinner or an empty black page.
+  const [minSplashElapsed, setMinSplashElapsed] = useState<boolean>(false);
+  const [appReady, setAppReady] = useState<boolean>(false);
+  const [handoffStarted, setHandoffStarted] = useState<boolean>(false);
+  const [splashGone, setSplashGone] = useState<boolean>(false);
+  const splashOpacity = useRef(new Animated.Value(1)).current;
+
   useEffect(() => {
-    if (!booting) SplashScreen.hideAsync().catch(() => {});
-  }, [booting]);
+    const t = setTimeout(() => setMinSplashElapsed(true), MIN_SPLASH_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    setAppReady(!isLoading && (Boolean(fontsLoaded) || fontsFallback));
+  }, [isLoading, fontsLoaded, fontsFallback]);
+
+  useEffect(() => {
+    const t = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 150);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!appReady || !minSplashElapsed || handoffStarted) return;
+    setHandoffStarted(true);
+    // animateOnce guarantees the fade-out callback lands even if the animation is lost,
+    // so the splash can never stay stuck covering the app.
+    animateOnce(
+      [
+        Animated.timing(splashOpacity, {
+          toValue: 0,
+          duration: 320,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: false,
+        }),
+      ],
+      320,
+      () => setSplashGone(true)
+    );
+  }, [appReady, minSplashElapsed, handoffStarted, splashOpacity]);
+
+  const booting = !handoffStarted;
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -308,7 +352,7 @@ export default function App() {
     navigateTo('onboarding');
   };
 
-  const renderScreen = (route: string): ReactNode => {
+  const renderScreen = (route: string, active: boolean): ReactNode => {
     switch (route as ScreenType) {
       case 'onboarding':
         return <OnboardingScreen onComplete={handleOnboardingComplete} />;
@@ -322,6 +366,7 @@ export default function App() {
       case 'settings':
         return (
           <SettingsScreen
+            isActive={active}
             onBack={navigateBack}
             onClearHistory={handleClearHistory}
             onRerunOnboarding={handleRerunOnboarding}
@@ -374,6 +419,30 @@ export default function App() {
             <ScreenTransition screen={currentScreen} renderScreen={renderScreen} />
           )}
 
+          {!splashGone && (
+            <Animated.View
+              style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
+              pointerEvents={booting ? 'auto' : 'none'}
+            >
+              <BrownLogoAnimation size={104} />
+              <Text style={styles.splashMark}>Brown</Text>
+              {bootStalled && (
+                <View style={styles.splashStallCard}>
+                  <Text style={styles.splashStallText}>
+                    Startup is taking longer than it should. Local storage may be busy.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.splashStallBtn}
+                    onPress={() => setIsLoading(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.splashStallBtnText}>Continue anyway</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Animated.View>
+          )}
+
         </ScreenSafeArea>
       </ErrorBoundary>
     </SafeAreaProvider>
@@ -401,6 +470,53 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
     ...(Platform.OS === 'web' ? { height: '100vh', width: '100vw' } : {}),
+  },
+
+  splash: {
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  splashMark: {
+    marginTop: 14,
+    fontFamily: 'Outfit_500Medium',
+    fontWeight: '500',
+    color: '#ffffff',
+    fontSize: 27,
+    letterSpacing: -0.7,
+  },
+  splashStallCard: {
+    position: 'absolute',
+    bottom: 92,
+    left: 24,
+    right: 24,
+    maxWidth: 420,
+    alignSelf: 'center',
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    padding: 18,
+    alignItems: 'center',
+  },
+  splashStallText: {
+    color: '#d4d4d8',
+    fontSize: 13.5,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  splashStallBtn: {
+    marginTop: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#ffffff',
+  },
+  splashStallBtnText: {
+    color: '#000000',
+    fontSize: 13.5,
+    fontWeight: '600',
   },
 
   errorContainer: {

@@ -13,6 +13,23 @@ const ASSISTANT_CHANNEL = 'brown-assistant';
 let updateChannelReady = false;
 let assistantChannelReady = false;
 
+// expo-notifications drops every incoming notification — background included — unless a handler is
+// registered before one arrives. Without this the channel, the permission and the post all succeed
+// and nothing is ever shown.
+if (Platform.OS !== 'web') {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+  } catch {
+    // the native handler module is optional; posting still works without it
+  }
+}
+
 /**
  * Local-only notifications (no push/FCM, no Expo push token — those crash in
  * Expo Go on SDK 51). Best-effort: every call is guarded, notifications must
@@ -79,9 +96,9 @@ async function notifyUpdateAvailableInternal(info: AppUpdateInfo): Promise<void>
       content: {
         title: `Brown v${info.latestVersion} is available`,
         body: 'Tap to open Brown and update — chats, models and settings stay on this device.',
-        ...(Platform.OS === 'android' ? { channelId: UPDATE_CHANNEL } : {}),
       },
-      trigger: { seconds: 1 } as any,
+      // expo-notifications reads channelId off the trigger, never off `content`.
+      trigger: Platform.OS === 'android' ? ({ seconds: 1, channelId: UPDATE_CHANNEL } as any) : ({ seconds: 1 } as any),
     });
   } catch {
     // silent — the in-app update modal is the primary path
@@ -113,21 +130,27 @@ async function alertEvent(
       return;
     }
     if (AppState.currentState === 'active') {
+      console.warn('[notifications] foreground chime only');
       await SoundService.playSound(chime);
       return;
     }
-    if (!(await ensureChannel('assistant'))) return;
-    if (!(await notificationsAllowed())) return;
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        ...(Platform.OS === 'android' ? { channelId: ASSISTANT_CHANNEL } : {}),
-      },
-      trigger: null as any,
+    if (!(await ensureChannel('assistant'))) {
+      console.warn('[notifications] channel unavailable');
+      return;
+    }
+    if (!(await notificationsAllowed())) {
+      console.warn('[notifications] permission denied');
+      return;
+    }
+    const id = await Notifications.scheduleNotificationAsync({
+      content: { title, body },
+      // expo-notifications reads channelId off the trigger, never off `content`.
+      trigger: (Platform.OS === 'android' ? { channelId: ASSISTANT_CHANNEL } : null) as any,
     });
-  } catch {
+    console.warn(`[notifications] posted ${id} on ${ASSISTANT_CHANNEL}`);
+  } catch (err: any) {
     // alerts are never allowed to break the flow that finished
+    console.warn('[notifications] post failed:', err?.message || err);
   }
 }
 
@@ -154,4 +177,49 @@ export function alertModelFailed(modelName: string, reason?: string): Promise<vo
     clip(`${modelName}: ${reason || 'Check storage and network, then retry from Models.'}`, 140),
     'permission'
   );
+}
+
+export async function getNotificationPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  try {
+    const perm = await Notifications.getPermissionsAsync();
+    return Boolean(perm.granted);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Android 13+ only shows the POST_NOTIFICATIONS dialog for a request made while the app is in
+ * the foreground, so the reply-completion path can never obtain it by itself. Settings calls
+ * this from a tap.
+ */
+export async function requestNotificationPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+  if (!(await ensureChannel('assistant'))) return false;
+  return notificationsAllowed();
+}
+
+/**
+ * Posts a real notification through the same channel the reply-completion path uses, so the user can
+ * confirm the setup from a tap instead of waiting for a backgrounded generation.
+ */
+export async function sendTestNotification(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  try {
+    if (!(await ensureChannel('assistant'))) return false;
+    if (!(await notificationsAllowed())) return false;
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Notifications work',
+        body: 'Brown will use this channel for finished answers and model downloads.',
+      },
+      // expo-notifications reads channelId off the trigger, never off `content`.
+      trigger: (Platform.OS === 'android' ? { channelId: ASSISTANT_CHANNEL } : null) as any,
+    });
+    return true;
+  } catch (err: any) {
+    console.warn('[notifications] test post failed:', err?.message || err);
+    return false;
+  }
 }

@@ -26,6 +26,7 @@ import {
 import { ModelMetadata } from '../types/model';
 import { AudioWaveform } from './AudioWaveform';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardInset } from '../hooks/useKeyboardInset';
 
 interface MessageInputProps {
   onSendMessage: (text: string) => void;
@@ -83,6 +84,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   onFocus,
 }) => {
   const insets = useSafeAreaInsets();
+  const keyboardInset = useKeyboardInset(insets.bottom);
   const [text, setText] = useState('');
   const [inputHeight, setInputHeight] = useState(36);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
@@ -338,7 +340,9 @@ export const MessageInput: React.FC<MessageInputProps> = ({
       <View
         style={[
           styles.outerWrapper,
-          Platform.OS === 'android' && { paddingBottom: 18 + insets.bottom },
+          Platform.OS === 'android' && {
+            paddingBottom: keyboardInset > 0 ? keyboardInset + 10 : 18 + insets.bottom,
+          },
         ]}
       >
         <View style={styles.container}>
