@@ -101,7 +101,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
 
   const handleUpdateNow = async () => {
     if (!update?.apkDownloadUrl) {
-      setError('No Android APK was attached to this GitHub release.');
+      setError('No Android APK was attached to this release.');
       return;
     }
     if (installing) return;

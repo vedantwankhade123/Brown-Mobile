@@ -68,6 +68,11 @@ export class StoragePaths {
     }
   }
 
+  static async resetDataDir(): Promise<void> {
+    await AsyncStorage.removeItem(DATA_KEY);
+    await this.ensureDir(await this.getDataDir());
+  }
+
   static async resetModelsDir(): Promise<void> {
     try {
       await AsyncStorage.removeItem(MODELS_KEY);

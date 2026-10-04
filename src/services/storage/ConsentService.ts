@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { AppDatabase } from './Database';
+import { isAccountResetting } from './AccountLifecycle';
 
 export interface ConsentRecord {
   id: string;
@@ -19,12 +20,12 @@ export interface ConsentRecord {
 
 export class ConsentService {
   private static STORAGE_KEY = '@ultron_legal_consent';
-  private static TERMS_VERSION = '1.0-offline';
-  private static PRIVACY_VERSION = '1.0-offline';
+  private static TERMS_VERSION = '2026-10-04';
+  private static PRIVACY_VERSION = '2026-10-04';
 
   /**
    * Records and permanently archives the user's legal agreement
-   * both in AsyncStorage and in the encrypted local SQLite database.
+   * both in AsyncStorage and in the local SQLite database.
    */
   public static async recordConsent(data: {
     fullName?: string;
@@ -35,6 +36,7 @@ export class ConsentService {
     termsVersion?: string;
     privacyVersion?: string;
   }): Promise<ConsentRecord> {
+    if (isAccountResetting()) throw new Error('Account deletion is in progress.');
     const now = Date.now();
     const consentId = `consent_${now}_${Math.random().toString(36).substring(2, 9)}`;
 

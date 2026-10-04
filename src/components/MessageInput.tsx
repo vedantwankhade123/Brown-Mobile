@@ -12,6 +12,8 @@ import {
   Platform,
   Alert,
   Animated,
+  Modal,
+  Keyboard,
 } from 'react-native';
 import {
   MicIcon,
@@ -24,6 +26,7 @@ import {
   CloseIcon,
 } from './Icons';
 import { ModelMetadata } from '../types/model';
+import { ModelSelector } from './ModelSelector';
 import { AudioWaveform } from './AudioWaveform';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardInset } from '../hooks/useKeyboardInset';
@@ -45,6 +48,10 @@ interface MessageInputProps {
   draftText?: string | null;
   onDraftConsumed?: () => void;
   activeModel?: ModelMetadata | null;
+  models?: ModelMetadata[];
+  onSelectModel?: (model: ModelMetadata) => void;
+  onOpenModelStore?: () => void;
+  onMenuOpen?: () => void;
   isGenerating: boolean;
   isListening: boolean;
   disabled?: boolean;
@@ -78,6 +85,10 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   draftText = null,
   onDraftConsumed,
   activeModel,
+  models,
+  onSelectModel,
+  onOpenModelStore,
+  onMenuOpen,
   isGenerating,
   isListening,
   disabled = false,
@@ -346,15 +357,11 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         ]}
       >
         <View style={styles.container}>
-          {/* Full Screen Dismissal Backdrop for Outside Taps (attachments only) */}
-          {showAttachMenu && (
-            <TouchableOpacity
-              style={styles.outsideDismissBackdrop}
-              onPress={() => setShowAttachMenu(false)}
-              activeOpacity={1}
-            />
-          )}
-
+          <View style={styles.modelBar}>
+            <ModelSelector models={models} activeModel={activeModel}
+              onSelectModel={onSelectModel} onOpenModelStore={onOpenModelStore}
+              onMenuOpen={onMenuOpen} />
+          </View>
           {/* Main Input Card — Pressable focuses TextInput on first tap */}
           <Pressable
             style={styles.inputCard}
@@ -401,9 +408,13 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 <View style={styles.leftActionsGroup}>
                   <View style={styles.plusBtnAnchor}>
                     {showAttachMenu && !isListening && (
+                      <Modal transparent visible animationType="fade" onRequestClose={() => setShowAttachMenu(false)}>
+                        <View style={{ flex: 1 }}>
+                          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAttachMenu(false)} accessibilityLabel="Close attachment menu" />
                       <Animated.View
                         style={[
                           styles.attachContextMenu,
+                          { bottom: 110 + insets.bottom, left: 24 },
                           {
                             opacity: attachAnim,
                             transform: [
@@ -445,12 +456,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                           <Text style={styles.contextMenuText}>Cancel</Text>
                         </TouchableOpacity>
                       </Animated.View>
+                        </View>
+                      </Modal>
                     )}
 
                     <TouchableOpacity
                       style={styles.plusActionIconBtn}
                       onPress={() => {
                         if (isListening) return;
+                        Keyboard.dismiss();
                         setShowAttachMenu(!showAttachMenu);
                       }}
                       activeOpacity={0.7}
@@ -640,9 +654,19 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
   },
+  modelBar: {
+    width: '88%',
+    alignSelf: 'center',
+    backgroundColor: '#343434',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 8,
+    paddingTop: 0,
+    paddingBottom: 0,
+  },
   inputCard: {
-    backgroundColor: '#1B1B1B',
-    borderRadius: 30,
+    backgroundColor: '#121212',
+    borderRadius: 24,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 10,

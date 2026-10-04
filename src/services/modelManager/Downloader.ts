@@ -1,5 +1,6 @@
 import { ModelMetadata, ModelDownloadState } from '../../types/model';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isAccountResetting } from '../storage/AccountLifecycle';
 import { AppState } from 'react-native';
 import { StorageBudgetService } from './StorageBudget';
 import { StoragePaths } from '../storage/StoragePaths';
@@ -55,6 +56,7 @@ export class ModelDownloader {
   private resumables: Map<string, any> = new Map();
   private pausedModels: Map<string, ModelMetadata> = new Map();
   private ready: Promise<void>;
+  private activeTasks = new Set<Promise<void>>();
 
   private constructor() {
     this.ready = this.restoreDownloadedState();
@@ -133,6 +135,7 @@ export class ModelDownloader {
   }
 
   private async persistStates(): Promise<void> {
+    if (isAccountResetting()) return;
     try {
       const arr = Array.from(this.downloadStates.values());
       await AsyncStorage.setItem(DOWNLOADS_KEY, JSON.stringify(arr));
@@ -142,6 +145,7 @@ export class ModelDownloader {
   }
 
   private async saveResumableSnapshot(modelId: string, snapshot: any): Promise<void> {
+    if (isAccountResetting()) return;
     try {
       // Without `resumeData` the native task restarts from byte zero, so a snapshot
       // that lacks it is not worth storing (it would only look resumable).
@@ -245,6 +249,13 @@ export class ModelDownloader {
   }
 
   async startDownload(model: ModelMetadata, destDir?: string): Promise<void> {
+    if (isAccountResetting()) throw new Error('Account deletion is in progress.');
+    const task = this.runDownload(model, destDir);
+    this.activeTasks.add(task);
+    try { await task; } finally { this.activeTasks.delete(task); }
+  }
+
+  private async runDownload(model: ModelMetadata, destDir?: string): Promise<void> {
     this.abortControllers.set(model.id, false);
     this.pausedModels.set(model.id, model);
     await this.persistStates();
@@ -658,5 +669,28 @@ export class ModelDownloader {
   async cancelDownload(modelId: string): Promise<void> {
     this.abortControllers.set(modelId, true);
     await this.deleteModel(modelId);
+  }
+
+  async stopForAccountDeletion(): Promise<string[]> {
+    await this.ready;
+    const dir = await StoragePaths.getModelsDir();
+    const files = new Set(this.getRetainedFilenames().map(name => joinPath(dir, name)));
+    for (const state of this.downloadStates.values()) {
+      if (state.localPath && !isPlaceholderPath(state.localPath)) files.add(state.localPath);
+    }
+    for (const id of this.abortControllers.keys()) this.abortControllers.set(id, true);
+    await Promise.allSettled(Array.from(this.resumables.values()).map(task => task.pauseAsync?.()));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled(Array.from(this.activeTasks)),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('A download is still stopping. Retry deletion.')), 15000); }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+    this.downloadStates.clear();
+    this.pausedModels.clear();
+    this.resumables.clear();
+    this.notifyListeners();
+    return Array.from(files);
   }
 }

@@ -14,13 +14,14 @@ const Linking = require('react-native').Linking;
 
 interface MarkdownRendererProps {
   content: string;
-  onCopyText?: (text: string) => void;
+  onCopyText?: (text: string) => boolean | Promise<boolean>;
 }
 
 type ListKind = 'ul' | 'ol' | 'task';
 
 interface ListItem {
   text: string;
+  number?: string;
   checked?: boolean;
   indent: number;
 }
@@ -29,11 +30,32 @@ function isTableSeparator(line: string): boolean {
   return /^\s*\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/.test(line);
 }
 
-function splitTableRow(line: string): string[] {
+export function splitTableRow(line: string): string[] {
   let trimmed = line.trim();
   if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
-  if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
-  return trimmed.split('|').map((cell) => cell.trim());
+  if (trimmed.endsWith('|') && !trimmed.endsWith('\\|')) trimmed = trimmed.slice(0, -1);
+  const cells: string[] = [];
+  let cell = ''; let codeDelimiter = 0;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (ch === '\\' && trimmed[i + 1] === '|') { cell += '|'; i++; continue; }
+    if (ch === '`') {
+      let end = i; while (trimmed[end] === '`') end++;
+      const run = end - i;
+      if (!codeDelimiter && trimmed.indexOf('`'.repeat(run), end) >= 0) codeDelimiter = run;
+      else if (codeDelimiter === run) codeDelimiter = 0;
+      cell += trimmed.slice(i, end); i = end - 1; continue;
+    }
+    if (ch === '|' && !codeDelimiter) { cells.push(cell.trim()); cell = ''; } else cell += ch;
+  }
+  cells.push(cell.trim()); return cells;
+}
+
+export function unwrapFencedTables(content: string): string {
+  return content.replace(/```(?:markdown|md|table)?[ \t]*\n([\s\S]*?)\n```/gi, (whole: string, body: string) => {
+    const lines = body.trim().split('\n');
+    return lines.length >= 2 && isTableStart(lines, 0) && lines.every(line => !line.trim() || line.includes('|')) ? body : whole;
+  });
 }
 
 function isTableStart(lines: string[], index: number): boolean {
@@ -175,16 +197,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  const handleCopyCode = (code: string, index: number) => {
+  const handleCopyCode = async (code: string, index: number) => {
+    if (!onCopyText || !(await onCopyText(code))) return;
     setCopiedIndex(index);
-    onCopyText?.(code);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   const blocks = useMemo(() => {
     const out: React.ReactNode[] = [];
     const lines = splitGluedHeadings(
-      String(content || '').replace(/\r\n/g, '\n').split('\n')
+      unwrapFencedTables(String(content || '').replace(/\r\n/g, '\n')).split('\n')
     );
 
     let inCodeBlock = false;
@@ -222,7 +244,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             const pad = Math.min(item.indent, 3) * 14;
             let marker: React.ReactNode;
             if (kind === 'ol') {
-              marker = <Text style={styles.listBullet}>{`${idx + 1}.`}</Text>;
+              marker = <Text style={styles.listBullet}>{`${item.number || idx + 1}.`}</Text>;
             } else if (kind === 'task') {
               marker = (
                 <View style={[styles.taskBox, item.checked && styles.taskBoxChecked]}>
@@ -275,7 +297,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
       const header = normalize(headerCells);
       const body = rows.map(normalize);
-      const minColWidth = Math.max(96, Math.min(160, Math.floor(320 / Math.max(colCount, 1))));
+      const columnWidths = header.map((_, col) => Math.max(100, Math.min(220, 24 + Math.max(...[header, ...body].map(row => (row[col] || '').length)) * 7)));
 
       out.push(
         <ScrollView
@@ -294,8 +316,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     styles.tableCell,
                     styles.tableHeaderCell,
                     {
-                      minWidth: minColWidth,
-                      maxWidth: 240,
+                      width: columnWidths[cIdx],
                       alignItems:
                         alignments[cIdx] === 'center'
                           ? 'center'
@@ -323,8 +344,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     style={[
                       styles.tableCell,
                       {
-                        minWidth: minColWidth,
-                        maxWidth: 240,
+                        width: columnWidths[cIdx],
                         alignItems:
                           alignments[cIdx] === 'center'
                             ? 'center'
@@ -387,7 +407,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   </View>
                 </TouchableOpacity>
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>
                 <Text style={styles.codeText}>{codeContent || ' '}</Text>
               </ScrollView>
             </View>
@@ -419,9 +439,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       }
 
       // Lists / task lists
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        flushList(`hr-${i}`);
+        flushParagraph(`hr-${i}`);
+        out.push(<View key={`hr-${i}`} style={styles.hr} />);
+        continue;
+      }
       const taskMatch = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/);
       const bulletMatch = line.match(/^(\s*)[-*+]\s+(.*)$/);
-      const numberMatch = line.match(/^(\s*)\d+\.\s+(.*)$/);
+      const numberMatch = line.match(/^(\s*)(\d+)[.)]\s+(.*)$/);
 
       if (taskMatch) {
         flushParagraph(`li-${i}`);
@@ -450,7 +476,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         const indent = Math.floor((numberMatch[1] || '').length / 2);
         if (listItems.length > 0 && listKind !== 'ol') flushList(`switch-${i}`);
         listKind = 'ol';
-        listItems.push({ text: numberMatch[2], indent });
+        listItems.push({ text: numberMatch[3], number: numberMatch[2], indent });
         continue;
       }
 
@@ -520,7 +546,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     if (inCodeBlock && codeBuffer.length > 0) {
       out.push(
         <View key="code-unclosed" style={styles.codeBlockWrapper}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>
             <Text style={styles.codeText}>{codeBuffer.join('\n')}</Text>
           </ScrollView>
         </View>
@@ -677,6 +703,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     padding: 12,
   },
+  codeScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   listContainer: {
     marginVertical: 6,
     paddingLeft: 2,
@@ -745,6 +775,8 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
   tableScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
     marginVertical: 10,
     maxWidth: '100%',
   },

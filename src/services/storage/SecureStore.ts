@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isAccountResetting } from './AccountLifecycle';
 
 /**
  * On-device key-value storage. setItem/getItem are for credentials and stay Keystore-backed:
@@ -20,6 +21,7 @@ export class SecureStore {
 
   /** @returns true when the value was written to the OS secure store. */
   static async setItem(key: string, value: string): Promise<boolean> {
+    if (isAccountResetting()) return false;
     const secure = this.secureModule();
     if (secure) {
       try {
@@ -33,6 +35,7 @@ export class SecureStore {
   }
 
   static async getItem(key: string): Promise<string | null> {
+    if (isAccountResetting()) return null;
     if (this.memory.has(key)) return this.memory.get(key) as string;
     const secure = this.secureModule();
     if (secure) {
@@ -66,10 +69,13 @@ export class SecureStore {
   }
 
   static async setNonSecretItem(key: string, value: string): Promise<void> {
+    if (isAccountResetting()) return;
     try {
       await AsyncStorage.setItem(this.PLAIN_PREFIX + key, value);
     } catch {}
   }
+
+  static clearMemoryForAccountDeletion(): void { this.memory.clear(); }
 
   static async getNonSecretItem(key: string): Promise<string | null> {
     try {

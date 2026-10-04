@@ -123,7 +123,7 @@ export async function fetchLatestGitHubRelease(): Promise<GitHubReleasePayload> 
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`GitHub releases API failed (${response.status}): ${body.slice(0, 180)}`);
+    throw new Error(`Update service request failed (${response.status}): ${body.slice(0, 180)}`);
   }
 
   return (await response.json()) as GitHubReleasePayload;

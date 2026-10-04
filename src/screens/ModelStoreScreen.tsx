@@ -40,7 +40,8 @@ import { ModelMetadata, ModelDownloadState, MobileRamTier } from '../types/model
 import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
-import { headerButtonStyle, GlassControl, GlassSurface, useStickyHeader } from '../components/ScreenHeader';
+import { HeaderFade } from '../components/HeaderFade';
+import { HeaderTitle, headerButtonStyle, GlassControl, GlassSurface, useStickyHeader } from '../components/ScreenHeader';
 import { SearchIcon, BackArrowIcon, ChevronRightIcon, CloseIcon, DatabaseIcon } from '../components/Icons';
 
 interface ModelStoreScreenProps {
@@ -311,6 +312,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       {/* Dynamic Header: Standard vs Full-Width Search */}
       {!isSearchOpen ? (
         <View style={[styles.headerBar, storeScrolled && styles.headerBarScrolled]}>
+          <HeaderFade />
           <GlassControl radius={22} active={true}
             onPress={onBack}
             style={styles.headerBackBtn}
@@ -320,9 +322,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
             <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
           </GlassControl>
 
-          <Text pointerEvents="none" style={styles.headerTitle} numberOfLines={1}>
-            Model Store
-          </Text>
+          <HeaderTitle title="Model Store" style={{ position: 'absolute', left: 64, right: 64 }} />
 
           <View style={{ flex: 1 }} />
 
@@ -337,6 +337,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
         </View>
       ) : (
         <View style={[styles.headerBar, styles.headerBarSearchActive, storeScrolled && styles.headerBarScrolled]}>
+          <HeaderFade />
           <GlassSurface radius={9999} active={true} style={styles.searchBarInner}>
             <SearchIcon size={17} color="#9ca3af" />
             <TextInput
@@ -581,6 +582,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   headerBar: {
+    zIndex: 20,
+    overflow: 'visible',
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 4,
@@ -589,7 +592,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     minHeight: 56,
     width: '100%',
-    maxWidth: 600,
     alignSelf: 'center',
   },
   headerBarScrolled: {

@@ -1,10 +1,6 @@
 import { Platform } from 'react-native';
 
-/**
- * Copy plain text using Expo Go's built-in ExpoClipboard native module.
- * Avoids @react-native-clipboard (needs a custom native rebuild) and the
- * expo-clipboard JS entry (Metro can fail resolving Clipboard.types).
- */
+/** Copy through the bundled ExpoClipboard native module (or the browser API). */
 export async function copyTextToClipboard(text: string): Promise<boolean> {
   const value = String(text || '');
   if (!value) return false;

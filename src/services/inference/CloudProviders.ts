@@ -7,6 +7,7 @@ import { ChatMessage } from '../../types/chat';
 import { ModelMetadata } from '../../types/model';
 import { SecureStore } from '../storage/SecureStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { bufferedCloudText } from './StreamText';
 
 export type CloudProviderId = 'openai' | 'anthropic' | 'deepseek' | 'groq' | 'custom';
 
@@ -307,7 +308,7 @@ function toChatMessages(history: ChatMessage[], prompt: string, systemPrompt?: s
     if (!msg.content) continue;
     messages.push({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.content });
   }
-  if (!messages.some((m) => m.role === 'user' && m.content === prompt)) {
+  if (messages[messages.length - 1]?.role !== 'user' || messages[messages.length - 1]?.content !== prompt) {
     messages.push({ role: 'user', content: prompt });
   }
   return messages;
@@ -318,10 +319,12 @@ async function streamOpenAiCompatible(options: {
   model: string;
   apiKey: string;
   messages: Array<{ role: string; content: string }>;
+  signal?: AbortSignal;
   onToken: (token: string) => void;
 }): Promise<string> {
   const res = await fetch(options.endpoint, {
     method: 'POST',
+    signal: options.signal,
     headers: {
       'Content-Type': 'application/json',
       ...(options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {}),
@@ -330,7 +333,7 @@ async function streamOpenAiCompatible(options: {
       model: options.model,
       messages: options.messages,
       temperature: 0.7,
-      max_tokens: 4096,
+      max_tokens: 1024,
       stream: true,
     }),
   });
@@ -342,8 +345,7 @@ async function streamOpenAiCompatible(options: {
 
   const reader = (res.body as any)?.getReader?.();
   if (!reader) {
-    const data = await res.json();
-    const output = data.choices?.[0]?.message?.content || data.choices?.[0]?.text || '';
+    const output = bufferedCloudText(await res.text(), 'openai');
     if (output) {
       for (const word of String(output).split(/(\s+)/)) if (word) options.onToken(word);
     }
@@ -381,11 +383,13 @@ async function streamAnthropic(options: {
   model: string;
   apiKey: string;
   messages: Array<{ role: string; content: string }>;
+  signal?: AbortSignal;
   onToken: (token: string) => void;
 }): Promise<string> {
   const chatMessages = options.messages.filter((m) => m.role === 'user' || m.role === 'assistant');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    signal: options.signal,
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': options.apiKey,
@@ -393,7 +397,8 @@ async function streamAnthropic(options: {
     },
     body: JSON.stringify({
       model: options.model,
-      max_tokens: 4096,
+      max_tokens: 1024,
+      system: options.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n'),
       messages: chatMessages,
       stream: true,
     }),
@@ -406,10 +411,7 @@ async function streamAnthropic(options: {
 
   const reader = (res.body as any)?.getReader?.();
   if (!reader) {
-    const data = await res.json();
-    const output = Array.isArray(data.content)
-      ? data.content.map((b: any) => b?.text || '').join('')
-      : '';
+    const output = bufferedCloudText(await res.text(), 'anthropic');
     if (output) {
       for (const word of String(output).split(/(\s+)/)) if (word) options.onToken(word);
     }
@@ -447,6 +449,7 @@ export async function streamCloudReply(options: {
   prompt: string;
   history: ChatMessage[];
   systemPrompt?: string;
+  signal?: AbortSignal;
   onToken: (token: string) => void;
 }): Promise<string> {
   const providerId = options.provider;
@@ -464,14 +467,14 @@ export async function streamCloudReply(options: {
 
   switch (providerId) {
     case 'anthropic':
-      return streamAnthropic({ model: options.apiModel, apiKey: key, messages, onToken: options.onToken });
+      return streamAnthropic({ model: options.apiModel, apiKey: key, messages, signal: options.signal, onToken: options.onToken });
     case 'openai':
       return streamOpenAiCompatible({
         endpoint: 'https://api.openai.com/v1/chat/completions',
         model: options.apiModel,
         apiKey: key,
         messages,
-        onToken: options.onToken,
+        signal: options.signal, onToken: options.onToken,
       });
     case 'deepseek':
       return streamOpenAiCompatible({
@@ -479,7 +482,7 @@ export async function streamCloudReply(options: {
         model: options.apiModel,
         apiKey: key,
         messages,
-        onToken: options.onToken,
+        signal: options.signal, onToken: options.onToken,
       });
     case 'groq':
       return streamOpenAiCompatible({
@@ -487,7 +490,7 @@ export async function streamCloudReply(options: {
         model: options.apiModel.replace(/\s*\(Groq\)/i, ''),
         apiKey: key,
         messages,
-        onToken: options.onToken,
+        signal: options.signal, onToken: options.onToken,
       });
     case 'custom':
     default: {
@@ -497,7 +500,7 @@ export async function streamCloudReply(options: {
         model: options.apiModel,
         apiKey: key,
         messages,
-        onToken: options.onToken,
+        signal: options.signal, onToken: options.onToken,
       });
     }
   }

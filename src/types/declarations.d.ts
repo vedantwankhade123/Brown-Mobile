@@ -87,6 +87,7 @@ declare module 'react-native' {
   export const Dimensions: {
     get: (dim: 'window' | 'screen') => { width: number; height: number; scale: number; fontScale: number };
   };
+  export function useWindowDimensions(): { width: number; height: number; scale: number; fontScale: number };
   export type ViewStyle = Record<string, any>;
   export type StyleProp<T> = T | T[] | false | null | undefined;
   export const Alert: {

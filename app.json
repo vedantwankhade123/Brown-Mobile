@@ -18,8 +18,7 @@
         "NSSpeechRecognitionUsageDescription": "Brown requires speech recognition for voice AI conversations.",
         "NSMicrophoneUsageDescription": "Brown requires microphone access to enable voice queries.",
         "NSCameraUsageDescription": "Brown uses the camera to scan the pairing QR code shown in Brown Desktop.",
-        "NSLocalNetworkUsageDescription": "Brown requires local network access to synchronize with your desktop instance.",
-        "NSLocationWhenInUseUsageDescription": "Brown uses your exact location for accurate weather, time zone, and local assistant queries."
+        "NSLocalNetworkUsageDescription": "Brown requires local network access to synchronize with your desktop instance."
       }
     },
     "android": {
@@ -34,8 +33,6 @@
         "INTERNET",
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
         "REQUEST_INSTALL_PACKAGES",
         "WRITE_EXTERNAL_STORAGE",
         "READ_EXTERNAL_STORAGE",
@@ -43,7 +40,12 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC"
       ],
-      "versionCode": 15
+      "versionCode": 15,
+      "blockedPermissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
+      ]
     },
     "androidNavigationBar": {
       "backgroundColor": "#00000000",
@@ -67,12 +69,6 @@
         "expo-camera",
         {
           "cameraUsageDescription": "Brown uses the camera to scan the pairing QR code shown in Brown Desktop."
-        }
-      ],
-      [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "Brown uses your exact location for accurate weather, time zone, and local assistant queries."
         }
       ]
     ]

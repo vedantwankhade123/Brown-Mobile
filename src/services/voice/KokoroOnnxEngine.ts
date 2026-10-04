@@ -11,37 +11,38 @@ const KOKORO_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const HF = `https://huggingface.co/${KOKORO_MODEL_ID}/resolve/main`;
 
 export const KOKORO_HF_ASSETS = {
+  // Published asset sizes also reject partial files left by older app versions.
   model: {
     fileName: 'model_quantized.onnx',
     url: `${HF}/onnx/model_quantized.onnx?download=true`,
-    minBytes: 75 * 1024 * 1024,
+    minBytes: 92361116,
   },
   voices: {
     af_heart: {
       fileName: 'af_heart.bin',
       url: `${HF}/voices/af_heart.bin?download=true`,
-      minBytes: 400 * 1024,
+      minBytes: 522240,
     },
     am_michael: {
       fileName: 'am_michael.bin',
       url: `${HF}/voices/am_michael.bin?download=true`,
-      minBytes: 400 * 1024,
+      minBytes: 522240,
     },
     bm_george: {
       fileName: 'bm_george.bin',
       url: `${HF}/voices/bm_george.bin?download=true`,
-      minBytes: 400 * 1024,
+      minBytes: 522240,
     },
     bm_lewis: {
       fileName: 'bm_lewis.bin',
       url: `${HF}/voices/bm_lewis.bin?download=true`,
-      minBytes: 400 * 1024,
+      minBytes: 522240,
     },
   },
   tokenizer: {
     fileName: 'tokenizer.json',
     url: `${HF}/tokenizer.json?download=true`,
-    minBytes: 1024,
+    minBytes: 3497,
   },
 } as const;
 

@@ -1,4 +1,11 @@
+import { PreferencesScreen } from './PreferencesScreen';
+import { MAX_BACKUP_BYTES, validateBackup, restoreBackup } from '../services/storage/BackupService';
+import * as DocumentPicker from 'expo-document-picker';
+import { StorageLocationControl } from '../components/StorageLocationControl';
+import { AssistantMemory } from '../services/storage/AssistantMemory';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path, Circle } from 'react-native-svg';
 import {
   View,
   Text,
@@ -12,6 +19,8 @@ import {
   Linking,
   Animated,
   Image,
+  ActivityIndicator,
+  Modal,
 } from 'react-native';
 
 const Easing = (Animated as any).Easing || {
@@ -42,7 +51,8 @@ import {
   testProviderConnection,
 } from '../services/inference/CloudProviders';
 import { LlamaEngine } from '../services/inference/LlamaEngine';
-import { headerButtonStyle, GlassControl, GlassSurface, ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
+import { HeaderFade } from '../components/HeaderFade';
+import { HeaderTitle, headerButtonStyle, GlassControl, GlassSurface, ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
 import {
   UpdatePromptModal,
@@ -69,11 +79,17 @@ import {
   cancelKokoroDownload,
   deleteKokoroAssets,
   downloadKokoroOnboardingDefaults,
+  downloadKokoroEngine,
+  downloadKokoroVoice,
+  isKokoroVoiceInstalled,
+  KokoroInstallStatus,
+  KokoroDownloadProgress,
   getActiveKokoroVoice,
   getKokoroInstallStatus,
   setActiveKokoroVoice,
 } from '../services/voice/KokoroTtsService';
 import { SpeechToTextService } from '../services/voice/SpeechToText';
+import { TextToSpeechService } from '../services/voice/TextToSpeech';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   SearchIcon,
@@ -102,12 +118,10 @@ import {
   DownloadIcon,
   GlobeIcon,
   WifiIcon,
-  GithubIcon,
   InstagramIcon,
   MailIcon,
   WindowsIcon,
   AndroidIcon,
-  MapPinIcon,
   SyncArrowsIcon,
   SoftwareUpdateIcon,
   AboutUltronIcon,
@@ -120,9 +134,10 @@ import { ToggleSwitch } from '../components/ToggleSwitch';
 import { pickStorageFolder } from '../utils/storageFolderPicker';
 import { StoragePaths } from '../services/storage/StoragePaths';
 import { ProfileService } from '../services/storage/ProfileService';
+import { LegalDocumentScreen } from './LegalDocumentScreen';
+import { HelpSupportScreen } from './HelpSupportScreen';
 import { DesktopSyncService } from '../services/sync/DesktopSync';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Location from 'expo-location';
 
 export type SettingsView =
   | 'main'
@@ -130,10 +145,38 @@ export type SettingsView =
   | 'edit_profile'
   | 'models'
   | 'sounds'
+  | 'voice'
+  | 'preferences'
   | 'storage'
   | 'data_sync'
   | 'updates'
+  | 'help'
+  | 'privacy'
+  | 'terms'
   | 'about';
+// Legal documents share one screen and the app's reusable header treatment.
+
+// RN needs static require() paths — map each Kokoro voiceId to its bundled portrait.
+const PERSONA_IMAGES: Record<KokoroVoiceId, number> = {
+  af_heart: require('../../Assets/personas/heart_sound.png'),
+  am_michael: require('../../Assets/personas/michael_sound.png'),
+  bm_george: require('../../Assets/personas/george_sound.png'),
+  bm_lewis: require('../../Assets/personas/lewis_sound.png'),
+};
+
+function VoiceCardIcon({ kind }: { kind: 'play' | 'stop' | 'star' | 'check' }) {
+  return (
+    <Svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      {kind === 'play' ? <Path d="M7 4L21 12L7 20Z" fill="#ffffff" stroke="none" /> :
+        kind === 'stop' ? <Path d="M5 5H19V19H5Z" fill="#ffffff" stroke="none" /> :
+        kind === 'star' ? <Path d="m12 3 2.8 5.7 6.3.9-4.6 4.5 1.1 6.3-5.6-3-5.6 3 1.1-6.3L3 9.6l6.2-.9Z" /> :
+        <><Circle cx={12} cy={12} r={9} /><Path d="m8 12 3 3 7-8" /></>}
+    </Svg>
+  );
+}
+
+const kokoroLabel = (id: KokoroVoiceId) =>
+  KOKORO_VOICES.find((v) => v.voiceId === id)?.label ?? 'Heart';
 
 interface SettingsScreenProps {
   // ScreenTransition keeps every visited screen mounted, so this is the only signal that
@@ -141,6 +184,7 @@ interface SettingsScreenProps {
   isActive?: boolean;
   onBack: () => void;
   onClearHistory: () => void;
+  onDeleteAccount: () => void;
   onRerunOnboarding?: () => void;
   onOpenModelStore?: () => void;
   onOpenDesktopSync?: () => void;
@@ -153,8 +197,6 @@ const MONTHS_LIST = [
 
 const MODEL_TAG_FILTERS = ['All', 'Cloud', 'Offline', 'Thinking', 'Vision', 'Code', 'Embedding'];
 
-const LOCATION_STORAGE_KEY = 'ultron.home_location';
-const AUTO_DETECT_LOCATION_KEY = 'ultron.auto_detect_location';
 
 // Hands a written file to the system viewer through a content URI, the same route the
 // APK installer uses; without it the backup is only reachable through a file manager.
@@ -190,7 +232,7 @@ const HoverableSettingsRow: React.FC<{
           alignItems: 'center',
           justifyContent: 'space-between',
           minHeight: 56,
-          paddingVertical: 16,
+          paddingVertical: 20,
           paddingHorizontal: 18,
         },
         isHovered && { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
@@ -208,6 +250,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   isActive = true,
   onBack,
   onClearHistory,
+  onDeleteAccount,
   onOpenModelStore,
   onOpenDesktopSync,
 }) => {
@@ -228,11 +271,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editBirthdate, setEditBirthdate] = useState('');
-  const [homeLocation, setHomeLocation] = useState('');
-  const [locationStatusText, setLocationStatusText] = useState('');
-  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
-  const [autoDetectLocation, setAutoDetectLocation] = useState(true);
-
   // DOB Calendar Popover State for Full-Page Edit Profile
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [calendarView, setCalendarView] = useState<'days' | 'months' | 'years'>('days');
@@ -316,6 +354,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   // Storage & Memory States (Desktop Parity)
   const [memoryPersistence, setMemoryPersistence] = useState(true);
+  const [savedPreferences, setSavedPreferences] = useState<string[]>([]);
+  useEffect(() => {
+    if (isActive) { AssistantMemory.enabled().then(setMemoryPersistence); AssistantMemory.list().then(setSavedPreferences); }
+  }, [isActive, currentView]);
   const [customDataDir, setCustomDataDir] = useState('/data/user/0/com.ultron.mobile/files');
   const [customConnectorsDir, setCustomConnectorsDir] = useState('/data/user/0/com.ultron.mobile/models');
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -333,7 +375,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [kokoroVoice, setKokoroVoice] = useState<KokoroVoiceId>('af_heart');
   const [kokoroInstalled, setKokoroInstalled] = useState(false);
   const [kokoroBusy, setKokoroBusy] = useState(false);
+  const [kokoroStatus, setKokoroStatus] = useState<KokoroInstallStatus | null>(null);
+  const [activeVoiceDownload, setActiveVoiceDownload] = useState<string | null>(null);
+  const [showVoiceDownloads, setShowVoiceDownloads] = useState(false);
+  const [voiceDownloads, setVoiceDownloads] = useState<Record<string, KokoroDownloadProgress>>({});
+  const [engineDownloadedBanner, setEngineDownloadedBanner] = useState(false);
+  const engineBannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (engineBannerTimer.current) clearTimeout(engineBannerTimer.current); }, []);
+  const [voiceGridWidth, setVoiceGridWidth] = useState(0);
   const [kokoroProgress, setKokoroProgress] = useState('');
+  useEffect(() => {
+    if (currentView !== 'voice') return;
+    getKokoroInstallStatus().then(status => {
+      setKokoroStatus(status);
+      setKokoroInstalled(KOKORO_VOICES.some(v => isKokoroVoiceInstalled(status, v.voiceId)));
+    }).catch(() => {});
+  }, [currentView]);
+  const [previewingVoice, setPreviewingVoice] = useState<KokoroVoiceId | null>(null);
   const [desktopSyncStatus, setDesktopSyncStatus] = useState<{ isConnected: boolean; deviceName: string }>({
     isConnected: false,
     deviceName: '',
@@ -396,24 +454,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       .then(setKokoroVoice)
       .catch(() => {});
     getKokoroInstallStatus()
-      .then((s) => setKokoroInstalled(s.fullyInstalled))
+      .then((s) => { setKokoroStatus(s); setKokoroInstalled(KOKORO_VOICES.some(v => isKokoroVoiceInstalled(s, v.voiceId))); })
       .catch(() => {});
     const active = LlamaEngine.getInstance().getActiveModel();
     if (active) setSelectedModelId(active.id);
-    AsyncStorage.getItem(LOCATION_STORAGE_KEY)
-      .then((savedLocation) => {
-        if (savedLocation) setHomeLocation(savedLocation);
-      })
-      .catch(() => {});
-    AsyncStorage.getItem(AUTO_DETECT_LOCATION_KEY)
-      .then((saved) => {
-        const enabled = saved !== '0';
-        setAutoDetectLocation(enabled);
-        // Only fill the field in when access was already granted - opening Settings
-        // must never raise a system permission dialog the user did not ask for.
-        if (enabled) performRealLocationDetection(false);
-      })
-      .catch(() => {});
     const downloader = ModelDownloader.getInstance();
     downloader.whenReady().then(() => setModelsRevision((n) => n + 1));
     const unsubDownloader = downloader.subscribe(() => {
@@ -458,10 +502,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         setEditBirthdate(data.birthdate || '');
         parseDateToCalendar(data.birthdate);
       } else {
-        setEditName('Vedant Wankhade');
-        setEditEmail('vedantwankhade47@gmail.com');
-        setEditBirthdate('14/01/2005');
-        parseDateToCalendar('14/01/2005');
+        setEditName('');
+        setEditEmail('');
+        setEditBirthdate('');
       }
     } catch {}
   };
@@ -659,145 +702,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  // High-accuracy location detection: native GPS first, then network/IP, then system timezone
-  const reverseGeocodeLocation = async (latitude: number, longitude: number): Promise<string | null> => {
-    try {
-      // A. OpenStreetMap Nominatim reverse geocoder
-      const osmRes = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=14&addressdetails=1`,
-        { headers: { 'User-Agent': 'BrownMobile/1.0' } }
-      );
-      if (osmRes.ok) {
-        const geo = await osmRes.json();
-        const addr = geo.address || {};
-        const city = addr.city || addr.town || addr.village || addr.municipality || addr.county || addr.state_district;
-        const state = addr.state || addr.region;
-        const country = addr.country || '';
-        if (city) {
-          return state && state !== city ? `${city}, ${state}${country ? `, ${country}` : ''}` : `${city}${country ? `, ${country}` : ''}`;
-        }
-      }
-    } catch {}
-
-    try {
-      // B. BigDataCloud client reverse geocode fallback
-      const bdcRes = await fetch(
-        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
-      );
-      if (bdcRes.ok) {
-        const bdc = await bdcRes.json();
-        const city = bdc.city || bdc.locality || bdc.principalSubdivision;
-        const state = bdc.principalSubdivision;
-        const country = bdc.countryName || '';
-        if (city) {
-          return state && state !== city ? `${city}, ${state}${country ? `, ${country}` : ''}` : `${city}${country ? `, ${country}` : ''}`;
-        }
-      }
-    } catch {}
-
-    return null;
-  };
-
-  const saveHomeLocation = (loc: string, statusText: string) => {
-    setHomeLocation(loc);
-    setLocationStatusText(statusText);
-    AsyncStorage.setItem(LOCATION_STORAGE_KEY, loc).catch(() => {});
-  };
-
-  const performRealLocationDetection = async (askForPermission = true) => {
-    setIsDetectingLocation(true);
-    setLocationStatusText('Detecting…');
-
-    // 1. Native GPS via expo-location (highest accuracy on Android/iOS)
-    let coords: { latitude: number; longitude: number } | null = null;
-    try {
-      const permission = askForPermission
-        ? await Location.requestForegroundPermissionsAsync()
-        : await Location.getForegroundPermissionsAsync();
-      if (!permission.granted && !askForPermission) {
-        setIsDetectingLocation(false);
-        setLocationStatusText('');
-        return;
-      }
-      if (permission.granted) {
-        const pos = await Promise.race([
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
-        ]);
-        if (pos) coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-      }
-    } catch {}
-
-    // 2. Browser geolocation fallback (web builds)
-    if (!coords && typeof navigator !== 'undefined' && navigator.geolocation) {
-      coords = await new Promise<{ latitude: number; longitude: number } | null>((resolve) => {
-        navigator.geolocation.getCurrentPosition(
-          (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-          () => resolve(null),
-          { timeout: 8000, enableHighAccuracy: true, maximumAge: 5000 }
-        );
-      });
-    }
-
-    if (coords) {
-      const loc = await reverseGeocodeLocation(coords.latitude, coords.longitude);
-      if (loc) {
-        saveHomeLocation(loc, 'Exact GPS location');
-        setIsDetectingLocation(false);
-        return;
-      }
-    }
-
-    // 3. Approximate network/IP geolocation fallback (last resort before timezone)
-    const ipServices = [
-      'https://ipwho.is/',
-      'https://ipapi.co/json/',
-      'https://freeipapi.com/api/json',
-      'https://geolocation-db.com/json/',
-    ];
-
-    for (const url of ipServices) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3500);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (res.ok) {
-          const data = await res.json();
-          const city = data.cityName || data.city || data.locality || data.region;
-          const country = data.countryName || data.country || data.country_name || '';
-          const region = data.regionName || data.region || data.state;
-          if (city) {
-            const loc = region && region !== city ? `${city}, ${region}${country ? `, ${country}` : ''}` : `${city}${country ? `, ${country}` : ''}`;
-            saveHomeLocation(loc, 'Approximate (network)');
-            setIsDetectingLocation(false);
-            return;
-          }
-        }
-      } catch {}
-    }
-
-    // 4. Fallback to system timezone
-    fallbackTimezoneLocation();
-  };
-
-  const fallbackTimezoneLocation = () => {
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (tz.includes('Kolkata') || tz.includes('Calcutta') || tz.includes('India')) {
-        saveHomeLocation('India', 'Approximate (system)');
-      } else {
-        const parts = tz.split('/');
-        const city = parts[parts.length - 1].replace(/_/g, ' ');
-        saveHomeLocation(city, 'Approximate (system)');
-      }
-    } catch {
-      saveHomeLocation('India', 'Approximate (system)');
-    } finally {
-      setIsDetectingLocation(false);
-    }
-  };
-
   // Settings owns the back button while it is on screen: pop the internal view
   // history first, then hand control back to the app-level screen stack. Registering
   // unconditionally kept stealing the back button from chat after one visit.
@@ -854,6 +758,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   const navigateToView = (view: SettingsView) => {
+    if (view === 'data_sync' && onOpenDesktopSync) { onOpenDesktopSync(); return; }
     animateOnce(
       [
         Animated.timing(screenSlideAnim, {
@@ -918,7 +823,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
     const updated = await ConsentService.recordConsent({
       fullName: trimmedName,
-      email: editEmail.trim() || 'vedantwankhade47@gmail.com',
+      email: editEmail.trim(),
       birthdate: editBirthdate.trim() || 'Not specified',
       agreedToTerms: true,
       agreedToPrivacyPolicy: true,
@@ -948,7 +853,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const handleClearHistory = () => {
     Alert.alert(
       'Clear All Local Chats',
-      'This will permanently delete all conversation sessions and messages encrypted in local SQLite on this device.',
+      'This will permanently delete all conversation sessions and messages stored in local SQLite on this device.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -966,6 +871,44 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  const confirmDeleteAccount = () => Alert.alert(
+    'Delete local account?',
+    'This permanently removes your profile, chats, saved preferences, API credentials, desktop pairing, downloaded models and private app files and caches. Brown will restart at onboarding.\n\nThis cannot be undone. Exported backups and copies on other devices or online services are not deleted.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete Account', style: 'destructive', onPress: onDeleteAccount },
+    ]
+  );
+
+  const handleImportData = async () => {
+    if (importing || exporting) return;
+    setImporting(true);
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ type: ['application/json', 'text/plain'], copyToCacheDirectory: true });
+      if (picked.canceled || !picked.assets?.[0]) { setImporting(false); return; }
+      const file = picked.assets[0];
+      const FileSystem = require('expo-file-system');
+      const info = await FileSystem.getInfoAsync(file.uri);
+      if ((file.size || info.size || 0) > MAX_BACKUP_BYTES) throw new Error('Choose a backup smaller than 10 MB.');
+      const backup = validateBackup(await FileSystem.readAsStringAsync(file.uri));
+      Alert.alert('Import Backup', `${backup.sessions.length} conversations, ${backup.messageCount} messages and ${backup.preferences.length} saved preferences.\n\nMerge with existing data? Duplicates will be skipped. Your memory toggle stays unchanged.`, [
+        { text: 'Cancel', style: 'cancel', onPress: () => setImporting(false) },
+        { text: 'Import', onPress: async () => {
+          try {
+            const result = await restoreBackup(backup);
+            setSavedPreferences(await AssistantMemory.list());
+            Alert.alert('Backup Imported', `Added ${result.sessions} conversations, ${result.messages} messages and ${result.preferences} preferences. If an import is interrupted, choosing the same backup again skips existing entries.`);
+          } catch (err: any) { Alert.alert('Import Failed', err?.message || 'Could not restore backup. You can retry the same file.'); }
+          finally { setImporting(false); }
+        } },
+      ]);
+    } catch (err: any) {
+      setImporting(false);
+      Alert.alert('Import Failed', err?.message || 'The backup could not be read.');
+    }
+  };
 
   const handleExportData = async () => {
     if (exporting) return;
@@ -973,7 +916,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     try {
       const bundle = await chatRepo.exportAll();
       const json = JSON.stringify(
-        { app: 'Brown', platform: 'android', exportedAt: new Date().toISOString(), ...bundle },
+        { app: 'Brown', schemaVersion: 1, platform: 'android', exportedAt: new Date().toISOString(), ...bundle, assistantMemory: { enabled: await AssistantMemory.enabled(), preferences: await AssistantMemory.list() } },
         null,
         2
       );
@@ -995,6 +938,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
       Alert.alert('Backup Exported', summary, [
         { text: 'Done', style: 'cancel' },
+        {
+          text: 'Save a copy',
+          onPress: async () => {
+            try {
+              const folder = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+              if (!folder.granted) return;
+              const destination = await FileSystem.StorageAccessFramework.createFileAsync(folder.directoryUri, `Brown_Backup_${stamp}.json`, 'application/json');
+              await FileSystem.writeAsStringAsync(destination, json);
+              Alert.alert('Backup Saved', 'Your backup is ready to import from the folder you chose.');
+            } catch (err: any) {
+              Alert.alert('Save Failed', err?.message || 'Could not save the backup to that folder.');
+            }
+          },
+        },
         {
           text: 'Open',
           onPress: () => {
@@ -1029,8 +986,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       }
     } catch (e: any) {
       setUpdateStatus('error');
-      setUpdateError(e?.message || 'Unable to reach GitHub Releases.');
-      Alert.alert('Update Check Failed', e?.message || 'Unable to reach GitHub Releases.');
+      setUpdateError(e?.message || 'Unable to reach the update service.');
+      Alert.alert('Update Check Failed', e?.message || 'Unable to reach the update service.');
     }
   };
 
@@ -1055,8 +1012,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
-  const userName = profile?.fullName || 'Vedant Wankhade';
-  const userEmail = profile?.email || 'vedantwankhade47@gmail.com';
+  const userName = profile?.fullName || 'Your profile';
+  const userEmail = profile?.email || '';
   const userInitial = userName.charAt(0).toUpperCase();
 
   const ULTRON_DOWNLOAD_URL = 'https://usebrown.online/download';
@@ -1117,16 +1074,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           detail: undefined,
           action: () => navigateToView('models'),
         },
-        {
-          id: 'location',
-          title: 'Location',
-          iconType: 'location',
-          iconColor: '#f87171',
-          detail: homeLocation
-            ? (homeLocation.length > 18 ? `${homeLocation.slice(0, 18)}…` : homeLocation)
-            : (isDetectingLocation ? 'Detecting…' : 'Not set'),
-          action: () => navigateToView('account'),
-        },
+        { id: 'preferences', title: 'View Preferences', iconType: 'sliders', iconColor: '#a1a1aa', detail: `${savedPreferences.length} saved`, action: () => navigateToView('preferences') },
         {
           id: 'data_sync',
           title: 'Desktop Sync',
@@ -1149,11 +1097,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       badge: undefined,
       items: [
         {
-          id: 'sounds',
-          title: 'Voice & Speech',
+          id: 'voice',
+          title: 'Voice',
           iconType: 'volume',
           iconColor: '#fb7185',
-          detail: 'Kokoro 82M',
+          detail: kokoroInstalled ? kokoroLabel(kokoroVoice) : 'Download Kokoro',
+          action: () => navigateToView('voice'),
+        },
+        {
+          id: 'sounds',
+          title: 'Sounds & Voice input',
+          iconType: 'mic',
+          iconColor: '#38bdf8',
+          detail: nativeSpeech ? 'On-device dictation' : 'Whisper via PC',
           action: () => navigateToView('sounds'),
         },
         {
@@ -1187,6 +1143,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           detail: `v${currentAppVersion}`,
           action: () => navigateToView('about'),
         },
+        { id: 'help', title: 'Help & Support', iconType: 'help', iconColor: '#93c5fd', detail: 'Docs & contact', action: () => navigateToView('help') },
+        { id: 'privacy', title: 'Privacy Policy', iconType: 'shield', detail: undefined, action: () => navigateToView('privacy') },
+        { id: 'terms', title: 'Terms & Conditions', iconType: 'file', detail: undefined, action: () => navigateToView('terms') },
       ],
     },
   ];
@@ -1195,14 +1154,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     let iconEl = <CpuIcon size={20} color={iconColor} />;
     if (iconType === 'chat') iconEl = <ChatIcon size={20} color={iconColor} />;
     else if (iconType === 'user') iconEl = <UserIcon size={20} color={iconColor} />;
+    else if (iconType === 'sliders') iconEl = <SlidersIcon size={20} color={iconColor} />;
     else if (iconType === 'cpu') iconEl = <CpuIcon size={20} color={iconColor} />;
-    else if (iconType === 'location') iconEl = <MapPinIcon size={20} color={iconColor} />;
     else if (iconType === 'sync') iconEl = <SyncArrowsIcon size={20} color={iconColor} />;
     else if (iconType === 'volume') iconEl = <VolumeIcon size={20} color={iconColor} />;
+    else if (iconType === 'mic') iconEl = <MicIcon size={20} color={iconColor} />;
     else if (iconType === 'database') iconEl = <DatabaseIcon size={20} color={iconColor} />;
     else if (iconType === 'update') iconEl = <SoftwareUpdateIcon size={20} color={iconColor} />;
     else if (iconType === 'about') iconEl = <AboutUltronIcon size={20} color={iconColor} />;
     else if (iconType === 'shield') iconEl = <ShieldCheckIcon size={20} color={iconColor} />;
+    else if (iconType === 'help') iconEl = <HelpCircleIcon size={20} color={iconColor} />;
 
     return (
       <View style={styles.cleanMenuIconBox}>
@@ -1285,7 +1246,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // VIEW HELPER: FULL-PAGE HEADER COMPONENT
   // ==========================================
   const renderFullPageHeader = (title: string, onCustomBack?: () => void) => (
-    <ScreenHeader centered title={title} onBack={onCustomBack || handleSmoothBack} scrolled={settingsScrolled} />
+    <ScreenHeader overlay centered title={title} onBack={onCustomBack || handleSmoothBack} scrolled={settingsScrolled} />
   );
 
   // ==========================================
@@ -1305,13 +1266,13 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             />
           )}
 
-          <ScrollView keyboardShouldPersistTaps="handled" style={scrollStyle} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle} contentContainerStyle={styles.fullPageScrollContent} showsVerticalScrollIndicator={false}>
             <View style={styles.centerSection}>
               <View style={styles.editAvatarBigCircle}>
                 <Text style={styles.editAvatarInitialText}>{userInitial}</Text>
               </View>
               <Text style={styles.pageMainHeading}>Profile Details</Text>
-              <Text style={styles.pageSubHeading}>Updates are stored exclusively on your device's encrypted storage.</Text>
+              <Text style={styles.pageSubHeading}>Updates are saved in private app storage on this device.</Text>
             </View>
 
             <View style={styles.transparentFormContainer}>
@@ -1499,14 +1460,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // ==========================================
   // FULL-PAGE VIEW 1: ACCOUNT (Desktop Parity)
   // ==========================================
+  if (currentView === 'privacy' || currentView === 'terms') {
+    return <LegalDocumentScreen document={currentView} onBack={handleSmoothBack} />;
+  }
+
+  if (currentView === 'help') {
+    return <HelpSupportScreen onBack={handleSmoothBack} />;
+  }
+
   if (currentView === 'account') {
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('User Account')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
-            contentContainerStyle={styles.fullPageScrollContent}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
+            contentContainerStyle={[styles.fullPageScrollContent, styles.accountScrollContent]}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
             scrollEventThrottle={16}
@@ -1530,55 +1499,11 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Location preferences */}
-            <View style={styles.locationCardGroup}>
-              <View style={styles.locationHeaderRow}>
-                <Text style={styles.locationSectionTitle}>Location</Text>
-                <View style={styles.autoLocationToggleRow}>
-                  <Text style={styles.autoLocationToggleLabel}>Auto-detect</Text>
-                  <ToggleSwitch
-                    value={autoDetectLocation}
-                    onValueChange={(val: boolean) => {
-                      setAutoDetectLocation(val);
-                      AsyncStorage.setItem(AUTO_DETECT_LOCATION_KEY, val ? '1' : '0').catch(() => {});
-                      if (val) performRealLocationDetection(true);
-                    }}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.locationInputBox}>
-                <MapPinIcon size={20} color="#a1a1aa" />
-                <TextInput
-                  style={[styles.locationTextInput, Platform.OS === 'web' ? ({ outline: 'none', border: 'none' } as any) : {}]}
-                  value={homeLocation}
-                  onChangeText={(val: string) => {
-                    setHomeLocation(val);
-                    AsyncStorage.setItem(LOCATION_STORAGE_KEY, val).catch(() => {});
-                  }}
-                  accessibilityLabel="Your location"
-                  placeholder="City, region or country"
-                  placeholderTextColor="#71717a"
-                />
-              </View>
-
-              <View style={styles.locationFooterRow}>
-                <TouchableOpacity
-                  style={[styles.detectLocationBtn, isDetectingLocation && { opacity: 0.6 }]}
-                  onPress={() => performRealLocationDetection(true)}
-                  activeOpacity={0.8}
-                  disabled={isDetectingLocation}
-                >
-                  <Text style={styles.detectLocationBtnText}>
-                    {isDetectingLocation ? 'Detecting…' : 'Use current location'}
-                  </Text>
-                </TouchableOpacity>
-                {locationStatusText ? (
-                  <Text style={styles.locationStatusHintText} numberOfLines={1}>
-                    {locationStatusText}
-                  </Text>
-                ) : null}
-              </View>
+            <View style={styles.accountDeleteFooter}>
+              <TouchableOpacity style={styles.deleteAccountButton} onPress={confirmDeleteAccount} accessibilityLabel="Delete Account" activeOpacity={0.8}>
+                <TrashIcon size={18} color="#ffffff" />
+                <Text style={styles.deleteAccountText}>Delete Account</Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -1595,7 +1520,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Models')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2340,7 +2265,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Agent Sounds')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2383,125 +2308,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
             </View>
 
-            {/* 2. AI Voice Output Section */}
-            <View style={styles.pageCardGroup}>
-              <View style={styles.toggleRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionCardTitle}>AI voice output</Text>
-                  <Text style={styles.sectionCardSubtitle}>
-                    Natural offline neural voice synthesis. Skips raw code blocks and markdown.
-                  </Text>
-                </View>
-                <ToggleSwitch
-                  value={autoSpeakTts}
-                  onValueChange={setAutoSpeakTts}
-                />
-              </View>
-
-              <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Kokoro status</Text>
-                <Text style={styles.fullPageRowValue}>
-                  {kokoroInstalled ? 'Installed' : 'Not installed'}
-                </Text>
-              </View>
-
-              <View style={{ marginTop: 8, marginBottom: 4 }}>
-                <Text style={styles.fullPageRowLabel}>Voice persona</Text>
-                <Text style={styles.toggleDesc}>
-                  Heart (female) or Michael (male) — same Kokoro voices as Brown Desktop.
-                </Text>
-                <View style={[styles.speedPillsRow, { marginTop: 10 }]}>
-                  {KOKORO_VOICES.map((v) => (
-                    <TouchableOpacity
-                      key={v.key}
-                      style={[styles.speedPill, kokoroVoice === v.voiceId && styles.speedPillActive]}
-                      onPress={async () => {
-                        setKokoroVoice(v.voiceId);
-                        await setActiveKokoroVoice(v.voiceId);
-                      }}
-                    >
-                      <Text style={[styles.speedPillText, kokoroVoice === v.voiceId && styles.speedPillTextActive]}>
-                        {v.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.exportBackupBtn, { marginTop: 12 }]}
-                disabled={kokoroBusy}
-                onPress={async () => {
-                  setKokoroBusy(true);
-                  setKokoroProgress('Starting download…');
-                  const result = await downloadKokoroOnboardingDefaults((p) => {
-                    setKokoroProgress(p.status || `${p.percent}%`);
-                  });
-                  setKokoroBusy(false);
-                  if (result.success) {
-                    setKokoroInstalled(true);
-                    setKokoroProgress('Kokoro ready');
-                    Alert.alert('Kokoro TTS', 'Engine + Heart & Michael voices installed.');
-                  } else if (!result.cancelled) {
-                    Alert.alert('Download Failed', result.error || 'Could not download Kokoro.');
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <DownloadIcon size={16} color="#ffffff" />
-                <Text style={styles.exportBackupBtnText}>
-                  {kokoroBusy
-                    ? (kokoroProgress || 'Downloading…')
-                    : kokoroInstalled
-                      ? 'Re-download Kokoro voices'
-                      : 'Download Kokoro TTS'}
-                </Text>
-              </TouchableOpacity>
-
-              {kokoroInstalled ? (
-                <TouchableOpacity
-                  style={[styles.clearChatsBtn, { marginTop: 8 }]}
-                  onPress={() => {
-                    Alert.alert('Remove Kokoro?', 'Deletes the on-device engine and voice models.', [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: async () => {
-                          cancelKokoroDownload();
-                          await deleteKokoroAssets();
-                          setKokoroInstalled(false);
-                          setKokoroProgress('');
-                        },
-                      },
-                    ]);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <TrashIcon size={16} color="#ffffff" />
-                  <Text style={styles.clearChatsBtnText}>Remove Kokoro assets</Text>
-                </TouchableOpacity>
-              ) : null}
-
-              <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Speech rate</Text>
-                <View style={styles.speedPillsRow}>
-                  {[0.8, 1.0, 1.2, 1.4].map((spd) => (
-                    <TouchableOpacity
-                      key={spd}
-                      style={[styles.speedPill, speechRate === spd && styles.speedPillActive]}
-                      onPress={() => setSpeechRate(spd)}
-                    >
-                      <Text style={[styles.speedPillText, speechRate === spd && styles.speedPillTextActive]}>
-                        {spd}×
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </View>
-
-            {/* 3. Notification Chimes Section */}
+            {/* 2. Notification Chimes Section */}
             <View style={styles.pageCardGroup}>
               <Text style={styles.sectionCardTitle}>Notification Chimes</Text>
               <Text style={styles.sectionCardSubtitle}>
@@ -2636,154 +2443,267 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   }
 
   // ==========================================
-  // FULL-PAGE VIEW 4: STORAGE & MEMORY (Desktop Parity)
+  // FULL-PAGE VIEW: VOICE (Kokoro neural personas)
   // ==========================================
-  if (currentView === 'data_sync') {
-    const sync = DesktopSyncService.getInstance();
-    const status = sync.getStatus();
+  if (currentView === 'voice') {
+    const voiceColumns = voiceGridWidth >= 760 ? 4 : 2;
+    const voiceRows = Array.from({ length: Math.ceil(KOKORO_VOICES.length / voiceColumns) }, (_, index) =>
+      KOKORO_VOICES.slice(index * voiceColumns, (index + 1) * voiceColumns)
+    );
+    const handlePreview = async (voiceId: KokoroVoiceId) => {
+      if (!kokoroStatus || !isKokoroVoiceInstalled(kokoroStatus, voiceId)) {
+        Alert.alert('Download first', 'Download the Kokoro voices before previewing.');
+        return;
+      }
+      if (previewingVoice === voiceId) {
+        TextToSpeechService.stop();
+        setPreviewingVoice(null);
+        return;
+      }
+      TextToSpeechService.setRate(speechRate);
+      setPreviewingVoice(voiceId);
+      try {
+        await TextToSpeechService.previewVoice(voiceId);
+      } catch (err: any) {
+        Alert.alert('Preview failed', String(err?.message || err));
+      } finally {
+        setPreviewingVoice((cur) => (cur === voiceId ? null : cur));
+      }
+    };
+
+    const handleSelect = async (voiceId: KokoroVoiceId) => {
+      setKokoroVoice(voiceId);
+      await setActiveKokoroVoice(voiceId);
+    };
+
+    const handleDownload = async (voiceId?: KokoroVoiceId) => {
+      if (kokoroBusy) return;
+      const task = voiceId || 'engine';
+      setKokoroBusy(true);
+      setActiveVoiceDownload(task);
+      setKokoroProgress('Starting download…');
+      const onProgress = (p: KokoroDownloadProgress) => {
+        setVoiceDownloads(previous => ({ ...previous, [task]: { ...previous[task], ...p, ...(task === 'engine' && p.fileLabel?.toLowerCase().includes('tokenizer') ? { downloaded: previous[task]?.downloaded, total: previous[task]?.total } : {}) } }));
+        setKokoroProgress(`${p.status} ${p.percent}%${p.downloaded ? ` · ${p.downloaded}${p.total ? ` / ${p.total}` : ''}` : ''}`);
+      };
+      const result = voiceId ? await downloadKokoroVoice(voiceId, onProgress) : await downloadKokoroEngine(onProgress);
+      setKokoroBusy(false);
+      setActiveVoiceDownload(null);
+      if (result.success) {
+        const status = await getKokoroInstallStatus();
+        setKokoroStatus(status);
+        setKokoroInstalled(KOKORO_VOICES.some(v => isKokoroVoiceInstalled(status, v.voiceId)));
+        setKokoroProgress('');
+        if (voiceId) {
+          if (!isKokoroVoiceInstalled(status, kokoroVoice)) await handleSelect(voiceId);
+        } else {
+          setEngineDownloadedBanner(true);
+          if (engineBannerTimer.current) clearTimeout(engineBannerTimer.current);
+          engineBannerTimer.current = setTimeout(() => setEngineDownloadedBanner(false), 10000);
+        }
+      } else if (!result.cancelled) {
+        setVoiceDownloads(previous => ({ ...previous, [task]: { ...previous[task], phase: 'error', percent: previous[task]?.percent || 0, status: result.error || 'Download failed. Retry.' } }));
+        setKokoroProgress(result.error || 'Download failed. Please retry.');
+        Alert.alert('Download Failed', result.error || 'Could not download Kokoro.');
+      } else {
+        setVoiceDownloads(previous => ({ ...previous, [task]: { ...previous[task], phase: 'error', percent: previous[task]?.percent || 0, status: 'Cancelled. Tap Download to retry.' } }));
+        setKokoroProgress('Download cancelled. Tap Download to retry.');
+      }
+    };
+
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
-          {renderFullPageHeader('Desktop Sync')}
+          {renderFullPageHeader('Voice')}
+          <Modal visible={showVoiceDownloads} transparent animationType="fade" onRequestClose={() => setShowVoiceDownloads(false)}>
+            <View style={styles.voiceDownloadsBackdrop}>
+              <ScrollView style={styles.voiceDownloadsPanel} contentContainerStyle={{ padding: 18 }}>
+                <View style={styles.voiceIntroRow}><Text style={styles.voiceIntroTitle}>Voice downloads</Text><TouchableOpacity onPress={() => setShowVoiceDownloads(false)} accessibilityLabel="Close voice downloads"><Text style={styles.voiceDownloadClose}>×</Text></TouchableOpacity></View>
+                {['engine', ...KOKORO_VOICES.map(v => v.voiceId)].map(task => {
+                  const progress = voiceDownloads[task];
+                  const ready = task === 'engine' ? kokoroStatus?.engineInstalled : !!kokoroStatus && isKokoroVoiceInstalled(kokoroStatus, task as KokoroVoiceId);
+                  return <View key={task} style={styles.voiceDownloadItem}>
+                    <Text style={styles.voiceDownloadName}>{task === 'engine' ? 'Kokoro engine · 88.1 MB' : `${kokoroLabel(task as KokoroVoiceId)} voice · 510 KB`}</Text>
+                    <Text style={styles.voiceDownloadDetail}>{ready ? 'Downloaded · 100%' : progress ? `${progress.status} · ${progress.percent}%` : task !== 'engine' && !kokoroStatus?.engineInstalled ? 'Download the engine first' : 'Not downloaded · 0%'}</Text>
+                    {!!progress?.downloaded && <Text style={styles.voiceDownloadDetail}>{progress.downloaded}{progress.total ? ` / ${progress.total}` : ''}</Text>}
+                    <View style={styles.voiceDownloadTrack}><View style={[styles.voiceDownloadFill, { width: `${ready ? 100 : progress?.percent || 0}%` }]} /></View>
+                  </View>;
+                })}
+                {kokoroBusy && <TouchableOpacity onPress={cancelKokoroDownload} style={styles.secondaryFullBtn}><Text style={styles.voiceDownloadName}>Cancel download</Text></TouchableOpacity>}
+              </ScrollView>
+            </View>
+          </Modal>
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
             scrollEventThrottle={16}
           >
-            {/* 1. Device Connection & Pairing Card */}
-            <View style={styles.pageCardGroup}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <LaptopIcon size={18} color="#ffffff" />
-                  <Text style={styles.sectionCardTitle}>Device Connection</Text>
-                </View>
-                <View style={[
-                  styles.syncStatusPill,
-                  status.isConnected ? styles.syncStatusPillConnected : styles.syncStatusPillDisconnected
-                ]}>
-                  <View style={[
-                    styles.syncStatusDot,
-                    status.isConnected ? styles.syncStatusDotConnected : styles.syncStatusDotDisconnected
-                  ]} />
-                  <Text style={[
-                    styles.syncStatusPillText,
-                    status.isConnected ? styles.syncStatusPillTextConnected : styles.syncStatusPillTextDisconnected
-                  ]}>
-                    {status.isConnected ? 'Connected' : 'Not Paired'}
-                  </Text>
-                </View>
+            {/* 1. Neural persona cards */}
+            <View style={styles.voiceSection}>
+              <View style={styles.voiceIntroRow}>
+                <Text style={styles.voiceIntroTitle}>Neural personas</Text>
+                <TouchableOpacity style={styles.voiceDownloadsButton} onPress={() => setShowVoiceDownloads(true)} accessibilityLabel="Show voice model downloads and progress"><Svg width={21} height={21} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><Path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></Svg>{kokoroBusy && <ActivityIndicator size="small" color="#ffffff" />}</TouchableOpacity>
               </View>
-
-              <Text style={styles.sectionCardSubtitle}>
-                {status.isConnected
-                  ? `Paired with ${status.activeDesktop?.name || 'Windows PC'} (${status.activeDesktop?.ipAddress || 'Local Network'}).`
-                  : 'Connect and pair this mobile app with your Windows PC to sync chats, transfer models, and use live companion features.'}
+              <Text style={styles.voiceIntroDescription}>
+                On-device Kokoro voices. Download the shared engine first, then download the voices you want to use.
               </Text>
 
-              <TouchableOpacity
-                style={styles.connectWorkstationBtn}
-                onPress={() => {
-                  if (onOpenDesktopSync) {
-                    onOpenDesktopSync();
-                  }
-                }}
-                activeOpacity={0.85}
-              >
-                <WifiIcon size={16} color="#000000" />
-                <Text style={styles.connectWorkstationBtnText}>
-                  {status.isConnected ? 'Switch / Connect Another Device' : 'Connect / Pair Device'}
-                </Text>
-              </TouchableOpacity>
+              {(!kokoroStatus?.engineInstalled || engineDownloadedBanner) && (
+                <TouchableOpacity
+                  style={[styles.primaryFullBtn, kokoroBusy && styles.voicePillDisabled]}
+                  disabled={kokoroBusy || engineDownloadedBanner}
+                  onPress={() => handleDownload()}
+                  accessibilityLabel="Download shared Kokoro engine"
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.primaryFullBtnText}>{engineDownloadedBanner ? 'Kokoro Engine Downloaded' : activeVoiceDownload === 'engine' ? `Downloading Kokoro engine · ${voiceDownloads.engine?.percent || 0}%` : 'Download Kokoro engine · 88.1 MB'}</Text>
+                </TouchableOpacity>
+              )}
+              {!!kokoroProgress && <Text style={styles.sectionCardSubtitle} accessibilityLiveRegion="polite">{kokoroProgress}</Text>}
+
+              <View style={styles.voiceGrid} onLayout={(event: { nativeEvent: { layout: { width: number } } }) => setVoiceGridWidth(event.nativeEvent.layout.width)}>
+                {voiceRows.map((row) => (
+                  <View key={row[0].key} style={styles.voiceGridRow}>
+                  {row.map((v) => {
+                  const isActive = kokoroVoice === v.voiceId;
+                  const isPreviewing = previewingVoice === v.voiceId;
+                  const voiceInstalled = !!kokoroStatus && isKokoroVoiceInstalled(kokoroStatus, v.voiceId);
+                  const cardWidth = (voiceGridWidth - 10 * (voiceColumns - 1)) / voiceColumns;
+                  return (
+                    <View key={v.key} style={[styles.voiceCard, voiceGridWidth > 0 && { height: Math.max(240, cardWidth * 4 / 3) }, isActive && styles.voiceCardActive]}>
+                      <Image source={PERSONA_IMAGES[v.voiceId]} style={styles.voiceCardImg} resizeMode="cover" />
+                      <LinearGradient
+                        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.75)', '#000000']}
+                        locations={[0, 0.4, 0.7, 1]}
+                        style={StyleSheet.absoluteFillObject}
+                      >
+                        <View style={styles.voiceCardInfo}>
+                          <View style={styles.voiceCardTitleRow}>
+                            <Text style={styles.voiceCardName}>{v.label}</Text>
+                            {isActive && <View style={styles.voiceCardTick}><Text style={styles.voiceCardTickText}>✓</Text></View>}
+                          </View>
+                          <Text style={styles.voiceCardDesc} numberOfLines={3}>{v.description}</Text>
+                          <View style={styles.voiceCardFoot}>
+                            <TouchableOpacity
+                              style={[styles.voicePlayPill, !voiceInstalled && styles.voicePillDisabled]}
+                              disabled={!voiceInstalled}
+                              onPress={() => handlePreview(v.voiceId)}
+                              activeOpacity={0.8}
+                            >
+                              <VoiceCardIcon kind={isPreviewing ? 'stop' : 'play'} />
+                              <Text style={styles.voicePlayPillText}>{isPreviewing ? 'Stop' : 'Play'}</Text>
+                            </TouchableOpacity>
+
+                            {isActive && voiceInstalled ? (
+                              <View style={styles.voiceSelectPillSelected}>
+                                <VoiceCardIcon kind="check" />
+                                <Text style={styles.voiceSelectPillSelectedText}>Selected</Text>
+                              </View>
+                            ) : voiceInstalled ? (
+                              <TouchableOpacity style={styles.voiceSelectPill} onPress={() => handleSelect(v.voiceId)} activeOpacity={0.8}>
+                                <VoiceCardIcon kind="star" />
+                                <Text style={styles.voiceSelectPillText}>Select</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <TouchableOpacity
+                                style={[styles.voiceSelectPill, (kokoroBusy || !kokoroStatus?.engineInstalled) && styles.voicePillDisabled]}
+                                disabled={kokoroBusy || !kokoroStatus?.engineInstalled}
+                                onPress={() => handleDownload(v.voiceId)}
+                                accessibilityLabel={activeVoiceDownload === v.voiceId ? `Downloading ${v.label}` : `Download ${v.label} voice`}
+                                activeOpacity={0.8}
+                              >
+                                {activeVoiceDownload === v.voiceId ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.voiceSelectPillText}>Download</Text>}
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+                      </LinearGradient>
+                    </View>
+                  );
+                  })}
+                  </View>
+                ))}
+              </View>
             </View>
 
+            {/* 2. Speech settings */}
             <View style={styles.pageCardGroup}>
               <View style={styles.toggleRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionCardTitle}>Auto-Connect to Paired PC</Text>
+                  <Text style={styles.sectionCardTitle}>AI voice output</Text>
                   <Text style={styles.sectionCardSubtitle}>
-                    Silently reconnect on the same Wi-Fi using the saved session token. Unfamiliar networks still ask for the 6-character code.
+                    Reads answers aloud with the selected persona. Skips raw code blocks and markdown.
                   </Text>
                 </View>
-                <ToggleSwitch
-                  value={autoConnectWifi}
-                  onValueChange={async (val: boolean) => {
-                    setAutoConnectWifi(val);
-                    await sync.setAutoConnect(val);
-                  }}
-                />
+                <ToggleSwitch value={autoSpeakTts} onValueChange={setAutoSpeakTts} />
               </View>
-              <Text style={[styles.storageHintText, { marginTop: 8 }]}>
-                {status.isConnected
-                  ? `Connected to ${status.activeDesktop?.name || 'Desktop'}`
-                  : status.needsReauth
-                    ? status.reauthReason || 'Re-enter the pairing code on your PC.'
-                    : 'Not connected. Pair from Desktop Sync first.'}
-              </Text>
-            </View>
 
-            <View style={styles.pageCardGroup}>
-              <Text style={styles.sectionCardTitle}>Chat history</Text>
-              <Text style={styles.sectionCardSubtitle}>
-                Each transfer waits for Accept or Deny on your Windows PC. Nothing is copied until you approve it there.
-              </Text>
-              <View style={styles.storageActionColumn}>
+              <View style={styles.fullPageDetailRow}>
+                <Text style={styles.fullPageRowLabel}>Kokoro status</Text>
+                <Text style={styles.fullPageRowValue}>{kokoroBusy ? 'Downloading…' : kokoroInstalled ? 'Ready' : kokoroStatus?.engineInstalled ? 'Engine ready' : 'Not installed'}</Text>
+              </View>
+
+              <View style={styles.fullPageDetailRow}>
+                <Text style={styles.fullPageRowLabel}>Speech rate</Text>
+                <View style={styles.speedPillsRow}>
+                  {[0.8, 1.0, 1.2, 1.4].map((spd) => (
+                    <TouchableOpacity
+                      key={spd}
+                      style={[styles.speedPill, speechRate === spd && styles.speedPillActive]}
+                      onPress={() => {
+                        setSpeechRate(spd);
+                        TextToSpeechService.setRate(spd);
+                      }}
+                    >
+                      <Text style={[styles.speedPillText, speechRate === spd && styles.speedPillTextActive]}>
+                        {spd}×
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {kokoroStatus?.engineInstalled ? (
                 <TouchableOpacity
-                  style={styles.exportBackupBtn}
-                  disabled={syncBusy}
-                  onPress={async () => {
-                    try {
-                      setSyncBusy(true);
-                      const result = await sync.fetchDesktopChats();
-                      Alert.alert(
-                        'Desktop chats imported',
-                        `${result.sessions} new threads, ${result.messages} new messages.`
-                      );
-                    } catch (err: any) {
-                      Alert.alert('Sync failed', err?.message || 'Pair with Brown Desktop first.');
-                    } finally {
-                      setSyncBusy(false);
-                    }
+                  style={[styles.clearChatsBtn, { marginTop: 12 }]}
+                  onPress={() => {
+                    Alert.alert('Remove Kokoro?', 'Deletes the on-device engine and voice models.', [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          cancelKokoroDownload();
+                          TextToSpeechService.stop();
+                          await deleteKokoroAssets();
+                          setKokoroInstalled(false);
+                          setKokoroStatus(null);
+                          setVoiceDownloads({});
+                          setEngineDownloadedBanner(false);
+                          setKokoroProgress('');
+                        },
+                      },
+                    ]);
                   }}
                   activeOpacity={0.8}
                 >
-                  <DownloadIcon size={16} color="#ffffff" />
-                  <Text style={styles.exportBackupBtnText}>
-                    {syncBusy ? 'Waiting for PC…' : 'Fetch Desktop Chats'}
-                  </Text>
+                  <TrashIcon size={16} color="#ffffff" />
+                  <Text style={styles.clearChatsBtnText}>Remove Kokoro assets</Text>
                 </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.clearChatsBtn}
-                  disabled={syncBusy}
-                  onPress={async () => {
-                    try {
-                      setSyncBusy(true);
-                      const result = await sync.exportPhoneChats();
-                      Alert.alert('Exported to PC', `${result.sessions} conversation(s) saved on the workstation.`);
-                    } catch (err: any) {
-                      Alert.alert('Export failed', err?.message || 'Pair with Brown Desktop first.');
-                    } finally {
-                      setSyncBusy(false);
-                    }
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <LaptopIcon size={16} color="#ffffff" />
-                  <Text style={styles.clearChatsBtnText}>Export Phone Chats to PC</Text>
-                </TouchableOpacity>
-              </View>
+              ) : null}
             </View>
-
-            <TouchableOpacity style={styles.secondaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
-              <Text style={styles.secondaryFullBtnText}>Back to Settings</Text>
-            </TouchableOpacity>
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
     );
   }
+
+  // ==========================================
+  // FULL-PAGE VIEW 4: STORAGE & MEMORY (Desktop Parity)
+  // ==========================================
+  if (currentView === 'preferences') return <PreferencesScreen onBack={handleSmoothBack} />;
 
   if (currentView === 'storage') {
     return (
@@ -2791,7 +2711,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Storage & Memory')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -2803,90 +2723,48 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sectionCardTitle}>Storage Locations</Text>
                   <Text style={styles.sectionCardSubtitle}>
-                    All downloads, persistent memory, and local models are stored securely.
+                    Downloads, chats, and model files are stored on this device.
                   </Text>
                 </View>
-                <ToggleSwitch
-                  value={memoryPersistence}
-                  onValueChange={setMemoryPersistence}
-                />
+
               </View>
 
-              {/* Data Dir Input */}
-              <View style={{ marginTop: 12 }}>
-                <Text style={styles.inputFieldLabel}>{'Agent Storage & Memory'}</Text>
-                <View style={styles.storageInputRow}>
-                  <TouchableOpacity
-                    style={[styles.storageTextInput, { justifyContent: 'center' }]}
-                    onPress={() => chooseStorageFolder('data')}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Choose agent storage folder"
-                  >
-                    <Text style={styles.storagePathText} numberOfLines={1} ellipsizeMode="middle">{customDataDir}</Text>
-                    <Text style={styles.storageChooseLabel}>Choose folder</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.browseStorageBtn}
-                    onPress={async () => {
-                      const root = await StoragePaths.defaultRoot();
-                      const data = `${root}data/`;
-                      setCustomDataDir(StoragePaths.displayPath(data));
-                      await StoragePaths.setDataDir(data);
-                      Alert.alert('Storage Location', `Using ${StoragePaths.displayPath(data)}`);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.browseStorageBtnText}>Use default</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.storageHintText}>
-                  Conversations, memory, and session data. Defaults to internal app storage.
-                </Text>
-              </View>
+              <StorageLocationControl label="Agent Storage & Memory" address={customDataDir} hint="Conversation storage on this device. Saved preferences stay in private app storage."
+                onChoose={() => chooseStorageFolder('data')} onDefault={async () => {
+                  await StoragePaths.resetDataDir(); const data = await StoragePaths.getDataDir(); setCustomDataDir(StoragePaths.displayPath(data));
+                  Alert.alert('Storage Location', `Using ${StoragePaths.displayPath(data)}`);
+                }} />
+              <StorageLocationControl label="Connectors & Downloads" address={customConnectorsDir} hint="Downloaded model files."
+                onChoose={() => chooseStorageFolder('models')} onDefault={async () => {
+                  await StoragePaths.resetModelsDir(); const models = await StoragePaths.getModelsDir(); setCustomConnectorsDir(StoragePaths.displayPath(models));
+                  Alert.alert('Download Location', `Using ${StoragePaths.displayPath(models)}`);
+                }} />
+            </View>
 
-              {/* Connectors Dir */}
-              <View style={{ marginTop: 16, paddingTop: 6 }}>
-                <Text style={styles.inputFieldLabel}>{'Connectors & Downloads'}</Text>
-                <View style={styles.storageInputRow}>
-                  <TouchableOpacity
-                    style={[styles.storageTextInput, { justifyContent: 'center' }]}
-                    onPress={() => chooseStorageFolder('models')}
-                    activeOpacity={0.7}
-                    accessibilityLabel="Choose download folder"
-                  >
-                    <Text style={styles.storagePathText} numberOfLines={1} ellipsizeMode="middle">{customConnectorsDir}</Text>
-                    <Text style={styles.storageChooseLabel}>Choose folder</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.browseStorageBtn}
-                    onPress={async () => {
-                      const root = await StoragePaths.defaultRoot();
-                      const models = `${root}models/`;
-                      setCustomConnectorsDir(StoragePaths.displayPath(models));
-                      await StoragePaths.setModelsDir(models);
-                      Alert.alert('Connectors Location', `Models will save to ${StoragePaths.displayPath(models)}`);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.browseStorageBtnText}>Use default</Text>
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.storageHintText}>
-                  Quantized GGUF neural weights and local embedding files.
-                </Text>
+            <View style={styles.pageCardGroup}>
+              <Text style={styles.sectionCardTitle}>AI Memory</Text>
+              <Text style={styles.sectionCardSubtitle}>Say “Remember that I prefer brief answers” to save a preference across chats. Saved preferences are included when you chat, including with a cloud model. Turning memory off keeps them saved but stops using them.</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 }}>
+                <Text style={styles.inputFieldLabel}>Use saved preferences</Text>
+                <ToggleSwitch value={memoryPersistence} onValueChange={async value => { await AssistantMemory.setEnabled(value); setMemoryPersistence(value); }} />
               </View>
+              <TouchableOpacity accessibilityLabel="View preferences" style={[styles.exportBackupBtn, { marginTop: 14 }]} onPress={() => navigateToView('preferences')}><SlidersIcon size={18} color="#ffffff" /><Text style={styles.exportBackupBtnText}>View preferences</Text></TouchableOpacity>
             </View>
 
             {/* Clear Data Section */}
             <View style={styles.pageCardGroup}>
-              <Text style={styles.sectionCardTitle}>Clear Data</Text>
+              <Text style={styles.sectionCardTitle}>Backup & Data</Text>
               <Text style={styles.sectionCardSubtitle}>
-                Permanently delete all conversations, chat history, and message logs from storage.
+                Save or restore conversations and preferences. Erase history separately.
               </Text>
               <View style={styles.storageActionColumn}>
-                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleExportData} disabled={exporting} activeOpacity={0.8}>
+                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleExportData} disabled={exporting || importing} activeOpacity={0.8}>
                   <DownloadIcon size={16} color="#ffffff" />
                   <Text style={styles.exportBackupBtnText}>{exporting ? 'Exporting…' : 'Export Backup'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleImportData} disabled={importing || exporting} activeOpacity={0.8} accessibilityLabel="Import backup">
+                  <DownloadIcon size={16} color="#ffffff" />
+                  <Text style={styles.exportBackupBtnText}>{importing ? 'Importing…' : 'Import Backup'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.clearChatsBtn} onPress={handleClearHistory} activeOpacity={0.8}>
@@ -2927,7 +2805,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       updateStatus === 'checking'
         ? 'Looking for the newest Mobile Edition release…'
         : updateStatus === 'error'
-          ? updateError || 'Could not reach GitHub Releases. Check your connection and try again.'
+          ? updateError || 'Could not reach the update service. Check your connection and try again.'
           : hasUpdate
             ? `${sizeLabel}${released ? ` · Released ${released}` : ''}`
             : `v${stripV(currentAppVersion)} · Nothing left to download`;
@@ -2937,7 +2815,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Software update')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -3017,7 +2895,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <View style={styles.toggleRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.updateSettingLabel}>Auto-check on launch</Text>
-                    <Text style={styles.updateSettingDesc}>Check GitHub Releases when starting the app</Text>
+                    <Text style={styles.updateSettingDesc}>Check the update service when starting the app</Text>
                   </View>
                   <ToggleSwitch
                     value={autoCheckUpdates}
@@ -3069,7 +2947,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('About')}
           <ScrollView
-            keyboardShouldPersistTaps="handled" style={scrollStyle}
+            key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
             showsVerticalScrollIndicator={false}
             onScroll={settingsScroll}
@@ -3078,7 +2956,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.aboutCard}>
               <View style={styles.aboutBrandHeader}>
                 <Image
-                  source={require('../../Assets/Brown-white.png')}
+                  source={require('../../Assets/browny_white.png')}
                   style={styles.aboutAppLogo}
                   resizeMode="contain"
                 />
@@ -3119,20 +2997,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
               {/* Social Media Links (Only icons without bg, center-aligned in a single row) */}
               <View style={styles.aboutSocialIconsRow}>
-                <TouchableOpacity
-                  style={styles.aboutSocialIconBtn}
-                  onPress={() => {
-                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                      window.open('https://github.com/vedantwankhade123', '_blank');
-                    } else {
-                      Alert.alert('GitHub', 'https://github.com/vedantwankhade123');
-                    }
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityLabel="GitHub"
-                >
-                  <GithubIcon size={24} color="#ffffff" />
-                </TouchableOpacity>
 
                 <TouchableOpacity
                   style={styles.aboutSocialIconBtn}
@@ -3214,6 +3078,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {/* Top Header Row: Transitions into Search Field in the exact same row when search is active */}
         {isSpotlightOpen ? (
           <View style={[styles.mainHeaderRow, styles.mainHeaderSearchActive, settingsScrolled && styles.mainHeaderRowScrolled]}>
+            <HeaderFade />
             <GlassSurface radius={9999} active={true} style={styles.headerSearchBar}>
               <SearchIcon size={17} color="#9ca3af" />
               <TextInput
@@ -3252,6 +3117,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </View>
         ) : (
           <View style={[styles.mainHeaderRow, settingsScrolled && styles.mainHeaderRowScrolled]}>
+            <HeaderFade />
             <GlassControl radius={22} active={true}
               style={styles.settingsBackBtn}
               onPress={handleSmoothBack}
@@ -3260,9 +3126,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             >
               <BackArrowIcon size={22} color="#ffffff" strokeWidth={2.2} />
             </GlassControl>
-            <Text style={styles.settingsTitleText} numberOfLines={1}>
-              Settings
-            </Text>
+            <HeaderTitle title="Settings" style={{ position: 'absolute', left: 112, right: 112 }} />
             <View style={{ flex: 1 }} />
             <View style={styles.headerRightGroup}>
               <GlassControl radius={22} active={true}
@@ -3287,7 +3151,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
         {/* Main Settings Scroll Container */}
         <ScrollView
-          keyboardShouldPersistTaps="handled" style={scrollStyle}
+          key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           onScroll={settingsScroll}
@@ -3309,7 +3173,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
               <View style={styles.iosProfileInfo}>
                 <Text style={styles.iosProfileName}>{userName}</Text>
-                <Text style={styles.iosProfileSubtitle}>{userEmail || 'vedantwankhade47@gmail.com'}</Text>
+                <Text style={styles.iosProfileSubtitle}>{userEmail || 'Add your details'}</Text>
               </View>
               <ChevronRightIcon size={18} color="#5c5c66" />
             </TouchableOpacity>
@@ -3430,6 +3294,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
+  accountScrollContent: { flexGrow: 1 },
+  accountDeleteFooter: { marginTop: 'auto', paddingTop: 24 },
+  deleteAccountButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#b91c1c', borderRadius: 9999, paddingHorizontal: 18, paddingVertical: 14, minHeight: 48, marginTop: 18 },
+  deleteAccountText: { color: '#ffffff', fontSize: 15, fontWeight: '600', flexShrink: 1 },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3460,6 +3328,12 @@ const styles = StyleSheet.create({
   },
   headerIconBtn: { ...headerButtonStyle },
   mainHeaderRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    overflow: 'visible',
     flexDirection: 'row',
     alignItems: 'center',
     paddingLeft: 14,
@@ -3469,7 +3343,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     minHeight: 58,
     width: '100%',
-    maxWidth: 600,
     alignSelf: 'center',
   },
   mainHeaderRowScrolled: {
@@ -3499,8 +3372,8 @@ const styles = StyleSheet.create({
   settingsBackBtn: { ...headerButtonStyle },
   settingsTitleText: {
     position: 'absolute',
-    left: 64,
-    right: 64,
+    left: 112,
+    right: 112,
     textAlign: 'center',
     color: '#ffffff',
     fontSize: 18,
@@ -3540,11 +3413,11 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     paddingHorizontal: 14,
-    paddingTop: 8,
+    paddingTop: 76,
     paddingBottom: 44,
     maxWidth: 600,
     width: '100%',
@@ -3553,7 +3426,7 @@ const styles = StyleSheet.create({
   },
   fullPageScrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 18,
+    paddingTop: 82,
     paddingBottom: 50,
     maxWidth: 600,
     width: '100%',
@@ -3665,17 +3538,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   cleanMenuTitle: {
+    flex: 1,
+    flexShrink: 1,
     color: '#ffffff',
     fontSize: 16,
     fontWeight: '500',
     letterSpacing: -0.2,
   },
   cleanMenuRight: {
+    maxWidth: '40%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
   iosRowDetailText: {
+    flexShrink: 1,
     color: '#8e8e93',
     fontSize: 13.5,
     fontWeight: '400',
@@ -3719,6 +3596,23 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  voiceSection: {
+    paddingHorizontal: 2,
+    paddingVertical: 4,
+  },
+  voiceIntroTitle: {
+    color: '#ffffff',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '500',
+  },
+  voiceIntroDescription: {
+    color: '#ffffff',
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '500',
+    marginTop: 5,
   },
   sectionCardTitle: {
     textAlign: 'left',
@@ -3789,7 +3683,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -9,
     left: 14,
-    backgroundColor: '#000000',
+    backgroundColor: '#111111',
     paddingHorizontal: 6,
     zIndex: 10,
   },
@@ -4044,6 +3938,155 @@ const styles = StyleSheet.create({
   speedPillTextActive: {
     color: '#000000',
   },
+  // Voice persona cards (mirrors the desktop Voice tab overlay design)
+  voiceGrid: {
+    gap: 10,
+    marginTop: 12,
+    alignSelf: 'stretch',
+  },
+  voiceGridRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'stretch',
+  },
+  voiceCard: {
+    flex: 1,
+    minWidth: 0,
+    // Explicit height prevents absolutely positioned content collapsing in a wrapped grid.
+    height: 240,
+    flexShrink: 0,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#242424',
+    borderWidth: 1,
+    borderColor: '#242428',
+  },
+  voiceCardActive: {
+    borderColor: '#166534',
+    borderWidth: 2,
+  },
+  voiceCardImg: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  voiceCardInfo: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: 11,
+    gap: 3,
+  },
+  voiceCardName: {
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.semiBold,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 19,
+  },
+  voiceCardTick: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#22c55e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  voiceCardTickText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  voiceCardDesc: {
+    color: '#ffffff',
+    fontFamily: typography.fontFamily.regular,
+    fontSize: 11.5,
+    lineHeight: 15,
+    alignSelf: 'stretch',
+    textAlign: 'left',
+  },
+  voiceCardFoot: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 1,
+    gap: 6,
+  },
+  voicePlayPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  voicePlayPillText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  voicePillDisabled: {
+    opacity: 0.45,
+  },
+  voiceSelectPill: {
+    minWidth: 70,
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#303034',
+  },
+  voiceSelectPillText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  voiceSelectPillSelected: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 9999,
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#303034',
+  },
+  voiceSelectPillSelectedText: {
+    color: '#ffffff',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  voiceIntroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  voiceDownloadsButton: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 20, backgroundColor: '#242424' },
+  voiceDownloadsBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: 20 },
+  voiceDownloadsPanel: { backgroundColor: '#202020', borderRadius: 22, maxHeight: '90%', flexGrow: 0 },
+  voiceDownloadClose: { color: '#ffffff', fontSize: 28, paddingHorizontal: 8 },
+  voiceDownloadItem: { marginTop: 16 },
+  voiceDownloadName: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  voiceDownloadDetail: { color: '#d4d4d4', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  voiceDownloadTrack: { height: 4, backgroundColor: '#444444', borderRadius: 2, overflow: 'hidden', marginTop: 8 },
+  voiceDownloadFill: { height: '100%', backgroundColor: '#ffffff' },
   modelsFullList: {
     gap: 10,
     marginTop: 8,
@@ -4491,86 +4534,6 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '600',
   },
-  locationCardGroup: {
-    paddingHorizontal: 4,
-    paddingTop: 28,
-    paddingBottom: 8,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  locationHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  locationSectionTitle: {
-    textAlign: 'left',
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  autoLocationToggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
-  },
-  autoLocationToggleLabel: {
-    color: '#8e8e93',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  locationInputBox: {
-    backgroundColor: '#1B1B1B',
-    borderRadius: 24,
-    paddingHorizontal: 14,
-    minHeight: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  locationTextInput: {
-    flex: 1,
-    minWidth: 0,
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '400',
-    paddingVertical: 14,
-  },
-  locationFooterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 14,
-    flexWrap: 'wrap',
-  },
-  detectLocationBtn: {
-    backgroundColor: '#1B1B1B',
-    borderRadius: 9999,
-    paddingHorizontal: 18,
-    minHeight: 44,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detectLocationBtnText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  locationStatusHintText: {
-    flexGrow: 1,
-    flexShrink: 1,
-    color: '#8e8e93',
-    fontSize: 12,
-    fontWeight: '400',
-  },
-
   /* Storage Screen Styles */
   inputFieldLabel: {
     color: '#d4d4d8',

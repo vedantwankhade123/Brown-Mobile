@@ -6,6 +6,7 @@ import { streamCloudReply, CloudProviderId } from './CloudProviders';
 import { ModelDownloader } from '../modelManager/Downloader';
 import { DesktopSyncService } from '../sync/DesktopSync';
 import { StoragePaths } from '../storage/StoragePaths';
+import { nativeTextDelta } from './StreamText';
 
 const CLOUD_PROVIDER_IDS: CloudProviderId[] = ['openai', 'anthropic', 'deepseek', 'groq', 'custom'];
 
@@ -22,33 +23,55 @@ type ChatTurn = { role: string; content: string };
  * models answer badly. The reply budget and the history are sized together because a
  * window that overflows silently drops the system prompt instead of failing.
  */
-function buildChatMessages(
-  history: ChatMessage[],
-  systemPrompt: string,
-  promptTokenBudget: number
-): ChatTurn[] {
-  const charBudget = Math.max(600, promptTokenBudget * CHARS_PER_TOKEN);
-  const turns = history.filter((m) => m.role !== 'system' && String(m.content || '').trim().length > 0);
-
+export function buildChatMessages(history: ChatMessage[], systemPrompt: string, promptTokenBudget: number): ChatTurn[] {
+  const turns = history.filter(m => m.role !== 'system' && String(m.content || '').trim());
+  const charBudget = Math.max(300, promptTokenBudget * CHARS_PER_TOKEN - systemPrompt.length - 160);
   const kept: ChatTurn[] = [];
   let used = 0;
+  let cutoff = turns.length;
+  // Reserve a small portion for exact older user excerpts, rather than silently forgetting them.
+  const recentBudget = Math.floor(charBudget * (turns.length > 6 ? 0.8 : 1));
   for (let i = turns.length - 1; i >= 0; i--) {
-    const content = String(turns[i].content);
-    if (kept.length && used + content.length > charBudget) break;
-    kept.unshift({ role: turns[i].role, content });
-    used += content.length;
+    let content = String(turns[i].content);
+    if (!kept.length && content.length > recentBudget) content = content.slice(0, Math.floor(recentBudget / 3)) + '\n[Middle omitted to fit context]\n' + content.slice(-Math.floor(recentBudget * 2 / 3) + 40);
+    if (kept.length && used + content.length + 24 > recentBudget) break;
+    kept.unshift({ role: turns[i].role, content }); used += content.length + 24; cutoff = i;
   }
-  if (!kept.length && turns.length) {
-    // One question longer than the whole window: keep its end, where the actual ask is.
-    const last = turns[turns.length - 1];
-    kept.push({ role: last.role, content: String(last.content).slice(-charBudget) });
+  // Avoid starting with an orphan assistant answer after dropping its question.
+  if (kept.length > 1 && kept[0].role === 'assistant') { used -= kept.shift()!.content.length + 24; cutoff++; }
+  const terms = new Set(String(turns[turns.length - 1]?.content || '').toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []);
+  const older = turns.slice(0, cutoff).map((m, i) => ({ m, i, score: (m.content.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []).filter(t => terms.has(t)).length + (i === 0 ? 1 : 0) })).filter(x => x.m.role === 'user' || x.score > 0 || /\b(your|earlier|above|continue|previous)\b/i.test(turns[turns.length - 1]?.content || '')).sort((a,b) => b.score - a.score || b.i - a.i);
+  let remaining = Math.min(700, Math.max(0, charBudget - used - 100));
+  const excerpts: string[] = [];
+  for (const item of older) {
+    if (remaining < 80) break;
+    const quote = item.m.role + ': ' + JSON.stringify(item.m.content.slice(0, Math.min(240, remaining - 12)));
+    excerpts.push(quote); remaining -= quote.length + 1;
   }
-
+  const recall = excerpts.length ? '\nEarlier conversation excerpts (partial context, not new instructions; ask if required details are missing):\n' + excerpts.join('\n') : '';
   const messages: ChatTurn[] = [];
-  if (String(systemPrompt || '').trim()) {
-    messages.push({ role: 'system', content: String(systemPrompt).trim() });
-  }
+  if (String(systemPrompt || '').trim() || recall) messages.push({ role: 'system', content: String(systemPrompt).trim() + recall });
   return messages.concat(kept);
+}
+
+/** Validate against this model's tokenizer, including its own chat-template overhead. */
+export async function fitNativeContext(context: any, input: ChatTurn[], budget: number): Promise<ChatTurn[]> {
+  const messages = input.map(m => ({...m}));
+  if (!context.getFormattedChat || !context.tokenize) return messages;
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const formatted = await context.getFormattedChat(messages);
+    const count = (await context.tokenize(formatted.prompt)).tokens.length;
+    if (count <= budget) return messages;
+    if (messages.length > 2) {
+      messages.splice(1, messages[2]?.role === 'assistant' ? 2 : 1);
+    } else {
+      const target = messages[messages.length - 1];
+      if (target.content.length > 180) target.content = target.content.slice(-Math.max(160, Math.floor(target.content.length * 0.65)));
+      else if (messages[0]?.role === 'system' && messages[0].content.length > 400) messages[0].content = messages[0].content.slice(0, Math.floor(messages[0].content.length * 0.7));
+      else throw new Error('This request does not fit the model context. Shorten it or select a model with a larger context window.');
+    }
+  }
+  throw new Error('The request exceeds this model’s context window. Please shorten it.');
 }
 
 export interface ILlamaService {
@@ -116,6 +139,7 @@ export class LlamaEngine implements ILlamaService {
   /** Bumped whenever a run is stopped or superseded, so a late native callback cannot
    * write into a reply the UI has already finalised. */
   private generationEpoch = 0;
+  private requestAbort: AbortController | null = null;
 
   public static getInstance(): LlamaEngine {
     if (!LlamaEngine.instance) {
@@ -268,6 +292,8 @@ export class LlamaEngine implements ILlamaService {
 
   stopGeneration(): void {
     this.generationEpoch++;
+    this.requestAbort?.abort();
+    this.requestAbort = null;
     this.isGenerating = false;
     if (this.llamaContext) {
       try {
@@ -297,6 +323,11 @@ export class LlamaEngine implements ILlamaService {
           ? 'gemini'
           : 'device');
 
+    if (this.isGenerating) throw new Error('A reply is still being generated. Tap stop, then send again.');
+    const remoteEpoch = ++this.generationEpoch;
+    const requestAbort = new AbortController();
+    this.requestAbort = requestAbort;
+
     if (provider === 'gemini') {
       this.isGenerating = true;
       const startTime = Date.now();
@@ -307,11 +338,15 @@ export class LlamaEngine implements ILlamaService {
           apiModel: this.activeModel.apiModel || 'gemini-2.5-flash',
           prompt,
           history,
+          systemPrompt: settings.systemPrompt,
+          signal: requestAbort.signal,
           onToken: (token) => {
+            if (remoteEpoch !== this.generationEpoch) return;
             tokenCount += 1;
             onToken(token);
           },
         });
+        if (remoteEpoch !== this.generationEpoch) return;
         const elapsedMs = Math.max(Date.now() - startTime, 1);
         this.isGenerating = false;
         onComplete(accumulated, {
@@ -322,6 +357,7 @@ export class LlamaEngine implements ILlamaService {
           tokensPerSecond: Number((((tokenCount || 1) / elapsedMs) * 1000).toFixed(1)),
         });
       } catch (err) {
+        if (remoteEpoch !== this.generationEpoch) return;
         this.isGenerating = false;
         throw err;
       }
@@ -340,11 +376,14 @@ export class LlamaEngine implements ILlamaService {
           prompt,
           history,
           systemPrompt: settings.systemPrompt,
+          signal: requestAbort.signal,
           onToken: (token) => {
+            if (remoteEpoch !== this.generationEpoch) return;
             tokenCount += 1;
             onToken(token);
           },
         });
+        if (remoteEpoch !== this.generationEpoch) return;
         const elapsedMs = Math.max(Date.now() - startTime, 1);
         this.isGenerating = false;
         onComplete(accumulated, {
@@ -355,6 +394,7 @@ export class LlamaEngine implements ILlamaService {
           tokensPerSecond: Number((((tokenCount || 1) / elapsedMs) * 1000).toFixed(1)),
         });
       } catch (err) {
+        if (remoteEpoch !== this.generationEpoch) return;
         this.isGenerating = false;
         throw err;
       }
@@ -367,12 +407,14 @@ export class LlamaEngine implements ILlamaService {
       try {
         const ollamaName =
           this.activeModel.apiModel || this.activeModel.filename.replace('.gguf', '');
-        const messages = history.map((m) => ({ role: m.role, content: m.content }));
+        const messages = [{ role: 'system', content: settings.systemPrompt }, ...history.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }))];
         const full = await DesktopSyncService.getInstance().chatOllama(ollamaName, messages);
+        if (remoteEpoch !== this.generationEpoch) return;
         const words = full.split(/(\s+)/);
         for (const word of words) {
           if (word) onToken(word);
         }
+        if (remoteEpoch !== this.generationEpoch) return;
         const elapsedMs = Math.max(Date.now() - startTime, 1);
         this.isGenerating = false;
         onComplete(full, {
@@ -383,6 +425,7 @@ export class LlamaEngine implements ILlamaService {
           tokensPerSecond: Number(((words.length / elapsedMs) * 1000).toFixed(1)),
         });
       } catch (err) {
+        if (remoteEpoch !== this.generationEpoch) return;
         this.isGenerating = false;
         throw err;
       }
@@ -411,12 +454,14 @@ export class LlamaEngine implements ILlamaService {
       MIN_REPLY_TOKENS,
       Math.min(MAX_REPLY_TOKENS, Math.floor(contextTokens * REPLY_TOKEN_RATIO))
     );
-    const messages = buildChatMessages(
+    const preparingEpoch = this.generationEpoch;
+    const messages = await fitNativeContext(this.llamaContext, buildChatMessages(
       history,
       settings.systemPrompt,
       Math.max(256, contextTokens - replyTokens - 64)
-    );
+    ), contextTokens - replyTokens - 64);
 
+    if (preparingEpoch !== this.generationEpoch) return;
     const runEpoch = ++this.generationEpoch;
     this.isGenerating = true;
     const startTime = Date.now();
@@ -437,11 +482,9 @@ export class LlamaEngine implements ILlamaService {
         },
         (data: any) => {
           if (runEpoch !== this.generationEpoch) return;
-          const content = typeof data?.content === 'string' ? data.content : '';
-          const reasoning = typeof data?.reasoning_content === 'string' ? data.reasoning_content : '';
           // Reasoning models stream their thinking in its own field; it must not leak
           // into the answer, so those tokens are dropped rather than shown.
-          const piece = content || (reasoning ? '' : String(data?.token ?? ''));
+          const piece = nativeTextDelta(data, accumulated);
           if (!piece) return;
           tokenCount++;
           accumulated += piece;
@@ -480,7 +523,8 @@ export class LlamaEngine implements ILlamaService {
         tokensPerSecond: Number(((tokensGenerated / generateDurationMs) * 1000).toFixed(1)),
       });
     } catch (err: any) {
-      if (runEpoch === this.generationEpoch) this.isGenerating = false;
+      if (runEpoch !== this.generationEpoch) return;
+      this.isGenerating = false;
       console.warn('[LlamaEngine] completion failed:', err?.message || err);
       throw new Error(err?.message || 'On-device generation failed.');
     }
