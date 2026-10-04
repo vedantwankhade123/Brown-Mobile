@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
+  Switch,
+  Image,
   Text,
   StyleSheet,
   ScrollView,
@@ -13,14 +15,16 @@ import {
   Platform,
   KeyboardAvoidingView,
   Animated,
+  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DesktopSyncService, isPrivateLanAddress, PairedDesktopHistoryItem } from '../services/sync/DesktopSync';
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
 import { colors } from '../theme/colors';
 import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
-import { LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon, QrCodeIcon, ChevronRightIcon } from '../components/Icons';
-import { SyncIllustration } from '../components/SyncIllustration';
+import { MoreVerticalIcon, LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon, QrCodeIcon, ChevronRightIcon } from '../components/Icons';
 import { QRScannerModal } from '../components/QRScannerModal';
+import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import { revealValues } from '../utils/motion';
 
 const Easing = (Animated as any).Easing || {
@@ -37,6 +41,7 @@ interface DesktopSyncScreenProps {
 }
 
 export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, initialScan = false }) => {
+  const insets = useSafeAreaInsets();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     isConnected: false,
     syncInProgress: false,
@@ -58,6 +63,10 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   const [profileConflict, setProfileConflict] = useState<ProfileConflict | null>(null);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(initialScan);
   const [showCodeInput, setShowCodeInput] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const transferLock = useRef(false);
+  const [savingAutoConnect, setSavingAutoConnect] = useState(false);
 
   const syncService = DesktopSyncService.getInstance();
   const pinInputRef = useRef<any>(null);
@@ -333,6 +342,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   };
 
   const handleSyncNow = async () => {
+    if (transferLock.current || syncStatus.syncInProgress) return;
     try {
       await syncService.syncNow();
       Alert.alert('Sync Complete', 'Conversations and notes updated with desktop.');
@@ -350,6 +360,32 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
         onPress: () => syncService.disconnect(),
       },
     ]);
+  };
+
+  const transferChats = async (direction: 'fetch' | 'export') => {
+    if (transferLock.current || syncStatus.syncInProgress) return;
+    if (!syncStatus.isConnected) { Alert.alert('Pair your desktop first', 'Connect to Brown Desktop before transferring chats.'); return; }
+    transferLock.current = true;
+    setTransferBusy(true);
+    setMenuOpen(false);
+    try {
+      if (direction === 'fetch') {
+        const result = await syncService.fetchDesktopChats();
+        Alert.alert('Chats imported', `${result.sessions} conversations and ${result.messages} messages imported from your desktop.`);
+      } else {
+        const result = await syncService.exportPhoneChats();
+        Alert.alert('Chats exported', `${result.sessions} conversations saved on your desktop.`);
+      }
+    } catch (error: any) {
+      Alert.alert('Transfer failed', error?.message || 'Could not transfer chats. Please try again.');
+    } finally { transferLock.current = false; setTransferBusy(false); }
+  };
+  const updateAutoConnect = async (enabled: boolean) => {
+    if (savingAutoConnect) return;
+    setSavingAutoConnect(true);
+    try { await syncService.setAutoConnect(enabled); }
+    catch { Alert.alert('Could not save', 'Please try changing auto-connect again.'); }
+    finally { setSavingAutoConnect(false); }
   };
 
   const statusLabel = syncStatus.needsReauth
@@ -371,7 +407,31 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
         <Animated.View style={{ flex: 1, opacity: pageFade, transform: [{ translateY: pageSlide }] }}>
-        <ScreenHeader title="Desktop Sync" onBack={onBack} scrolled={syncScrolled} />
+        <ScreenHeader title="Desktop Sync" onBack={onBack} scrolled={syncScrolled} right={
+          <TouchableOpacity style={styles.menuButton} onPress={() => setMenuOpen(true)} accessibilityLabel="Desktop sync options" accessibilityRole="button" accessibilityState={{ expanded: menuOpen }}>
+            <MoreVerticalIcon size={22} color="#ffffff" />
+          </TouchableOpacity>
+        } />
+        <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+          <View style={styles.menuOverlay}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)} accessibilityLabel="Close sync options" />
+            <View style={[styles.menuDropdown, { top: insets.top + 60 }]} accessibilityViewIsModal>
+              <View style={styles.menuToggleRow}>
+                <View style={{ flex: 1 }}><Text style={styles.menuLabel}>Auto-connect to paired PC</Text><Text style={styles.menuHint}>Reconnect securely on the same Wi-Fi.</Text></View>
+                <Switch value={syncStatus.autoConnectEnabled !== false} onValueChange={updateAutoConnect} disabled={savingAutoConnect} trackColor={{ false: '#343434', true: '#2563eb' }} thumbColor="#ffffff" />
+              </View>
+              <Text style={styles.menuApproval}>Chat transfers need approval on your PC.</Text>
+              <TouchableOpacity style={styles.menuOption} onPress={() => transferChats('fetch')} disabled={!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress} accessibilityRole="button" accessibilityState={{ disabled: !syncStatus.isConnected || transferBusy || syncStatus.syncInProgress }}>
+                <View style={styles.menuOptionIcon}><ChevronRightIcon size={16} color="#111111" /></View><Text style={[styles.menuOptionLabel, (!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress) && styles.menuOptionLabelDisabled]}>Fetch desktop chats</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.menuOption} onPress={() => transferChats('export')} disabled={!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress} accessibilityRole="button" accessibilityState={{ disabled: !syncStatus.isConnected || transferBusy || syncStatus.syncInProgress }}>
+                <View style={styles.menuOptionIcon}><LaptopIcon size={16} color="#111111" /></View><Text style={[styles.menuOptionLabel, (!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress) && styles.menuOptionLabelDisabled]}>Export phone chats to PC</Text>
+              </TouchableOpacity>
+              {!syncStatus.isConnected && <Text style={styles.menuHint}>Pair a desktop to enable transfers.</Text>}
+            </View>
+          </View>
+        </Modal>
+        {transferBusy && <View style={styles.transferNotice}><ActivityIndicator size="small" color="#ffffff" /><Text style={styles.menuLabel}>Waiting for desktop approval…</Text></View>}
         <ScrollView
           contentContainerStyle={styles.scrollArea}
           showsVerticalScrollIndicator={false}
@@ -379,10 +439,37 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
           onScroll={syncScroll}
           scrollEventThrottle={16}
         >
+          <View style={styles.connectionIntro}>
+            <Text style={styles.connectionHeading}>Connect Your Desktop</Text>
+            <Text style={[styles.connectionDescription, { textAlign: 'center' }]}>Use desktop models and sync chats on the same Wi-Fi. Brown on your PC approves pairing and chat sharing.</Text>
+          </View>
+          {!syncStatus.isConnected && !awaitingCode && (
+            <View style={styles.connectionShowcase}>
+              <View style={styles.connectionArtwork}>
+                <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessible={false}>
+                  <Defs>
+                    <RadialGradient id="connectionArtGradient" cx="50%" cy="80%" r="90%">
+                      <Stop offset="0" stopColor="#172d58" />
+                      <Stop offset="1" stopColor="#0e1220" />
+                    </RadialGradient>
+                  </Defs>
+                  <Rect x="0" y="0" width="100%" height="100%" fill="url(#connectionArtGradient)" />
+                </Svg>
+                <Image source={require('../../Assets/Desktop App.png')} style={styles.connectionPreview} resizeMode="contain" />
+              </View>
+              <View style={styles.connectionCopy}>
+                <Text style={styles.connectionKicker}>LOCAL COMPANION</Text>
+                <Text style={styles.connectionCardTitle}>Brown for Windows</Text>
+                <Text style={styles.connectionDescription}>1. Open Connection on your PC.
+2. Enable mobile access and generate a pairing QR.
+3. Scan it below, or use your PC’s Sync ID.</Text>
+              </View>
+            </View>
+          )}
           <View style={styles.statusCard}>
             <Animated.View style={{ transform: [{ scale: syncStatus.isConnected ? 1 : wifiPulse }] }}>
               {syncStatus.isConnected ? (
-                <CheckIcon size={22} color="#10B981" />
+                <CheckIcon size={22} color="#3b82f6" />
               ) : (
                 <WifiIcon size={22} color={syncStatus.needsReauth ? '#F59E0B' : '#71717a'} />
               )}
@@ -401,7 +488,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
               activeOpacity={0.7}
               accessibilityLabel="Refresh sync status"
             >
-              <RefreshIcon size={16} color="#ffffff" />
+              <RefreshIcon size={16} color="#000000" />
             </TouchableOpacity>
           </View>
 
@@ -435,7 +522,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                             hour: '2-digit',
                             minute: '2-digit',
                           })
-                        : 'Just now'}
+                        : 'Not synced yet'}
                     </Text>
                   </View>
                   <View style={styles.statDivider} />
@@ -449,7 +536,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                   <TouchableOpacity
                     style={styles.primaryBtn}
                     onPress={handleSyncNow}
-                    disabled={syncStatus.syncInProgress}
+                    disabled={syncStatus.syncInProgress || transferBusy}
                     activeOpacity={0.8}
                   >
                     <RefreshIcon size={15} color="#000000" />
@@ -472,7 +559,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                     <Text style={styles.sharedCapabilityDesc}>Heavyweight models running on PC GPU streamed to mobile</Text>
                   </View>
                   <View style={styles.sharedBadge}>
-                    <Text style={styles.sharedBadgeText}>Shared</Text>
+                    <Text style={styles.sharedBadgeText}>Available</Text>
                   </View>
                 </View>
 
@@ -480,11 +567,11 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 
                 <View style={styles.sharedCapabilityRow}>
                   <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.sharedCapabilityTitle}>Gemini Cloud API Key</Text>
-                    <Text style={styles.sharedCapabilityDesc}>Synchronized cloud credentials inherited from desktop</Text>
+                    <Text style={styles.sharedCapabilityTitle}>Cloud Model Settings</Text>
+                    <Text style={styles.sharedCapabilityDesc}>Available provider settings can sync from your desktop</Text>
                   </View>
                   <View style={styles.sharedBadge}>
-                    <Text style={styles.sharedBadgeText}>Shared</Text>
+                    <Text style={styles.sharedBadgeText}>Available</Text>
                   </View>
                 </View>
 
@@ -496,7 +583,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                     <Text style={styles.sharedCapabilityDesc}>Cross-device conversation continuity with desktop approval</Text>
                   </View>
                   <View style={styles.sharedBadge}>
-                    <Text style={styles.sharedBadgeText}>Shared</Text>
+                    <Text style={styles.sharedBadgeText}>Available</Text>
                   </View>
                 </View>
               </View>
@@ -704,10 +791,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 ))
               ) : (
                 <View style={styles.emptyCard}>
-                  <SyncIllustration width={280} height={110} />
-                  <Text style={styles.emptyTitle}>No mobile devices paired yet</Text>
+                  <Text style={styles.emptyTitle}>No desktop found yet</Text>
                   <Text style={styles.emptyBody}>
-                    Click “Generate Pair Code” and enter the code in your mobile app to connect your device.
+                    Open Connection on Brown Desktop, enable mobile access, then scan its pairing QR here.
                   </Text>
                   <TouchableOpacity
                     style={styles.emptyQrBtn}
@@ -828,9 +914,32 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 };
 
 const styles = StyleSheet.create({
+  menuButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  menuOverlay: { flex: 1 },
+  // Percentage maxWidth resolves against an undefined containing block inside an
+  // Android Modal, collapsing the dropdown to its padding box — use pixel math.
+  menuDropdown: { position: 'absolute', top: 112, right: 16, width: Math.min(320, Dimensions.get('window').width - 32), backgroundColor: '#202020', borderWidth: 1, borderColor: '#373737', borderRadius: 16, padding: 16, elevation: 16 },
+  menuToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 12 },
+  menuLabel: { color: '#ffffff', fontSize: 14, fontWeight: '500' },
+  menuHint: { color: '#a8adb5', fontSize: 12, lineHeight: 18, marginTop: 5 },
+  menuApproval: { color: '#a8adb5', fontSize: 12, lineHeight: 18, borderTopWidth: 1, borderColor: '#373737', paddingTop: 12, marginBottom: 8 },
+  menuOption: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, paddingVertical: 12 },
+  menuOptionIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' },
+  menuOptionLabel: { flex: 1, color: '#ffffff', fontSize: 15, fontWeight: '600' },
+  menuOptionLabelDisabled: { color: '#8a8f98' },
+  transferNotice: { flexDirection: 'row', gap: 12, padding: 16, backgroundColor: '#172d58', alignItems: 'center' },
+  connectionIntro: { marginBottom: 6, alignItems: 'center' },
+  connectionHeading: { color: '#ffffff', fontSize: 24, fontWeight: '500', marginBottom: 10, textAlign: 'center' },
+  connectionDescription: { color: '#ffffff', fontSize: 14, lineHeight: 23 },
+  connectionShowcase: { backgroundColor: '#202020', borderWidth: 1, borderColor: '#373737', borderRadius: 16, overflow: 'hidden' },
+  connectionArtwork: { backgroundColor: '#0e1220', padding: 20, alignItems: 'center' },
+  connectionPreview: { width: '100%', height: 180 },
+  connectionCopy: { padding: 20, gap: 10, backgroundColor: '#202020' },
+  connectionKicker: { color: '#ffffff', fontSize: 11, letterSpacing: 1 },
+  connectionCardTitle: { color: '#ffffff', fontSize: 20, fontWeight: '500' },
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#000000',
   },
   scrollArea: {
     paddingHorizontal: 16,
@@ -842,7 +951,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
@@ -855,23 +964,23 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   statusDetail: {
-    color: '#a1a1aa',
+    color: '#ffffff',
     fontSize: 13,
     lineHeight: 18,
   },
   statusRefreshBtn: {
     width: 34,
     height: 34,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 9999,
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
   },
   card: {
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
@@ -945,7 +1054,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   idInput: {
-    backgroundColor: '#111111',
+    backgroundColor: '#202020',
     color: '#ffffff',
     borderRadius: 12,
     paddingHorizontal: 14,
@@ -1012,7 +1121,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 16,
     marginBottom: 16,
-    backgroundColor: '#111111',
+    backgroundColor: '#202020',
     borderRadius: 12,
     paddingVertical: 12,
   },
@@ -1062,20 +1171,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   scanCard: {
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderRadius: 16,
     padding: 28,
     alignItems: 'center',
     gap: 12,
   },
   scanCopy: {
-    color: '#a1a1aa',
+    color: '#ffffff',
     fontSize: 13,
   },
   deviceCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
@@ -1102,7 +1211,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(16,185,129,0.12)',
+    backgroundColor: '#172d58',
     borderRadius: 9999,
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -1111,15 +1220,15 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
+    backgroundColor: '#3b82f6',
   },
   onlinePillText: {
-    color: '#34d399',
+    color: '#93c5fd',
     fontSize: 11,
     fontWeight: '700',
   },
   emptyCard: {
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderRadius: 16,
     padding: 22,
     alignItems: 'center',
@@ -1144,9 +1253,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#373737',
     borderRadius: 16,
     padding: 16,
     marginBottom: 4,
@@ -1166,7 +1275,7 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   scanQrHeroSubtitle: {
-    color: '#a1a1aa',
+    color: '#ffffff',
     fontSize: 12,
     lineHeight: 16,
   },
@@ -1183,7 +1292,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
   orText: {
-    color: '#71717a',
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1.2,
@@ -1192,9 +1301,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: '#373737',
     borderRadius: 16,
     padding: 16,
   },
@@ -1202,7 +1311,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: '#2563eb',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -1220,7 +1329,7 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   connectWithCodeSub: {
-    color: '#9ca3af',
+    color: '#ffffff',
     fontSize: 12,
     lineHeight: 16,
   },
@@ -1287,7 +1396,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 58,
     borderRadius: 14,
-    backgroundColor: '#111111',
+    backgroundColor: '#202020',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
@@ -1333,7 +1442,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   conflictCompare: {
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
     borderRadius: 12,
     padding: 12,
     marginBottom: 8,
@@ -1350,7 +1459,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.16)',
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#282828',
+    backgroundColor: '#202020',
   },
   conflictBtnText: {
     color: '#ffffff',

@@ -6,7 +6,9 @@ import {
   StyleSheet,
   StyleProp,
   ViewStyle,
+  useWindowDimensions,
 } from 'react-native';
+import { HeaderFade } from './HeaderFade';
 import { BackArrowIcon } from './Icons';
 
 export const headerButtonStyle = {
@@ -16,6 +18,28 @@ export const headerButtonStyle = {
   borderRadius: 22,
   alignItems: 'center' as const,
   justifyContent: 'center' as const,
+};
+
+/** Shared title surface used by chat, history, settings and model screens. */
+export const headerTitleSurface = {
+  backgroundColor: '#191919', borderRadius: 9999, borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.10)', paddingHorizontal: 16, paddingVertical: 10,
+  alignItems: 'center' as const, justifyContent: 'center' as const, alignSelf: 'center' as const,
+};
+export const HeaderTitle: React.FC<{ title: string; style?: StyleProp<ViewStyle> }> = ({ title, style }) => {
+  const [availableWidth, setAvailableWidth] = useState(0);
+  const { fontScale } = useWindowDimensions();
+  const label = toTitleCase(title);
+  const fontSize = availableWidth > 0
+    ? Math.min(18, Math.max(10, (availableWidth - 32) / Math.max(1, label.length * 0.6 * fontScale)))
+    : 18;
+  return (
+    <View pointerEvents="none" style={style} onLayout={(event: { nativeEvent: { layout: { width: number } } }) => setAvailableWidth(event.nativeEvent.layout.width)}>
+      <View style={[headerTitleSurface, { maxWidth: '100%' }]}>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55} style={{ flexShrink: 1, color: '#ffffff', fontSize, fontWeight: '600', letterSpacing: -0.3 }}>{label}</Text>
+      </View>
+    </View>
+  );
 };
 
 interface GlassSurfaceProps {
@@ -60,18 +84,18 @@ export const GlassControl: React.FC<GlassControlProps> = ({
 
 const glass = StyleSheet.create({
   base: {
-    backgroundColor: '#1B1B1B',
+    backgroundColor: '#191919',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    borderTopColor: 'rgba(255, 255, 255, 0.32)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
+    borderTopColor: 'rgba(255, 255, 255, 0.14)',
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.45,
+    shadowOpacity: 0,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 0,
   },
   clear: {
     backgroundColor: 'transparent',
@@ -115,6 +139,7 @@ export function useStickyHeader(threshold = 6) {
 }
 
 interface ScreenHeaderProps {
+  overlay?: boolean;
   centered?: boolean;
   title: string;
   onBack: () => void;
@@ -125,14 +150,16 @@ interface ScreenHeaderProps {
 
 export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   title,
+  overlay = false,
   onBack,
   right,
   scrolled = false,
-  centered = false,
+  centered = true,
   accessibilityLabel = 'Go back',
 }) => {
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, overlay && { position: 'absolute', top: 0, left: 0, right: 0 }]}>
+      <HeaderFade />
       <GlassControl
         radius={22}
         active={true}
@@ -143,9 +170,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
         <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
       </GlassControl>
       <View pointerEvents="none" style={[styles.titleBlock, centered && styles.centeredTitleBlock]}>
-        <Text style={[styles.title, centered && { textAlign: 'center' }]} numberOfLines={1}>
-          {toTitleCase(title)}
-        </Text>
+        <HeaderTitle title={title} />
       </View>
       <View style={[styles.rightSlot, centered && { marginLeft: 'auto' }]}>
         {right ? <GlassSurface radius={22} active={true}>{right}</GlassSurface> : <View style={styles.rightSpacer} />}
@@ -164,8 +189,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     minHeight: 56,
     width: '100%',
-    maxWidth: 600,
     alignSelf: 'center',
+    zIndex: 20,
+    overflow: 'visible',
   },
   backBtn: { ...headerButtonStyle },
   centeredTitleBlock: {
@@ -182,8 +208,8 @@ const styles = StyleSheet.create({
   title: {
     color: '#ffffff',
     fontSize: 19,
-    fontWeight: '700',
-    letterSpacing: -0.2,
+    fontWeight: '600',
+    letterSpacing: -0.4,
   },
   rightSlot: {
     minWidth: 44,

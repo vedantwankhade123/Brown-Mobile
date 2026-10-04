@@ -1,3 +1,5 @@
+import { isAccountResetting } from './AccountLifecycle';
+
 export interface IDatabaseService {
   init(): Promise<void>;
   exec(sql: string, params?: any[]): Promise<any>;
@@ -26,6 +28,7 @@ export class AppDatabase implements IDatabaseService {
   }
 
   async init(): Promise<void> {
+    if (isAccountResetting()) return;
     if (this.isInitialized) return;
 
     try {
@@ -114,6 +117,7 @@ export class AppDatabase implements IDatabaseService {
   }
 
   async exec(sql: string, params: any[] = []): Promise<any> {
+    if (isAccountResetting()) return { changes: 0 };
     if (!this.isInitialized) await this.init();
 
     if (this.db) {
@@ -133,6 +137,7 @@ export class AppDatabase implements IDatabaseService {
   }
 
   async getAll<T>(sql: string, params: any[] = []): Promise<T[]> {
+    if (isAccountResetting()) return [];
     if (!this.isInitialized) await this.init();
 
     if (this.db) {
@@ -153,6 +158,14 @@ export class AppDatabase implements IDatabaseService {
   async getFirst<T>(sql: string, params: any[] = []): Promise<T | null> {
     const list = await this.getAll<T>(sql, params);
     return list.length > 0 ? list[0] : null;
+  }
+
+  async closeForAccountDeletion(): Promise<void> {
+    if (this.db?.closeAsync) await this.db.closeAsync();
+    else if (this.db?.closeSync) this.db.closeSync();
+    this.db = null;
+    this.isInitialized = false;
+    for (const table of Object.keys(this.memoryStore)) this.memoryStore[table] = [];
   }
 
   private handleMemoryExec(sql: string, params: any[]): any {

@@ -1,3 +1,5 @@
+import { AppBackground } from './AppBackground';
+import { pushNavBarColor } from '../theme/systemBars';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -30,7 +32,7 @@ import { ConsentService } from '../services/storage/ConsentService';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EmptyState } from './EmptyState';
-import { headerButtonStyle, GlassControl } from './ScreenHeader';
+import { headerTitleSurface, headerButtonStyle, GlassControl } from './ScreenHeader';
 import { animateOnce } from '../utils/motion';
 
 interface DrawerSidebarProps {
@@ -247,6 +249,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const searchInputRef = useRef<any>(null);
 
   // Load user profile name & initials
+  useEffect(() => { if (isOpen) return pushNavBarColor('#000000'); }, [isOpen]);
   useEffect(() => {
     ConsentService.getLatestConsent()
       .then((consent) => {
@@ -387,23 +390,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       {/* Sliding Drawer */}
       <Animated.View style={[styles.drawerContainer, { transform: [{ translateX: slideAnim }] }]}>
         {/* Background: same desktop session-column gradient as the chat screen */}
-        <LinearGradient
-          pointerEvents="none"
-          colors={['#111111', '#111111', '#10131c', '#101e40']}
-          locations={[0, 0.2, 0.54, 1]}
-          start={{ x: 0.15, y: 0 }}
-          end={{ x: 0.4, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
+        <AppBackground variant="sidebar" />
         <SafeAreaView style={styles.drawerInner}>
-          <ScrollView
-            style={styles.sessionsList}
-            contentContainerStyle={styles.drawerScrollContent}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
             <View style={styles.topBar}>
-              {inSearchMode ? (
+                      {inSearchMode ? (
                 <View style={styles.searchPill}>
                   <SearchIcon size={18} color="#8e8e93" />
                   <TextInput
@@ -445,7 +435,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     <Text style={styles.avatarText}>{userInitials}</Text>
                   </GlassControl>
                   <View pointerEvents="none" style={styles.historyTitleSlot}>
-                    <Text style={styles.historyHeaderTitle} numberOfLines={1}>History</Text>
+                    <View style={[headerTitleSurface, styles.historyTitlePill]}><Text style={styles.historyTopTitleText}>History</Text></View>
                   </View>
                 </>
               )}
@@ -471,6 +461,14 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                 </GlassControl>
               </View>
             </View>
+
+          <ScrollView
+            style={styles.sessionsList}
+            contentContainerStyle={styles.drawerScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+
 
             {inSearchMode ? (
               filteredSessions.length === 0 ? (
@@ -735,13 +733,17 @@ const styles = StyleSheet.create({
 
   /* Top row */
   topBar: {
+    zIndex: 20,
+    overflow: 'visible',
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     gap: 10,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 6,
-    paddingBottom: 2,
+    paddingHorizontal: 8,
+    paddingTop: 4,
+    paddingBottom: 4,
+    minHeight: 56,
   },
   avatarBtn: { ...headerButtonStyle },
   avatarText: {
@@ -779,6 +781,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   topBarRight: {
+    marginLeft: 'auto',
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -834,6 +838,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  historyTitlePill: { minWidth: 96, height: 44, paddingVertical: 6 },
+  historyTopTitleText: { color: '#ffffff', fontSize: 18, fontWeight: '500', letterSpacing: -0.4 },
   historyHeaderTitle: {
     color: '#ffffff',
     fontSize: 18,

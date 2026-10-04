@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { DesktopInstance, PairingSession, ProfileConflict, SyncStatus, UltronRemoteProfile } from '../../types/sync';
 import { SecureStore } from '../storage/SecureStore';
+import { isAccountResetting } from '../storage/AccountLifecycle';
 
 const SYNC_PORT = 49200;
 const TOKEN_KEY = 'ultron_desktop_sync_token';
@@ -85,6 +86,7 @@ export class DesktopSyncService {
   }
 
   private notify(): void {
+    if (isAccountResetting()) return;
     const s = this.getStatus();
     this.listeners.forEach((fn) => fn(s));
   }
@@ -111,8 +113,8 @@ export class DesktopSyncService {
   }
 
   async setAutoConnect(enabled: boolean): Promise<void> {
-    this.status.autoConnectEnabled = enabled;
     await SecureStore.setItem(AUTO_CONNECT_KEY, enabled ? '1' : '0');
+    this.status.autoConnectEnabled = enabled;
     this.notify();
     if (enabled) {
       await this.tryAutoConnect();
@@ -718,5 +720,12 @@ export class DesktopSyncService {
     this.status.needsReauth = false;
     this.status.reauthReason = undefined;
     this.notify();
+  }
+
+  stopForAccountDeletion(): void {
+    this.stopHealthLoop();
+    this.pairing = null;
+    this.pendingConflict = null;
+    this.status = { isConnected: false, syncInProgress: false, syncedThreadsCount: 0, autoConnectEnabled: false };
   }
 }

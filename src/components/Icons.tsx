@@ -491,3 +491,7 @@ export const SyncCycleIcon: React.FC<IconProps> = ({ size = 18, color = colors.a
     <Path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
   </Svg>
 );
+
+export const FolderIcon: React.FC<IconProps> = ({ size = 20, color = '#ffffff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><Path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" /><Path d="M3 9h18" /></Svg>
+);

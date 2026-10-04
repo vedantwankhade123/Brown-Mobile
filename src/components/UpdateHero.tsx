@@ -94,7 +94,7 @@ export const UpdateHero: React.FC<UpdateHeroProps> = ({ height = 168, showMark =
 
     {showMark ? (
       <View style={styles.markWrap}>
-        <Image source={require('../../Assets/Brown-white.png')} style={styles.mark} resizeMode="contain" />
+        <Image source={require('../../Assets/browny_white.png')} style={styles.mark} resizeMode="contain" />
       </View>
     ) : null}
   </View>

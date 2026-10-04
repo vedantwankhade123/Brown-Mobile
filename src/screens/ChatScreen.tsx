@@ -1,3 +1,7 @@
+import { AppBackground } from '../components/AppBackground';
+import { AssistantMemory } from '../services/storage/AssistantMemory';
+import { buildAssistantInstructions } from '../services/inference/ChatCapabilities';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
@@ -12,8 +16,9 @@ import {
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
 } from 'react-native';
-import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
+import { BrownLogo } from '../components/BrownLogo';
 import { RightArrowIcon } from '../components/Icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -149,6 +154,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [ttsPaused, setTtsPaused] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  useEffect(() => {
+    if (isSidebarOpen) chatRepo.getAllSessions().then(setSessions).catch(() => {});
+  }, [isSidebarOpen]);
   const [isScrolled, setIsScrolled] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(56);
   const chatOffset = useRef(0);
@@ -234,6 +242,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   // so a fresh "New chat" the user never types into never shows up in History.
   const currentSessionRef = useRef<ChatSession | null>(null);
   const sessionSavedRef = useRef<boolean>(false);
+  const activeReplyRef = useRef<ChatMessage | null>(null);
+  const streamUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelStreamUpdate = () => { if (streamUpdateTimer.current) clearTimeout(streamUpdateTimer.current); streamUpdateTimer.current = null; };
+  useEffect(() => () => { cancelStreamUpdate(); }, []);
   const requestedModelRef = useRef<ModelMetadata | null>(requestedModel ?? null);
 
   /** Single place that swaps the active model: persists the pick and loads the engine. */
@@ -427,6 +439,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const createNewChat = async () => {
+    if (activeReplyRef.current) handleStopGeneration();
     const now = Date.now();
     const session: ChatSession = {
       id: 'session_' + Math.random().toString(36).substring(2, 11),
@@ -448,6 +461,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const loadSession = async (sessionId: string) => {
+    if (activeReplyRef.current) handleStopGeneration();
     setCurrentSessionId(sessionId);
     const session =
       sessions.find((s) => s.id === sessionId) || (await chatRepo.getSessionById(sessionId));
@@ -517,6 +531,15 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
     setSessions(await chatRepo.getAllSessions());
 
+    const memoryReply = await AssistantMemory.directive(text).catch(() => 'Could not update saved memory. Please try again.');
+    if (memoryReply) {
+      const reply: ChatMessage = { id: 'memory_' + Date.now(), sessionId: currentSessionId, role: 'assistant', content: memoryReply, timestamp: Date.now() };
+      setMessages([...newHistory, reply]);
+      await chatRepo.addMessage(reply);
+      setSessions(await chatRepo.getAllSessions());
+      return;
+    }
+
     // Prepare assistant streaming placeholder — dynamic contextual status (Thinking/Searching/Analyzing → Answering)
     const assistantMsgId = 'msg_ast_' + Date.now();
     const initialStatus = getContextualThinkingLabel(text);
@@ -531,6 +554,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       modelId: activeModel.id,
     };
 
+    activeReplyRef.current = streamingPlaceholder;
     setMessages([...newHistory, streamingPlaceholder]);
     setIsGenerating(true);
 
@@ -572,12 +596,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           topP: 0.9,
           contextSize: 2048,
           threads: 4,
-          systemPrompt:
-            'You are Brown Mobile, a brilliant, highly capable AI assistant like ChatGPT. ' +
-            'Provide direct, beautifully formatted responses using Markdown. ' +
-            'Use structured Markdown tables for comparing items, organized bullet points and numbered steps for explanations, ' +
-            'and syntax-highlighted code blocks with language tags when showing code. ' +
-            'Never mention internal engines, models, or processing — speak directly, concisely, and helpfully to the user.',
+          systemPrompt: buildAssistantInstructions(text, await AssistantMemory.preferences(), (await AsyncStorage.getItem('@ultron_system_prompt')) || ''),
           useHardwareAcceleration: true,
         },
         (token) => {
@@ -587,15 +606,17 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             clearTimeout(secondPromoteTimer);
           }
           streamedContent += token;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, content: streamedContent, statusLabel: undefined }
-                : m
-            )
-          );
+          activeReplyRef.current = { ...streamingPlaceholder, content: streamedContent };
+          // Native tokens may arrive faster than a phone can redraw Markdown.
+          if (!streamUpdateTimer.current) streamUpdateTimer.current = setTimeout(() => {
+            streamUpdateTimer.current = null;
+            const reply = activeReplyRef.current;
+            if (reply?.id === assistantMsgId) setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: reply.content, statusLabel: undefined } : m));
+          }, 50);
         },
         async (fullText, stats) => {
+          cancelStreamUpdate();
+          activeReplyRef.current = null;
           clearTimeout(promoteTimer);
           clearTimeout(secondPromoteTimer);
           setIsGenerating(false);
@@ -623,6 +644,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         }
       );
     } catch (err: any) {
+      cancelStreamUpdate();
+      activeReplyRef.current = null;
       clearTimeout(promoteTimer);
       clearTimeout(secondPromoteTimer);
       setIsGenerating(false);
@@ -665,7 +688,15 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const handleStopGeneration = () => {
+    cancelStreamUpdate();
     engine.stopGeneration();
+    const stoppedReply = activeReplyRef.current;
+    activeReplyRef.current = null;
+    if (stoppedReply?.content.trim()) {
+      chatRepo.addMessage({ ...stoppedReply, isStreaming: false, statusLabel: undefined })
+        .then(() => chatRepo.getAllSessions()).then(setSessions)
+        .catch((error) => console.warn('[Chat] Could not save stopped reply', error));
+    }
     setIsGenerating(false);
     setMessages((prev) =>
       prev.map((m) =>
@@ -674,9 +705,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               ...m,
               isStreaming: false,
               statusLabel: undefined,
-              content: m.content?.trim()
-                ? m.content
-                : 'Generation stopped.',
+              content: (stoppedReply?.id === m.id ? stoppedReply.content : m.content)?.trim() || 'Generation stopped.',
             }
           : m
       )
@@ -809,7 +838,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   }, [speakingMessageId, ttsPaused]);
 
   const handleCopy = useCallback(async (text: string) => {
-    await copyTextToClipboard(text);
+    const copied = await copyTextToClipboard(text);
+    if (!copied) Alert.alert('Could not copy', 'Please try copying again.');
+    return copied;
   }, []);
 
   const renderMessage = useCallback(
@@ -828,27 +859,17 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   return (
     <SafeAreaView edges={Platform.OS === 'android' ? [] : ['bottom']} style={styles.container}>
 
-      {/* Background: desktop session-column gradient (dark → navy blue) */}
-      <LinearGradient
-        pointerEvents="none"
-        colors={['#111111', '#111111', '#10131c', '#101e40']}
-        locations={[0, 0.2, 0.54, 1]}
-        start={{ x: 0.15, y: 0 }}
-        end={{ x: 0.4, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={['rgba(41,82,148,0)', 'rgba(41,82,148,0.28)']}
-        start={{ x: 0.5, y: 0.55 }}
-        end={{ x: 0.7, y: 1.15 }}
-        style={StyleSheet.absoluteFill}
-      />
+      <AppBackground />
 
       <View style={styles.chatBody}>
         {/* Chat messages, or an empty canvas on a fresh chat */}
         {messages.length === 0 ? (
-          <View style={styles.emptyCanvas}>
+          <ScrollView
+            contentContainerStyle={[styles.emptyCanvas, { paddingTop: headerHeight + 24 }]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             {/* Blank-space tap closes the composer; later siblings stay on top and tappable */}
             <Pressable style={StyleSheet.absoluteFill} onPress={dismissComposer} />
 
@@ -865,7 +886,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
               ]}
             >
               <Animated.View style={[styles.logoWrap, { marginBottom: logoMargin }]}>
-                <BrownLogoAnimation size={74} />
+                <BrownLogo size={74} />
               </Animated.View>
               <Animated.View style={[styles.greetingBlock, { marginBottom: greetingMargin }]}>
                 <Text style={styles.greetingMuted}>
@@ -902,10 +923,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
                 ))}
               </View>
             </Animated.View>
-          </View>
+          </ScrollView>
         ) : (
           <FlatList
             ref={flatListRef}
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
             data={messages}
             keyExtractor={keyExtractor}
             renderItem={renderMessage}
@@ -939,11 +962,6 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             updateAvailable={Boolean(pendingUpdate?.available)}
             updateVersion={pendingUpdate?.latestVersion || null}
             onOpenUpdate={() => setShowUpdateModal(true)}
-            models={models}
-            activeModel={activeModel}
-            onSelectModel={handleSelectModel}
-            onOpenModelStore={onOpenModelStore}
-            onMenuOpen={refreshModels}
           />
         </View>
       </View>
@@ -961,6 +979,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         draftText={draftText}
         onDraftConsumed={() => setDraftText(null)}
         activeModel={activeModel}
+        models={models}
+        onSelectModel={handleSelectModel}
+        onOpenModelStore={onOpenModelStore}
+        onMenuOpen={refreshModels}
         isGenerating={isGenerating}
         isListening={isListening}
         onFocus={() => setKeyboardUp(true)}
@@ -1004,7 +1026,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#111111',
+    backgroundColor: '#000000',
     overflow: 'visible',
   },
   chatBody: {
@@ -1020,7 +1042,7 @@ const styles = StyleSheet.create({
     zIndex: 30,
   },
   emptyCanvas: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 68,
@@ -1067,7 +1089,7 @@ const styles = StyleSheet.create({
   },
   quickCardDivider: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.09)',
+    borderTopColor: 'rgba(255,255,255,0.32)',
   },
   quickCard: {
     flexDirection: 'row',

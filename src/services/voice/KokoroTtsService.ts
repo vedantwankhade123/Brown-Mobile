@@ -161,22 +161,24 @@ export async function getKokoroInstallStatus(): Promise<KokoroInstallStatus> {
   const cacheDir = await getCacheDir();
   let engineBytes = 0;
   let allPresent = true;
+  const present: Record<string, boolean> = {};
   for (const asset of KOKORO_ASSETS.files) {
     const info = await fileInfo(`${cacheDir}${asset.fileName}`);
     engineBytes += info.size;
+    present[asset.id] = info.exists && info.size >= asset.minBytes;
     if (!info.exists || info.size < asset.minBytes) allPresent = false;
   }
 
-  const installedVoices = await readJson<string[]>(`${cacheDir}${INSTALLED_VOICES_FILE}`, []);
+  const engineInstalled = !!(present.engine && present.tokenizer);
   const voiceOk = (id: KokoroVoiceId) =>
-    allPresent && (installedVoices.length === 0 || installedVoices.includes(id));
+    engineInstalled && !!present[id];
   const heartInstalled = voiceOk('af_heart');
   const michaelInstalled = voiceOk('am_michael');
   const georgeInstalled = voiceOk('bm_george');
   const lewisInstalled = voiceOk('bm_lewis');
 
   return {
-    engineInstalled: allPresent,
+    engineInstalled,
     heartInstalled,
     michaelInstalled,
     georgeInstalled,
@@ -218,8 +220,24 @@ export function isKokoroDownloadInProgress(): boolean {
 export function cancelKokoroDownload(): void {
   downloadCancelled = true;
   try {
-    activeResumable?.pauseAsync?.();
+    activeResumable?.pauseAsync?.()?.catch?.(() => {});
   } catch {}
+}
+
+export function isKokoroVoiceInstalled(status: KokoroInstallStatus, voiceId: KokoroVoiceId): boolean {
+  const keys = { af_heart: 'heartInstalled', am_michael: 'michaelInstalled', bm_george: 'georgeInstalled', bm_lewis: 'lewisInstalled' } as const;
+  return status[keys[voiceId]];
+}
+
+export async function stopKokoroForAccountDeletion(): Promise<void> {
+  cancelKokoroDownload();
+  await activeResumable?.pauseAsync?.();
+  const deadline = Date.now() + 15000;
+  while (downloadInProgress) {
+    if (Date.now() > deadline) throw new Error('A voice download is still stopping. Retry deletion.');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  resetKokoroOnnxSession();
 }
 
 async function activateKeepAwake(): Promise<void> {
@@ -247,6 +265,7 @@ async function downloadFile(
   progressSpan = 100
 ): Promise<void> {
   const FileSystem = require('expo-file-system');
+  const partialDest = `${dest}.part`;
   const callback = (progressEvent: any) => {
     if (downloadCancelled) return;
     const total = Number(progressEvent?.totalBytesExpectedToWrite || 0);
@@ -273,26 +292,30 @@ async function downloadFile(
       if (finalUrl.includes('huggingface.co') && !finalUrl.includes('download=true')) {
         finalUrl = finalUrl.includes('?') ? `${finalUrl}&download=true` : `${finalUrl}?download=true`;
       }
-      const resumable = FileSystem.createDownloadResumable(finalUrl, dest, {
+      await FileSystem.deleteAsync(partialDest, { idempotent: true });
+      const resumable = FileSystem.createDownloadResumable(finalUrl, partialDest, {
         headers: { 'User-Agent': 'BrownAI-Mobile/1.0', 'Accept-Encoding': 'identity' },
       }, callback);
       activeResumable = resumable;
       const result = await resumable.downloadAsync();
       activeResumable = null;
       if (downloadCancelled) throw new Error('Download cancelled.');
-      if (!result || (result.status && (result.status < 200 || result.status >= 400))) {
+      if (!result || result.status < 200 || result.status >= 300) {
         throw new Error(`Failed to download ${label} (HTTP ${result?.status || 'error'}).`);
       }
-      const info = await fileInfo(dest);
-      if (!info.exists || info.size < minBytes) {
+      const info = await fileInfo(partialDest);
+      const contentLength = Number(Object.entries(result.headers || {}).find(([key]) => key.toLowerCase() === 'content-length')?.[1] || 0);
+      if (!info.exists || info.size < minBytes || (contentLength > 0 && info.size !== contentLength)) {
         try {
-          await FileSystem.deleteAsync(dest, { idempotent: true });
+          await FileSystem.deleteAsync(partialDest, { idempotent: true });
         } catch {}
         throw new Error(`${label} download is incomplete. Please retry.`);
       }
+      await FileSystem.moveAsync({ from: partialDest, to: dest });
       return;
     } catch (err: any) {
       activeResumable = null;
+      await FileSystem.deleteAsync(partialDest, { idempotent: true }).catch(() => {});
       if (downloadCancelled) throw err;
       const msg = String(err?.message || '');
       const retryable =
@@ -327,6 +350,22 @@ async function downloadFile(
 export async function downloadKokoroOnboardingDefaults(
   onProgress?: (p: KokoroDownloadProgress) => void
 ): Promise<{ success: boolean; error?: string; cancelled?: boolean }> {
+  return downloadAssets(KOKORO_ASSETS.files, onProgress);
+}
+
+export async function downloadKokoroEngine(onProgress?: (p: KokoroDownloadProgress) => void) {
+  return downloadAssets(KOKORO_ASSETS.files.filter(asset => asset.id === 'engine' || asset.id === 'tokenizer'), onProgress);
+}
+
+export async function downloadKokoroVoice(voiceId: KokoroVoiceId, onProgress?: (p: KokoroDownloadProgress) => void) {
+  if (!(await getKokoroInstallStatus()).engineInstalled) return { success: false, error: 'Download the Kokoro engine first.' };
+  return downloadAssets(KOKORO_ASSETS.files.filter(asset => asset.id === voiceId), onProgress);
+}
+
+async function downloadAssets(
+  assets: ReadonlyArray<(typeof KOKORO_ASSETS.files)[number]>,
+  onProgress?: (p: KokoroDownloadProgress) => void
+): Promise<{ success: boolean; error?: string; cancelled?: boolean }> {
   if (downloadInProgress) {
     return { success: false, error: 'Kokoro download already in progress.' };
   }
@@ -340,7 +379,7 @@ export async function downloadKokoroOnboardingDefaults(
 
     onProgress?.({ phase: 'download', percent: 2, status: 'Preparing Kokoro neural engine…' });
 
-    for (const asset of KOKORO_ASSETS.files) {
+    for (const asset of assets) {
       const dest = `${cacheDir}${asset.fileName}`;
       const info = await fileInfo(dest);
       if (info.exists && info.size < asset.minBytes) {
@@ -348,9 +387,10 @@ export async function downloadKokoroOnboardingDefaults(
       }
     }
 
-    const span = Math.floor(90 / KOKORO_ASSETS.files.length);
+    const totalBytes = assets.reduce((sum, asset) => sum + asset.minBytes, 0);
     let offset = 5;
-    for (const asset of KOKORO_ASSETS.files) {
+    for (const asset of assets) {
+      const span = 94 * asset.minBytes / totalBytes;
       if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
       const dest = `${cacheDir}${asset.fileName}`;
       const info = await fileInfo(dest);
@@ -359,7 +399,7 @@ export async function downloadKokoroOnboardingDefaults(
       } else {
         onProgress?.({
           phase: 'download',
-          percent: offset + span,
+          percent: Math.min(99, Math.round(offset + span)),
           status: `${asset.label} already on device…`,
         });
       }
@@ -368,7 +408,8 @@ export async function downloadKokoroOnboardingDefaults(
 
     if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
 
-    const installedVoiceIds = KOKORO_VOICES.map((v) => v.voiceId);
+    const status = await getKokoroInstallStatus();
+    const installedVoiceIds = KOKORO_VOICES.filter(v => isKokoroVoiceInstalled(status, v.voiceId)).map(v => v.voiceId);
     await writeJson(`${cacheDir}${INSTALLED_VOICES_FILE}`, installedVoiceIds);
     await writeJson(`${cacheDir}${MARKER_FILE}`, {
       modelId: KOKORO_ASSETS.modelId,
@@ -381,7 +422,9 @@ export async function downloadKokoroOnboardingDefaults(
     onProgress?.({
       phase: 'complete',
       percent: 100,
-      status: 'Kokoro neural voices ready.',
+      downloaded: `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`,
+      total: `${(totalBytes / (1024 * 1024)).toFixed(1)} MB`,
+      status: assets.some(asset => asset.id === 'engine') && assets.length === 2 ? 'Kokoro engine downloaded.' : 'Kokoro voice download complete.',
     });
     return { success: true };
   } catch (err: any) {
@@ -409,6 +452,8 @@ export const KokoroTtsService = {
   getActiveKokoroVoice,
   setActiveKokoroVoice,
   downloadKokoroOnboardingDefaults,
+  downloadKokoroEngine,
+  downloadKokoroVoice,
   deleteKokoroAssets,
   cancelKokoroDownload,
   isKokoroDownloadInProgress,

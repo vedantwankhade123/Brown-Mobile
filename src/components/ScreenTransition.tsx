@@ -43,14 +43,15 @@ export const ScreenTransition: React.FC<Props> = ({ screen, renderScreen }) => {
     if (from === screen) return;
     activeRef.current = screen;
 
+    const duration = from === 'onboarding' && screen === 'chat' ? 320 : DURATION;
     const fromOpacity = opacityFor(from, 1);
     const toOpacity = opacityFor(screen, 0);
 
     // Both fades go through revealValues so the end state is forced even if the
     // animation is interrupted: a stopped native-driver cross-fade used to leave the
     // incoming surface pinned at opacity 0 over the black container — a black screen.
-    revealValues([{ value: toOpacity, from: 0, to: 1 }], DURATION, undefined, false);
-    revealValues([{ value: fromOpacity, from: 1, to: 0 }], DURATION, undefined, false);
+    revealValues([{ value: toOpacity, from: 0, to: 1 }], duration, undefined, false);
+    revealValues([{ value: fromOpacity, from: 1, to: 0 }], duration, undefined, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 

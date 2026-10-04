@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   SafeAreaView,
   ActivityIndicator,
+  Alert,
   ScrollView,
   Image,
   Modal,
@@ -18,19 +19,14 @@ import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   ShieldCheckIcon,
-  ShieldIcon,
   CalendarIcon,
   UserIcon,
   MailIcon,
-  CloudIcon,
-  LaptopIcon,
-  BackArrowIcon,
-  RightArrowIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronDownIcon,
 } from '../components/Icons';
-import { BrownLogoAnimation } from '../components/BrownLogoAnimation';
+import { BrownLogo } from '../components/BrownLogo';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { ConsentService } from '../services/storage/ConsentService';
 import { revealValue } from '../utils/motion';
@@ -66,8 +62,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const [selectedYear, setSelectedYear] = useState<number>(2005);
   const [selectedDay, setSelectedDay] = useState<number | null>(15);
 
-  const [activeQuickItem, setActiveQuickItem] = useState<number>(0);
-  const [engineReady, setEngineReady] = useState<boolean>(false);
+  const [isFinishing, setIsFinishing] = useState(false);
+  const finishingRef = useRef(false);
 
   const [showWhyModal, setShowWhyModal] = useState<boolean>(false);
   const [showTermsModal, setShowTermsModal] = useState<boolean>(false);
@@ -135,17 +131,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         setError3('Please enter a valid email address.');
         return;
       }
-      setCurrentStep(4);
-      runEngineCheck();
-      return;
-    }
-
-    if (currentStep === 4) {
-      setCurrentStep(5);
-      return;
-    }
-
-    if (currentStep === 5) {
       await finishOnboarding();
     }
   };
@@ -159,36 +144,38 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     }
   };
 
-  const runEngineCheck = () => {
-    setEngineReady(false);
-    setTimeout(() => {
-      setEngineReady(true);
-    }, 700);
-  };
-
   const finishOnboarding = async () => {
-    // 1. Permanently record and archive user's legal agreement on device
-    const consent = await ConsentService.recordConsent({
-      fullName,
-      email,
-      birthdate,
-      agreedToTerms: true,
-      agreedToPrivacyPolicy: true,
-      termsVersion: '1.0-offline',
-      privacyVersion: '1.0-offline',
-    });
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    setIsFinishing(true);
+    try {
+      // 1. Permanently record and archive user's legal agreement on device
+      const consent = await ConsentService.recordConsent({
+        fullName,
+        email,
+        birthdate,
+        agreedToTerms: true,
+        agreedToPrivacyPolicy: true,
+        termsVersion: '1.0-offline',
+        privacyVersion: '1.0-offline',
+      });
 
-    const profile = {
-      fullName,
-      birthdate,
-      email,
-      completedAt: Date.now(),
-      consentId: consent.id,
-      consentTimestamp: consent.agreedAt,
-    };
-    await AsyncStorage.setItem('@ultron_user_profile', JSON.stringify(profile));
-    await AsyncStorage.setItem('@ultron_onboarding_completed', 'true');
-    onComplete();
+      const profile = {
+        fullName,
+        birthdate,
+        email,
+        completedAt: Date.now(),
+        consentId: consent.id,
+        consentTimestamp: consent.agreedAt,
+      };
+      await AsyncStorage.setItem('@ultron_user_profile', JSON.stringify(profile));
+      await AsyncStorage.setItem('@ultron_onboarding_completed', 'true');
+      onComplete();
+    } catch {
+      finishingRef.current = false;
+      setIsFinishing(false);
+      Alert.alert('Could not finish setup', 'Your profile could not be saved. Please try again.');
+    }
   };
 
   const handleSelectDay = (day: number) => {
@@ -293,11 +280,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   return (
     <SafeAreaView style={styles.container}>
       {/* Top Skip Button for Personalization (Steps 1-4) */}
-      {currentStep >= 1 && currentStep < 5 && (
+      {currentStep >= 1 && currentStep <= 3 && (
         <View style={styles.onboardTopBar}>
           <TouchableOpacity
             style={styles.onboardSkipBtn}
             onPress={finishOnboarding}
+            disabled={isFinishing}
             activeOpacity={0.7}
             accessibilityLabel="Skip personalization"
           >
@@ -322,10 +310,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           >
             {/* Logo Image */}
             {currentStep === 0 ? (
-              <BrownLogoAnimation size={132} style={styles.getStartedLogoImg} />
+              <BrownLogo size={132} style={styles.getStartedLogoImg} />
             ) : (
               <Image
-                source={require('../../Assets/Brown-white.png')}
+                source={require('../../Assets/browny_white.png')}
                 style={styles.logoImg}
                 resizeMode="contain"
               />
@@ -339,12 +327,12 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <View style={styles.onboardWelcome}>
               <View style={styles.onboardBtnStack}>
                 <TouchableOpacity
-                  style={styles.btnOnboardPrimary}
+                  style={[styles.btnOnboardPrimary, styles.btnGetStarted]}
                   onPress={handleStart}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.btnOnboardPrimaryText}>Get Started</Text>
-                  <RightArrowIcon size={16} color="#000000" />
+                  <ChevronRightIcon size={16} color="#000000" />
                 </TouchableOpacity>
               </View>
             </View>
@@ -357,7 +345,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                 {currentStep === 1 && 'Your Name'}
                 {currentStep === 2 && 'Your Date of Birth'}
                 {currentStep === 3 && 'Your Email'}
-                {currentStep === 4 && 'Quick Start'}
               </Text>
 
               <View style={styles.onboardStepBody}>
@@ -655,201 +642,30 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   </View>
                 )}
 
-                {/* Step 4: Quick Start / Engine Setup */}
-                {currentStep === 4 && (
-                  <View style={styles.onboardQuickLayout}>
-                    <View style={styles.onboardQuickList}>
-                      <TouchableOpacity
-                        style={[styles.onboardQuickItem, activeQuickItem === 0 && styles.onboardQuickItemActive]}
-                        onPress={() => setActiveQuickItem(0)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.onboardQuickIcon}>
-                          <LaptopIcon size={18} color="#ffffff" />
-                        </View>
-                        <View style={styles.onboardQuickCopy}>
-                          <Text style={styles.onboardQuickTitle}>Local models</Text>
-                          <Text style={styles.onboardQuickDesc}>Download GGUFs from Hugging Face</Text>
-                        </View>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.onboardQuickItem, activeQuickItem === 1 && styles.onboardQuickItemActive]}
-                        onPress={() => setActiveQuickItem(1)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.onboardQuickIcon}>
-                          <CloudIcon size={18} color="#ffffff" />
-                        </View>
-                        <View style={styles.onboardQuickCopy}>
-                          <Text style={styles.onboardQuickTitle}>Cloud models</Text>
-                          <Text style={styles.onboardQuickDesc}>Connect Gemini in Settings later</Text>
-                        </View>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.onboardQuickItem, activeQuickItem === 2 && styles.onboardQuickItemActive]}
-                        onPress={() => setActiveQuickItem(2)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.onboardQuickIcon}>
-                          <ShieldIcon size={18} color="#ffffff" />
-                        </View>
-                        <View style={styles.onboardQuickCopy}>
-                          <Text style={styles.onboardQuickTitle}>Private by default</Text>
-                          <Text style={styles.onboardQuickDesc}>Your data stays on this device</Text>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.onboardPreviewPanel}>
-                      <View style={styles.ollamaStatusCard}>
-                        <View style={styles.ollamaStatusIconWrapper}>
-                          {!engineReady ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                          ) : (
-                            <View style={styles.statusSuccessCheck}>
-                              <Text style={styles.checkText}>✓</Text>
-                            </View>
-                          )}
-                        </View>
-                        <View style={styles.ollamaStatusInfo}>
-                          <Text style={styles.ollamaStatusH4}>
-                            {!engineReady ? 'Checking on-device engine...' : 'On-device engine is ready'}
-                          </Text>
-                          <Text style={styles.ollamaStatusP}>
-                            {!engineReady
-                              ? 'Verifying your local AI engine before finishing setup.'
-                              : 'Your local AI engine is running and ready for inference.'}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {engineReady && (
-                        <View style={styles.ollamaReadyDetails}>
-                          <View style={styles.ollamaFeatureList}>
-                            <View style={styles.ollamaFeatureItem}>
-                              <View style={styles.ollamaFeatureDot} />
-                              <Text style={styles.ollamaFeatureText}>
-                                <Text style={styles.ollamaFeatureStrong}>100% Offline & Private. </Text>
-                                Zero data sent to cloud servers
-                              </Text>
-                            </View>
-                            <View style={styles.ollamaFeatureItem}>
-                              <View style={styles.ollamaFeatureDot} />
-                              <Text style={styles.ollamaFeatureText}>
-                                <Text style={styles.ollamaFeatureStrong}>High Performance. </Text>
-                                Local GPU/CPU neural inference
-                              </Text>
-                            </View>
-                            <View style={styles.ollamaFeatureItem}>
-                              <View style={styles.ollamaFeatureDot} />
-                              <Text style={styles.ollamaFeatureText}>
-                                <Text style={styles.ollamaFeatureStrong}>Model Support. </Text>
-                                Llama 3, DeepSeek, Qwen & Custom GGUFs
-                              </Text>
-                            </View>
-                          </View>
-
-                          <View style={styles.ollamaStatusFooterBadge}>
-                            <View style={styles.ollamaBadgePill}>
-                              <Text style={styles.badgePillText}>Localhost:11434</Text>
-                            </View>
-                            <View style={styles.ollamaBadgePill}>
-                              <Text style={styles.badgePillText}>Brown Core Active</Text>
-                            </View>
-                          </View>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                )}
-
-                {/* Step 5: Ready */}
-                {currentStep === 5 && (
-                  <View style={styles.onboardReadyStep}>
-                    <Text style={styles.onboardReadyTitle}>Brown is ready</Text>
-                    <Text style={styles.onboardReadySubtitle}>
-                      Your profile is set and your local AI engine is online.
-                    </Text>
-
-                    <View style={styles.onboardReadyCard}>
-                      <View style={styles.onboardReadyRow}>
-                        <View style={styles.onboardQuickIcon}>
-                          <UserIcon size={18} color="#ffffff" />
-                        </View>
-                        <View style={styles.onboardReadyCopy}>
-                          <Text style={styles.onboardReadyRowTitle}>Profile created</Text>
-                          <Text style={styles.onboardReadyRowDesc}>Saved on this device</Text>
-                        </View>
-                        <View style={styles.onboardReadyCheck}>
-                          <Text style={styles.onboardReadyCheckMark}>✓</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.onboardReadyDivider} />
-
-                      <View style={styles.onboardReadyRow}>
-                        <View style={styles.onboardQuickIcon}>
-                          <LaptopIcon size={18} color="#ffffff" />
-                        </View>
-                        <View style={styles.onboardReadyCopy}>
-                          <Text style={styles.onboardReadyRowTitle}>Engine ready</Text>
-                          <Text style={styles.onboardReadyRowDesc}>On-device inference is available</Text>
-                        </View>
-                        <View style={styles.onboardReadyCheck}>
-                          <Text style={styles.onboardReadyCheckMark}>✓</Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.onboardReadyDivider} />
-
-                      <View style={styles.onboardReadyRow}>
-                        <View style={styles.onboardQuickIcon}>
-                          <ShieldCheckIcon size={18} color="#ffffff" />
-                        </View>
-                        <View style={styles.onboardReadyCopy}>
-                          <Text style={styles.onboardReadyRowTitle}>Agent online</Text>
-                          <Text style={styles.onboardReadyRowDesc}>Private by default</Text>
-                        </View>
-                        <View style={styles.onboardReadyCheck}>
-                          <Text style={styles.onboardReadyCheckMark}>✓</Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                )}
               </View>
 
               {/* Action Buttons: Continue + Back */}
               <View style={styles.onboardFooterActions}>
-                {currentStep < 5 ? (
-                  <TouchableOpacity
-                    style={styles.btnOnboardPrimary}
-                    onPress={handleNext}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.btnOnboardPrimaryText}>Continue</Text>
-                    <RightArrowIcon size={16} color="#000000" />
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.btnOnboardPrimary}
-                    onPress={finishOnboarding}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.btnOnboardPrimaryText}>Finish</Text>
-                    <RightArrowIcon size={16} color="#000000" />
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  style={[styles.btnOnboardPrimary, styles.btnOnboardPrimaryFull]}
+                  onPress={handleNext}
+                  disabled={isFinishing}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.btnOnboardPrimaryText}>
+                    {isFinishing ? 'Finishing…' : currentStep === 3 ? 'Finish' : 'Continue'}
+                  </Text>
+                  {isFinishing ? <ActivityIndicator size="small" color="#000000" /> : <ChevronRightIcon size={16} color="#000000" />}
+                </TouchableOpacity>
 
                 {/* Back button on EVERY step below Continue */}
                 <TouchableOpacity
                   style={styles.btnOnboardBack}
                   onPress={handleBack}
+                  disabled={isFinishing}
                   activeOpacity={0.7}
                 >
-                  <BackArrowIcon size={16} color="#ffffff" />
+                  <View style={styles.onboardBackIcon}><ChevronLeftIcon size={16} color="#ffffff" /></View>
                   <Text style={styles.btnOnboardBackText}>Back</Text>
                 </TouchableOpacity>
               </View>
@@ -971,8 +787,8 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               <View style={styles.whyCallout}>
                 <ShieldCheckIcon size={16} color="#34d399" />
                 <Text style={styles.whyCalloutText}>
-                  <Text style={{ fontWeight: '700', color: '#ffffff' }}>Zero-Telemetry Guarantee: </Text>
-                  All data is encrypted in local SQLite and never leaves this phone.
+                  <Text style={{ fontWeight: '700', color: '#ffffff' }}>Local-first Privacy: </Text>
+                  Local chats stay in app storage. Optional cloud models, speech services and desktop sync can send data to the services you choose.
                 </Text>
               </View>
             </View>
@@ -1011,9 +827,9 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             </View>
 
             <View style={styles.docSection}>
-              <Text style={styles.docSectionHeading}>2. 100% On-Device Neural Execution</Text>
+              <Text style={styles.docSectionHeading}>2. Local and Optional Cloud Models</Text>
               <Text style={styles.docParagraph}>
-                All neural inferences, embeddings, token generation, and agent reasoning occur directly on your local hardware utilizing Android NPU/GPU acceleration. Brown does not rely on mandatory cloud APIs or remote subscription servers.
+                Downloaded GGUF models run on your device CPU and supported GPU. Optional cloud models send the conversation context and relevant saved preferences to your configured provider. Local chat does not require a cloud subscription.
               </Text>
             </View>
 
@@ -1034,7 +850,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>5. Desktop LAN Wi-Fi Sync</Text>
               <Text style={styles.docParagraph}>
-                Optional synchronization with your Desktop Brown node occurs strictly over your private local area network (LAN) utilizing end-to-end PIN encryption. No data is transmitted across public relay servers.
+                Optional desktop synchronization uses your local network and PIN pairing. It can exchange chats, profile settings and configured connectors with the paired desktop. Network requests use the configured desktop connection; use a trusted local network.
               </Text>
             </View>
 
@@ -1076,58 +892,58 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             alwaysBounceVertical={true}
             scrollEventThrottle={16}
           >
-            <Text style={styles.fullPageDocTitle}>Brown Offline Privacy Policy</Text>
-            <Text style={styles.fullPageDocDate}>Zero-Telemetry Commitment • Updated August 2026</Text>
+            <Text style={styles.fullPageDocTitle}>Brown Privacy Policy</Text>
+            <Text style={styles.fullPageDocDate}>Local-first data handling - Updated October 2026</Text>
 
             <View style={styles.docHighlightCard}>
               <ShieldCheckIcon size={24} color={colors.success} />
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.docHighlightTitle}>Zero-Telemetry Guarantee</Text>
+                <Text style={styles.docHighlightTitle}>Local-first Privacy</Text>
                 <Text style={styles.docHighlightSubtitle}>
-                  Brown is built from the ground up as a 100% privacy-first, offline-capable assistant. Your prompts, chats, files, and voice recordings never touch external cloud servers.
+                  Downloaded local models process chats on your device. Optional cloud models and connected services receive the data needed for the features you choose. Their own privacy policies also apply.
                 </Text>
               </View>
             </View>
 
             <View style={styles.docSection}>
-              <Text style={styles.docSectionHeading}>{'1. 100% Offline & Private Local Execution'}</Text>
+              <Text style={styles.docSectionHeading}>{'1. Local Models and Online Features'}</Text>
               <Text style={styles.docParagraph}>
-                Brown runs local neural weights directly on your device CPU/NPU hardware. There are zero tracking pixels, zero telemetry beacons, and zero diagnostic logging transmitted to any centralized servers.
+                Downloaded models run on the device CPU and supported GPU. Model downloads and update checks contact hosting services. Cloud chat sends conversation context, instructions and relevant saved preferences to the selected provider.
               </Text>
             </View>
 
             <View style={styles.docSection}>
-              <Text style={styles.docSectionHeading}>2. Encrypted Local Storage</Text>
+              <Text style={styles.docSectionHeading}>2. App Storage and Saved Preferences</Text>
               <Text style={styles.docParagraph}>
-                All conversation histories, session indices, system instructions, and vector embeddings are stored inside an encrypted local SQLite database on your device protected by OS-level sandbox security and hardware keystores.
+                Chats use local SQLite; settings and explicit saved preferences use app storage. Android app isolation and device security protect private storage; Brown does not add database encryption. You can view, edit or delete saved preferences and disable their use. Exported backups contain readable chat and preference data.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>3. Profile Information Scope</Text>
               <Text style={styles.docParagraph}>
-                Your profile information (Full Name, Date of Birth, Email Address) is stored strictly in local application storage. It is used exclusively to calibrate natural on-device SLM tone and generate local cryptographic workspace identities. It is never sold, shared, or synced externally.
+                Profile information is saved locally. Optional desktop sync can exchange profile settings. You can edit your profile in Settings or delete your local account and its app data.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>{'4. Real-Time Speech & Audio Processing'}</Text>
               <Text style={styles.docParagraph}>
-                Microphone audio recorded during speech-to-text (STT) interaction is streamed directly into volatile in-memory neural processing buffers (Whisper STT). Audio waveforms are immediately discarded after text transcription and never stored on disk.
+                Voice input requires microphone permission. Android speech recognition may use the installed speech provider and its online service. The optional Whisper fallback records temporary audio and sends it to your paired Brown Desktop for transcription. Cancel discards the current dictation; provider handling follows that provider's policy.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>5. Local Peer-to-Peer Wi-Fi Synchronization</Text>
               <Text style={styles.docParagraph}>
-                When syncing chats between your mobile device and Desktop Brown, communication occurs strictly across your local Wi-Fi subnet with end-to-end cryptographic PIN verification. No external relay or cloud servers ever mediate the transfer.
+                Desktop sync uses your local network and PIN pairing. It can exchange chats, profiles and connector configuration with the paired desktop. Only pair with a desktop you trust, and use a trusted local network. PIN pairing is not a claim of transport encryption.
               </Text>
             </View>
 
             <View style={styles.docSection}>
               <Text style={styles.docSectionHeading}>{'6. Full Data Sovereignty & 1-Tap Erasure'}</Text>
               <Text style={styles.docParagraph}>
-                You retain complete, absolute ownership of all generated content. At any time, you can trigger an irreversible 1-tap wipe via Settings → Clear All Data to permanently delete all local databases, cached models, and preferences.
+                Settings - Clear All Local Chats deletes chat history after confirmation. Saved preferences can be deleted separately in View Preferences; downloaded models have separate removal controls. These actions do not erase exported backups or data already sent to external services.
               </Text>
             </View>
 
@@ -1200,13 +1016,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     letterSpacing: -0.8,
     textAlign: 'center',
-    marginBottom: 34,
+    marginBottom: 18,
   },
   logoImg: {
-    width: 96,
-    height: 28,
+    width: 72,
+    height: 72,
     marginBottom: 12,
-    tintColor: '#FFFFFF',
   },
   onboardWelcome: {
     width: '100%',
@@ -1216,6 +1031,7 @@ const styles = StyleSheet.create({
   },
   onboardBtnStack: {
     width: '100%',
+    alignItems: 'center',
   },
   onboardFormShell: {
     width: '100%',
@@ -1635,7 +1451,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   btnOnboardPrimary: {
-    width: '100%',
     backgroundColor: '#ffffff',
     borderRadius: 9999,
     paddingVertical: 12,
@@ -1645,9 +1460,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
+  btnGetStarted: {
+    minWidth: 180,
+    paddingHorizontal: 24,
+  },
+  onboardBackIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#2563eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnOnboardPrimaryFull: {
+    width: '100%',
+  },
   btnOnboardPrimaryText: {
     color: '#000000',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '600',
   },
   btnOnboardBack: {
@@ -1662,7 +1492,7 @@ const styles = StyleSheet.create({
   },
   btnOnboardBackText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '500',
   },
   legalFooterContainer: {

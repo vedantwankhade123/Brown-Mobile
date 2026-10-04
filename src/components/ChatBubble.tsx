@@ -1,15 +1,14 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
-import { View, StyleSheet, TouchableOpacity, Animated } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Animated, Text } from 'react-native';
 import { ChatMessage } from '../types/chat';
 import { spacing } from '../theme/typography';
-import { colors } from '../theme/colors';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ThinkingIndicator } from './ThinkingIndicator';
 import { CopyIcon, SpeakerIcon, CheckIcon, PauseIcon } from './Icons';
 
 interface ChatBubbleProps {
   message: ChatMessage;
-  onCopy?: (text: string) => void;
+  onCopy?: (text: string) => boolean | Promise<boolean>;
   onSpeak?: (messageId: string, text: string) => void;
   isSpeaking?: boolean;
   isPaused?: boolean;
@@ -35,11 +34,9 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
 
   const copyProgress = useRef(new Animated.Value(0)).current;
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const caretOpacity = useRef(new Animated.Value(1)).current;
   const targetRef = useRef(message.content || '');
   const displayedRef = useRef(isUser || !message.isStreaming ? message.content || '' : '');
   const typeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const wasStreamingRef = useRef(Boolean(message.isStreaming));
   const pendingFrameRef = useRef<string | null>(null);
   const rafScheduledRef = useRef(false);
 
@@ -126,15 +123,10 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
     const target = message.content || '';
     const current = displayedRef.current;
     const stillCatchingUp = current.length < target.length;
-    const startedStreaming = message.isStreaming || wasStreamingRef.current;
-
-    if (message.isStreaming) {
-      wasStreamingRef.current = true;
-    }
-
-    // Historical / non-streamed messages: show immediately
-    if (!startedStreaming && !message.isStreaming) {
+    // Completion and Stop must also stop the reveal animation immediately.
+    if (!message.isStreaming) {
       stopTypingTimer();
+      pendingFrameRef.current = target;
       displayedRef.current = target;
       setDisplayedContent(target);
       setIsTyping(false);
@@ -153,36 +145,10 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
     }
   }, [message.content, message.isStreaming, isUser, message.id]);
 
-  const showCaret = !isUser && !showThinking && (isTyping || message.isStreaming) && displayedContent.length > 0;
   const showActions = !isUser && !message.isStreaming && !isTyping && !showThinking;
 
-  // Blinking caret while typing
-  useEffect(() => {
-    if (!showCaret) {
-      caretOpacity.setValue(0);
-      return;
-    }
-
-    const blink = Animated.loop(
-      Animated.sequence([
-        Animated.timing(caretOpacity, {
-          toValue: 1,
-          duration: 320,
-          useNativeDriver: true,
-        }),
-        Animated.timing(caretOpacity, {
-          toValue: 0.15,
-          duration: 320,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    blink.start();
-    return () => blink.stop();
-  }, [showCaret, caretOpacity]);
-
-  const handleCopyPress = () => {
-    onCopy?.(message.content);
+  const handleCopyPress = async () => {
+    if (!onCopy || !(await onCopy(message.content))) return;
 
     if (copyResetTimer.current) {
       clearTimeout(copyResetTimer.current);
@@ -244,18 +210,12 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
           (message.isStreaming || isTyping) && styles.streamingBubble,
         ]}
       >
-        {showThinking ? (
+        {isUser ? (
+          <Text style={styles.userText}>{message.content}</Text>
+        ) : showThinking ? (
           <ThinkingIndicator label={message.statusLabel || 'Thinking'} />
         ) : (
-          <View>
-            <MarkdownRenderer
-              content={isUser ? message.content : displayedContent}
-              onCopyText={onCopy}
-            />
-            {showCaret ? (
-              <Animated.Text style={[styles.caret, { opacity: caretOpacity }]}>|</Animated.Text>
-            ) : null}
-          </View>
+          <MarkdownRenderer content={displayedContent} onCopyText={onCopy} />
         )}
 
         {showActions && (
@@ -316,6 +276,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   userBubble: {
+    alignSelf: 'flex-end',
+    flexShrink: 1,
+    maxWidth: '85%',
     backgroundColor: '#262628',
     borderRadius: 18,
     borderBottomRightRadius: 4,
@@ -325,6 +288,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   assistantBubble: {
+    width: '100%',
     backgroundColor: 'transparent',
     borderWidth: 0,
     paddingHorizontal: 2,
@@ -333,11 +297,10 @@ const styles = StyleSheet.create({
   streamingBubble: {
     opacity: 0.98,
   },
-  caret: {
-    color: colors.textSecondary,
+  userText: {
+    color: '#ececf1',
     fontSize: 16,
-    lineHeight: 22,
-    marginTop: 2,
+    lineHeight: 24,
   },
   actionsRow: {
     flexDirection: 'row',

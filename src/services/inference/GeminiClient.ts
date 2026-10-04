@@ -34,6 +34,8 @@ export async function streamGeminiReply(options: {
   apiModel: string;
   prompt: string;
   history: ChatMessage[];
+  systemPrompt?: string;
+  signal?: AbortSignal;
   onToken: (token: string) => void;
 }): Promise<string> {
   const key = await getGeminiApiKey();
@@ -44,10 +46,12 @@ export async function streamGeminiReply(options: {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${options.apiModel}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`;
   const res = await fetch(url, {
     method: 'POST',
+    signal: options.signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: toGeminiContents(options.history, options.prompt),
-      generationConfig: { temperature: 0.7, topP: 0.9 },
+      ...(options.systemPrompt ? { systemInstruction: { parts: [{ text: options.systemPrompt }] } } : {}),
+      generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 1024 },
     }),
   });
 
@@ -56,10 +60,12 @@ export async function streamGeminiReply(options: {
     const generateUrl = `https://generativelanguage.googleapis.com/v1beta/models/${options.apiModel}:generateContent?key=${encodeURIComponent(key)}`;
     const fallback = await fetch(generateUrl, {
       method: 'POST',
+      signal: options.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: toGeminiContents(options.history, options.prompt),
-        generationConfig: { temperature: 0.7, topP: 0.9 },
+        ...(options.systemPrompt ? { systemInstruction: { parts: [{ text: options.systemPrompt }] } } : {}),
+      generationConfig: { temperature: 0.7, topP: 0.9, maxOutputTokens: 1024 },
       }),
     });
     if (!fallback.ok) {

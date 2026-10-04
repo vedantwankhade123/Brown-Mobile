@@ -228,6 +228,24 @@ async function runTests() {
   console.log('\n[2/6] Testing Local Inference Prompt Path:');
   const llamaEnginePath = path.resolve(__dirname, '../src/services/inference/LlamaEngine.ts');
   const llamaEngineSrc = fs.readFileSync(llamaEnginePath, 'utf8');
+  const { nativeTextDelta, bufferedCloudText } = requireTs('../src/services/inference/StreamText.ts');
+  test('Cloud SSE replies work without a readable stream on Android', () => {
+    assert.strictEqual(bufferedCloudText('data: {"choices":[{"delta":{"content":"Hi"}}]}\r\ndata: {"choices":[{"delta":{"content":" there"}}]}\r\ndata: [DONE]', 'openai'), 'Hi there');
+    assert.strictEqual(bufferedCloudText('data: {"type":"content_block_delta","delta":{"text":"Hello"}}', 'anthropic'), 'Hello');
+    assert.strictEqual(bufferedCloudText('{"choices":[{"message":{"content":"OK"}}]}', 'openai'), 'OK');
+  });
+  test('Native accumulated snapshots produce one answer without repetition', () => {
+    let answer = '';
+    for (const content of ['Hello', 'Hello world', 'Hello world', 'Hello world!']) {
+      answer += nativeTextDelta({ content }, answer);
+    }
+    assert.strictEqual(answer, 'Hello world!');
+  });
+  test('Reasoning snapshots stay hidden and legacy token streams still work', () => {
+    assert.strictEqual(nativeTextDelta({ content: '', reasoning_content: 'thinking', token: 'secret' }, ''), '');
+    assert.strictEqual(nativeTextDelta({ token: 'hello' }, ''), 'hello');
+    assert.strictEqual(nativeTextDelta({ content: 'short' }, 'longer answer'), '');
+  });
 
   test('Hands raw messages to llama.rn instead of a hand-written chat template', () => {
     const completionCall = llamaEngineSrc.slice(llamaEngineSrc.indexOf('.completion('));

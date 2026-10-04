@@ -1,3 +1,4 @@
+import { appSurfaces } from './src/theme/appSurfaces';
 import './src/utils/animatedPolyfill';
 import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import {
@@ -11,6 +12,7 @@ import {
   Animated,
   Easing,
   BackHandler,
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider, SafeAreaView as ScreenSafeArea } from 'react-native-safe-area-context';
@@ -18,7 +20,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as NavigationBar from 'expo-navigation-bar';
 import { setNavBarColor } from './src/theme/systemBars';
 import { ScreenTransition } from './src/components/ScreenTransition';
-import { BrownLogoAnimation } from './src/components/BrownLogoAnimation';
+import { BrownLogo } from './src/components/BrownLogo';
 import { animateOnce } from './src/utils/motion';
 import { consumeBackPress } from './src/utils/backStack';
 import { saveSelectedModel } from './src/services/modelManager/ModelSelection';
@@ -39,12 +41,15 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { DesktopSyncScreen } from './src/screens/DesktopSyncScreen';
 import { DesktopSyncService } from './src/services/sync/DesktopSync';
 import { bootstrapApp } from './src/services/storage/AppBootstrap';
+import { deleteLocalAccount } from './src/services/storage/AccountDataService';
 import { ModelMetadata } from './src/types/model';
 import { colors } from './src/theme/colors';
 import { BrownAlertHost, installBrownAlertPatch } from './src/components/BrownAlert';
 import { SoundService } from './src/services/sound/SoundService';
+import { ErrorLogService, installGlobalErrorHandlers } from './src/services/diagnostics/ErrorLogService';
 
 installBrownAlertPatch();
+installGlobalErrorHandlers();
 
 type ScreenType = 'onboarding' | 'chat' | 'modelStore' | 'settings' | 'desktopSync';
 
@@ -111,26 +116,47 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
+  diagnosticStatus: string | null;
 }
 
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, diagnosticStatus: null };
   }
 
-  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[Brown Mobile Crash]:', error, errorInfo);
+    // Cache a sanitized stack trace locally; the user decides whether to send it.
+    ErrorLogService.record(error, 'boundary').catch(() => {});
   }
 
   handleReload = async () => {
     try {
-      this.setState({ hasError: false, error: null });
+      this.setState({ hasError: false, error: null, diagnosticStatus: null });
     } catch {}
+  };
+
+  handleSendDiagnostics = async () => {
+    this.setState({ diagnosticStatus: 'Sending…' });
+    const result = await ErrorLogService.send().catch(() => null);
+    if (!result) {
+      this.setState({ diagnosticStatus: 'Could not send. Try again later.' });
+      return;
+    }
+    if (result.status === 'sent') {
+      this.setState({ diagnosticStatus: `Sent ${result.count} diagnostic log(s).` });
+    } else if (result.status === 'empty') {
+      this.setState({ diagnosticStatus: 'No cached logs to send.' });
+    } else if (result.status === 'cooldown') {
+      this.setState({ diagnosticStatus: 'Reports are limited to one per minute.' });
+    } else {
+      this.setState({ diagnosticStatus: 'Could not send. Try again later.' });
+    }
   };
 
   render() {
@@ -153,6 +179,19 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             >
               <Text style={styles.errorReloadBtnText}>Reload App</Text>
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.errorDiagnosticsBtn}
+              onPress={this.handleSendDiagnostics}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.errorDiagnosticsBtnText}>Send Error Log</Text>
+            </TouchableOpacity>
+            {this.state.diagnosticStatus ? (
+              <Text style={styles.errorDiagnosticsStatus}>{this.state.diagnosticStatus}</Text>
+            ) : null}
+            <Text style={styles.errorDiagnosticsNote}>
+              Only device specs, app version, and the stack trace are shared — never your chats.
+            </Text>
           </View>
         </SafeAreaView>
       );
@@ -190,6 +229,17 @@ export default function App() {
   const [handoffStarted, setHandoffStarted] = useState<boolean>(false);
   const [splashGone, setSplashGone] = useState<boolean>(false);
   const splashOpacity = useRef(new Animated.Value(1)).current;
+  const splashWordmarkOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.timing(splashWordmarkOpacity, {
+      toValue: 1, duration: 420, delay: 180,
+      easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    });
+    animation.start();
+    const fallback = setTimeout(() => splashWordmarkOpacity.setValue(1), 900);
+    return () => { clearTimeout(fallback); animation.stop(); };
+  }, [splashWordmarkOpacity]);
 
   useEffect(() => {
     const t = setTimeout(() => setMinSplashElapsed(true), MIN_SPLASH_MS);
@@ -216,7 +266,7 @@ export default function App() {
           toValue: 0,
           duration: 320,
           easing: Easing.out(Easing.quad),
-          useNativeDriver: false,
+          useNativeDriver: true,
         }),
       ],
       320,
@@ -233,7 +283,7 @@ export default function App() {
       .then(() => {
         NavigationBar.setButtonStyleAsync('light').catch(() => {});
         NavigationBar.setBorderColorAsync('transparent').catch(() => {});
-        setNavBarColor('transparent');
+        setNavBarColor(appSurfaces.top);
       })
       .catch(() => {});
   }, [currentScreen]);
@@ -352,6 +402,18 @@ export default function App() {
     navigateTo('onboarding');
   };
 
+  const handleDeleteAccount = async () => {
+    try {
+      await deleteLocalAccount();
+      setRequestedModel(null);
+      setChatKey((prev) => prev + 1);
+      resetToScreen('onboarding');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Something went wrong.';
+      Alert.alert('Could not delete account', message);
+    }
+  };
+
   const renderScreen = (route: string, active: boolean): ReactNode => {
     switch (route as ScreenType) {
       case 'onboarding':
@@ -369,6 +431,7 @@ export default function App() {
             isActive={active}
             onBack={navigateBack}
             onClearHistory={handleClearHistory}
+            onDeleteAccount={handleDeleteAccount}
             onRerunOnboarding={handleRerunOnboarding}
             onOpenModelStore={() => navigateTo('modelStore')}
             onOpenDesktopSync={() => {
@@ -410,9 +473,9 @@ export default function App() {
       <ErrorBoundary>
         <ScreenSafeArea
           edges={['top', 'left', 'right']}
-          style={[styles.container, { backgroundColor: currentScreen === 'chat' ? '#111111' : '#000000' }]}
+          style={[styles.container, { backgroundColor: currentScreen === 'chat' ? appSurfaces.top : colors.background }]}
         >
-          <StatusBar barStyle="light-content" backgroundColor={currentScreen === 'chat' ? '#111111' : '#000000'} />
+          <StatusBar barStyle="light-content" backgroundColor={currentScreen === 'chat' ? appSurfaces.top : colors.background} />
           <BrownAlertHost />
 
           {!booting && (
@@ -424,8 +487,12 @@ export default function App() {
               style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
               pointerEvents={booting ? 'auto' : 'none'}
             >
-              <BrownLogoAnimation size={104} />
-              <Text style={styles.splashMark}>Brown</Text>
+              <View style={styles.splashBrandGroup}>
+                <View style={styles.splashLogoFrame}>
+                  <BrownLogo size={104} style={{ transform: [{ translateX: -2.55 }, { translateY: -3.47 }] }} />
+                </View>
+                <Animated.Text style={[styles.splashMark, { opacity: splashWordmarkOpacity }]}>Brown</Animated.Text>
+              </View>
               {bootStalled && (
                 <View style={styles.splashStallCard}>
                   <Text style={styles.splashStallText}>
@@ -478,13 +545,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
+  splashBrandGroup: { width: 220, height: 154, alignItems: 'center' },
+  splashLogoFrame: { width: 104, height: 104, alignItems: 'center', justifyContent: 'center' },
   splashMark: {
-    marginTop: 14,
-    fontFamily: 'Outfit_500Medium',
-    fontWeight: '500',
+    position: 'absolute',
+    top: 118,
+    left: 0,
+    right: 0,
+    fontFamily: 'Outfit_400Regular',
+    fontWeight: '400',
     color: '#ffffff',
-    fontSize: 27,
-    letterSpacing: -0.7,
+    fontSize: 28,
+    lineHeight: 36,
+    letterSpacing: -0.25,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   splashStallCard: {
     position: 'absolute',
@@ -570,5 +645,34 @@ const styles = StyleSheet.create({
     color: '#000000',
     fontSize: 14,
     fontWeight: '600',
+  },
+  errorDiagnosticsBtn: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#3f3f46',
+    borderRadius: 9999,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  errorDiagnosticsBtnText: {
+    color: '#e4e4e7',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  errorDiagnosticsStatus: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  errorDiagnosticsNote: {
+    color: '#71717a',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 10,
+    textAlign: 'center',
   },
 });
