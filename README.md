@@ -162,3 +162,7 @@ Brown AI Mobile is **Proprietary & Confidential Software**. All Rights Reserved.
 - Copyright (c) 2026 Vedant Wankhade.
 - Website: [https://usebrown.online](https://usebrown.online)
 - Official Support & Inquiries: `contact@usebrown.online`
+
+## Latest source improvements (5 October 2026)
+
+Onboarding no longer asks for email or date of birth. Rich answers share desktop cognitive skill guidance, with native chart/diagram rendering and improved table handling. Automated tests and TypeScript checks pass. These source improvements do not imply a newly published APK; use the published release version shown on GitHub for binary downloads.
