@@ -210,23 +210,45 @@ const staged = [
 for (const f of staged) if (!fs.existsSync(f)) die(`missing ${path.basename(f)} — run the prepare step first`);
 if (fs.statSync(staged[0]).size !== fs.statSync(staged[1]).size) die('the two APK copies differ');
 
-sh(`gh api repos/${REPO} > /dev/null`);
+sh(`gh api repos/${REPO} > NUL`);
 
-const tags = sh('git tag -l', { pipe: true }).split('\n');
+const tags = sh('git tag -l', { pipe: true }).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
 if (!tags.includes(tag)) sh(`git tag -a ${tag} -m "Brown AI Mobile ${tag}"`);
 sh(`git push origin ${tag}`);
 
-const quoted = staged.map((f) => `"${f}"`).join(' ');
-const exists = sh(`gh release view ${tag} > /dev/null 2>&1 && echo yes || echo no`, { pipe: true }).trim() === 'yes';
-if (exists) {
-  sh(`gh release upload ${tag} ${quoted} --clobber`);
-  sh(`gh release edit ${tag} --title "Brown AI Mobile ${tag}" --notes-file .release-notes.md`);
-} else {
-  sh(`gh release create ${tag} ${quoted} --title "Brown AI Mobile ${tag}" --notes-file .release-notes.md`);
+// A single gh call carrying both ~156 MB assets times out on this uplink (HTTP 408) and gh then
+// rolls the whole release back, so publish a draft first and upload one asset at a time.
+const exists = sh(`gh release view ${tag} > NUL 2>NUL && echo yes || echo no`, { pipe: true }).trim() === 'yes';
+if (!exists) {
+  sh(`gh release create ${tag} --draft --title "Brown AI Mobile ${tag}" --notes-file .release-notes.md`);
 }
+for (const f of staged) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      sh(`gh release upload ${tag} "${f}" --clobber`);
+      lastError = undefined;
+      break;
+    } catch (error) {
+      lastError = error;
+      console.log(`[release] upload attempt ${attempt} for ${path.basename(f)} failed: ${String(error.message).split('\n')[0]}`);
+    }
+  }
+  if (lastError) die(`${path.basename(f)} never uploaded — the release is still a draft, retry --publish`);
+}
+if (exists) sh(`gh release edit ${tag} --title "Brown AI Mobile ${tag}" --notes-file .release-notes.md`);
 
-const names = sh(`gh release view ${tag} --json assets --jq '.assets[].name'`, { pipe: true });
-const latest = sh(`gh api repos/${REPO}/releases/latest --jq '.tag_name'`, { pipe: true }).trim();
+const uploaded = JSON.parse(sh(`gh release view ${tag} --json assets,isDraft`, { pipe: true })).assets;
+for (const asset of uploaded) {
+  const local = staged.find((f) => path.basename(f) === asset.name);
+  if (local && fs.statSync(local).size !== asset.size) {
+    die(`${asset.name} uploaded as ${asset.size} bytes but the local file is ${fs.statSync(local).size}`);
+  }
+}
+sh(`gh release edit ${tag} --draft=false --latest`);
+
+const names = JSON.parse(sh(`gh release view ${tag} --json assets`, { pipe: true })).assets.map((a) => a.name);
+const latest = JSON.parse(sh(`gh api repos/${REPO}/releases/latest`, { pipe: true })).tag_name;
 console.log(`\n[release] published; releases/latest is now ${latest}`);
 for (const f of staged) {
   console.log(`  ${names.includes(path.basename(f)) ? 'ok  ' : 'MISS'} ${path.basename(f)}`);
