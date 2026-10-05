@@ -9,6 +9,7 @@ import {
 import { colors } from '../theme/colors';
 import { typography } from '../theme/typography';
 import { CopyIcon, CheckIcon } from './Icons';
+import { AnswerVisual } from './AnswerVisual';
 
 const Linking = require('react-native').Linking;
 
@@ -378,6 +379,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       if (trimmed.startsWith('```')) {
         if (inCodeBlock) {
           const codeContent = codeBuffer.join('\n');
+          if (/^(mermaid|chart|json-chart|data-chart)$/.test(codeLanguage.toLowerCase())) {
+            out.push(<AnswerVisual key={`visual-${i}`} language={codeLanguage.toLowerCase()} source={codeContent} />);
+            codeBuffer = []; codeLanguage = ''; inCodeBlock = false;
+            continue;
+          }
           const currIndex = codeBlockIndex++;
           const isCopied = copiedIndex === currIndex;
 
@@ -543,7 +549,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     flushList('final');
 
     // Unclosed code fence
-    if (inCodeBlock && codeBuffer.length > 0) {
+    if (inCodeBlock && /^(mermaid|chart|json-chart|data-chart)$/.test(codeLanguage.toLowerCase())) {
+      out.push(<AnswerVisual key="visual-pending" language={codeLanguage.toLowerCase()} source="" pending />);
+    } else if (inCodeBlock && codeBuffer.length > 0) {
       out.push(
         <View key="code-unclosed" style={styles.codeBlockWrapper}>
           <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>

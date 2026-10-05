@@ -45,7 +45,13 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   console.log('PASS: Native cumulative snapshots stream and complete without duplication.');
   const React={createElement:(type,props,...children)=>({type,props:props||{},children}),useMemo:fn=>fn(),useState:()=>[null,()=>{}]};
   const rn={View:'View',Text:'Text',TouchableOpacity:'Button',ScrollView:'Scroll',StyleSheet:{create:x=>x},Linking:{}};
-  const {MarkdownRenderer}=load('../src/components/MarkdownRenderer.tsx', {'react':React,'react-native':rn,'../theme/colors':{colors:{}},'../theme/typography':{typography:{fontFamily:{mono:'mono'}}},'./Icons':{}});
+  const visuals=load('../src/components/AnswerVisual.tsx', {'react':React,'react-native':rn,'react-native-svg':{},'../theme/colors':{colors:{}}});
+  const {MarkdownRenderer}=load('../src/components/MarkdownRenderer.tsx', {'react':React,'react-native':rn,'../theme/colors':{colors:{}},'../theme/typography':{typography:{fontFamily:{mono:'mono'}}},'./Icons':{},'./AnswerVisual':visuals});
+  assert.strictEqual(visuals.parseMobileChart('{"type":"bar","labels":["A"],"values":[-2]}').values[0],-2);
+  for(const value of ['{"type":"bar","labels":[],"values":[1]}','{"type":"pie","labels":["A"],"values":[-1]}','{"type":"line","labels":["A"],"values":[null]}']) assert.throws(()=>visuals.parseMobileChart(value));
+  const pendingVisual=MarkdownRenderer({content:'```chart\n{"type":"bar"'});
+  assert(JSON.stringify(pendingVisual).includes('"pending":true'));
+  assert(!JSON.stringify(pendingVisual).includes('{\\"type\\":\\"bar\\"'));
   const tree=MarkdownRenderer({content:'# Heading\n\n**bold** and `inline`\n\n3. third\n4) fourth\n\n- first\n- second\n\n| Name | Value |\n| --- | --- |\n| A | B |\n\n```js\nconst x = 1;\n```'});
   const leaves=[]; const types=[];
   function visit(node){if(typeof node==='string'){leaves.push(node);return;} if(Array.isArray(node)){node.forEach(visit);return;} if(node){types.push(node.type);visit(node.children);}}
@@ -70,7 +76,9 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   assert.strictEqual(await unavailableClipboard.copyTextToClipboard('hello'), false);
   console.log('PASS: Android clipboard writes exact text and reports unavailable modules as failures.');
 
-  const {buildAssistantInstructions} = load('../src/services/inference/ChatCapabilities.ts', {});
+  const desktopSkills = load('../src/services/inference/DesktopAnswerSkills.ts', {});
+  assert.strictEqual(desktopSkills.DESKTOP_ANSWER_SKILLS.length,11);
+  const {buildAssistantInstructions} = load('../src/services/inference/ChatCapabilities.ts', {'./DesktopAnswerSkills':desktopSkills});
   assert(buildAssistantInstructions('Compare prices in a table').includes('separator row'));
   assert(buildAssistantInstructions('Write Python code').includes('working example'));
   assert(!buildAssistantInstructions('What is my test code? Reply only the code.').includes('working example'));
@@ -132,7 +140,7 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   const priorPlan = [{role:'user',content:'Make a deployment plan.'},{role:'assistant',content:'Deployment plan: stage Aster first, then verify.'},...longHistory.slice(2,-1),{role:'user',content:'Continue your earlier Aster deployment plan.'}];
   assert(engineModule.buildChatMessages(priorPlan, 'Be concise', 1100)[0].content.includes('stage Aster first'));
   console.log('PASS: Older relevant context survives trimming and real-token fitting reserves output space.');
-  const markdown = load('../src/components/MarkdownRenderer.tsx', {'react':React,'react-native':rn,'../theme/colors':{colors:{}},'../theme/typography':{typography:{fontFamily:{mono:'mono'}}},'./Icons':{}});
+  const markdown = load('../src/components/MarkdownRenderer.tsx', {'react':React,'react-native':rn,'../theme/colors':{colors:{}},'../theme/typography':{typography:{fontFamily:{mono:'mono'}}},'./Icons':{},'./AnswerVisual':visuals});
   assert.deepStrictEqual(markdown.splitTableRow('| A \\| B | `x|y` | C |'), ['A | B', '`x|y`', 'C']);
   const fencedTable = '```markdown\n| Name | Value |\n| --- | --- |\n| A | B |\n```';
   assert(!markdown.unwrapFencedTables(fencedTable).includes('```'));
@@ -152,7 +160,8 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   assert.strictEqual(nativeStarted,false);
   console.log('PASS: Stop during native context preparation cannot start a late generation.');
 
-  const databaseModule = load('../src/services/storage/Database.ts', {'react-native': {Platform:{OS:'web'}}});
+  const lifecycle = load('../src/services/storage/AccountLifecycle.ts', {});
+  const databaseModule = load('../src/services/storage/Database.ts', {'react-native': {Platform:{OS:'web'}}, './AccountLifecycle': lifecycle});
   await databaseModule.AppDatabase.getInstance().init();
   const repositoryModule = load('../src/services/storage/ChatRepository.ts', {'./Database': databaseModule});
   const backupModule = load('../src/services/storage/BackupService.ts', {'./ChatRepository': repositoryModule, './AssistantMemory': {AssistantMemory}});
