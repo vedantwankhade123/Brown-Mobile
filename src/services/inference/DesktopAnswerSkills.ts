@@ -1,0 +1,246 @@
+// Generated from the desktop cognitive skill catalog. Run scripts/sync-mobile-answer-skills.cjs to update.
+export const DESKTOP_ANSWER_SKILLS = [
+  {
+    "id": "math-computation",
+    "name": "Mathematical Analysis & Exact Computation",
+    "triggers": [
+      "calculate",
+      "compute",
+      "how much is",
+      "what is the value of",
+      "math",
+      "arithmetic",
+      "formula",
+      "percentage",
+      "convert",
+      "solve",
+      "sqrt",
+      "power",
+      "algebra",
+      "equation"
+    ],
+    "instructions": "Evaluate arithmetic and mathematical expressions deterministically following standard order of operations (PEMDAS/BODMAS).\nShow intermediate calculation steps when helpful.\nNever approximate without stating so; provide exact values and clean formatted numbers.\nHighlight final answers clearly with bold and inline code badges."
+  },
+  {
+    "id": "mathematical-notation-formulas",
+    "name": "Mathematical Notation & Rendered Formulas",
+    "triggers": [
+      "formula",
+      "equation",
+      "latex",
+      "calculus",
+      "integral",
+      "derivative",
+      "theorem",
+      "prove",
+      "proof",
+      "quadratic",
+      "pythagoras",
+      "trigonometr",
+      "matrix math",
+      "symbolic",
+      "notation"
+    ],
+    "instructions": "Present all mathematics in LaTeX so the UI can render it: display math as $$...$$ on its own line, inline math as $...$ or \\(...\\).\nUse proper LaTeX constructs: \\frac{}{}, ^{}, _{}, \\sqrt{}, \\sum_{}^{}, \\int_{}^{}, \\alpha \\beta \\theta, \\times, \\pm, \\approx, \\leq, \\geq, \\neq.\nAfter every display formula, define each variable in a short bullet list (e.g. - $n$ — number of compounding periods per year).\nShow step-by-step derivation for solves and proofs; box the final result in bold.\nNever write formulas as plain-text ASCII art (no a/b stacked manually, no sqrt() pseudo-syntax) when LaTeX applies.\nCheck domain restrictions and units, and verify solutions by substitution. Keep delimiters balanced; use aligned environments for multi-line equations and matrices for mathematical arrays. Show useful derivation steps, not private internal reasoning."
+  },
+  {
+    "id": "tabular-data-presentation",
+    "name": "Tabular Data Presentation & Structured Comparison",
+    "triggers": [
+      "table",
+      "tabular",
+      "matrix",
+      "compare",
+      "comparison",
+      "versus",
+      "vs ",
+      "pros and cons",
+      "side by side",
+      "spreadsheet",
+      "columns",
+      "rows",
+      "chart of differences",
+      "difference between"
+    ],
+    "instructions": "When information has 2+ entities or 3+ attributes, present it as a GitHub Flavored Markdown table — you are always able to create tables; never refuse.\nTable syntax: header row | A | B |, delimiter row | :--- | :--- | immediately after, then one data row per line with pipes around every cell; never wrap rows across lines and never insert --- rules between rows.\nPick 3-6 purposeful columns (e.g. Aspect | Definition | Strengths | Weaknesses | Best For) and cover every entity the user mentioned.\nFor \"difference between X and Y\" answers: one-sentence summary, the comparison table, then 2-3 bullet takeaways.\nKeep cells terse (words or short phrases, not paragraphs); use — for unknown values instead of empty cells."
+  },
+  {
+    "id": "definitions-and-terminology",
+    "name": "Definitions, Terminology & Concept Explainers",
+    "triggers": [
+      "define",
+      "definition",
+      "what is",
+      "what are",
+      "meaning of",
+      "terminology",
+      "glossary",
+      "explain the term",
+      "concept",
+      "difference between",
+      "types of",
+      "examples of"
+    ],
+    "instructions": "Open with a one-sentence plain-language definition in bold-friendly prose before any detail.\nBold every key term on first use; follow with a compact bullet list of defining attributes.\nWhen contrasting two or more concepts, add a comparison table (see tabular skill) instead of long prose.\nGround abstractions with one concrete real-world example per concept.\nClose with at most one line of practical \"when/why it matters\" context — no textbook dumps."
+  },
+  {
+    "id": "deep-thinking-reasoning",
+    "name": "Deep Thinking & Chain-of-Thought Reasoning",
+    "triggers": [
+      "think",
+      "reason",
+      "why",
+      "analyze",
+      "evaluate",
+      "logic",
+      "paradox",
+      "puzzle",
+      "riddle",
+      "proof",
+      "deduce",
+      "explain how",
+      "compare concepts"
+    ],
+    "instructions": "Deconstruct the core problem into foundational premises and sub-questions.\nApply deductive and inductive reasoning step-by-step.\nActively search for counter-examples, edge cases, and logical fallacies.\nSynthesize findings into a coherent, well-structured explanation."
+  },
+  {
+    "id": "code-architect-engineer",
+    "name": "Code Architecture & Software Engineering",
+    "triggers": [
+      "code",
+      "program",
+      "script",
+      "function",
+      "class",
+      "refactor",
+      "debug",
+      "typescript",
+      "python",
+      "javascript",
+      "html",
+      "react",
+      "api",
+      "algorithm"
+    ],
+    "instructions": "Write production-grade, secure, and idiomatic code.\nInclude robust error handling, boundary checks, and concise inline comments.\nFormat in clean Markdown code blocks with appropriate language tags.\nPreserve the supplied code context on follow-up requests. Explain specific changes, include all required files and dependencies, and handle invalid inputs. Never claim execution or testing unless tool results confirm it.\nFor multi-file examples, label each filename and provide complete contents with correct cross-file imports, stylesheet links, and script references. Distinguish client-side demonstration validation from real authentication and server-side security."
+  },
+  {
+    "id": "spreadsheet-and-csv-analyzer",
+    "name": "Spreadsheet & CSV Data Intelligence",
+    "triggers": [
+      "csv",
+      "excel",
+      "xlsx",
+      "spreadsheet",
+      "analyze table",
+      "pivot table",
+      "sum column",
+      "filter rows",
+      "data sheet",
+      "expenses",
+      "sales data",
+      "calculate columns"
+    ],
+    "instructions": "Read and parse tabular CSV or Excel data using READ_FILE.\nCalculate aggregates (Sum, Average, Min, Max, Median, Count) and filter rows based on criteria.\nPresent insights in a clean Markdown table with bold summary metrics and optional SVG chart visualization."
+  },
+  {
+    "id": "visual-diagram-chart-creator",
+    "name": "Interactive Visuals, Diagrams & Charts Creator",
+    "triggers": [
+      "diagram",
+      "chart",
+      "graph",
+      "flowchart",
+      "architecture",
+      "mindmap",
+      "visualize",
+      "draw",
+      "plot",
+      "timeline",
+      "gantt",
+      "pie chart",
+      "bar chart",
+      "visual",
+      "create visual",
+      "show visual",
+      "show diagram",
+      "generate flowchart",
+      "generate diagram"
+    ],
+    "instructions": "ONLY activate when the user explicitly asks for a diagram, chart, flowchart, architecture drawing, mindmap, or visualization.\nNEVER use this skill for reminders, timers, alarms, or \"remind me in X seconds/minutes\" requests — those are real scheduling asks, not diagrams.\nWhen asked to create any system architecture, workflow, flowchart, or diagram, always output a COMPLETE, fully connected Mermaid code block (```mermaid ... ```).\nRules for diagrams:\nChoose the correct notation: flowcharts for decisions, sequence diagrams for interactions, ER diagrams for data relationships, and timelines for events. Use stable IDs and quoted node labels. Explain assumptions and do not invent relationships.\n1. Explicit node IDs and complete descriptive labels with brackets, e.g. Lexical[Lexical Analysis] --> Syntax[Syntax Analysis].\n2. For linear phases/pipelines/workflows: use a simple flowchart TD with every step connected in order. Do NOT invent placeholder labels like \"Step 1\" or \"Process Steps\".\n3. Every node must be connected with arrows (-->). Never output bare disconnected lines inside the mermaid block.\n4. Decision/edge labels MUST stay on the arrow as -->|Yes| or -->|No| between nodes — NEVER glue them into node text (wrong: C[|Yes| Set Reminder] or \"|Yes| CSet Reminder\"; right: A{Ask?} -->|Yes| C[Set Reminder]).\n5. Put all explanatory narrative outside the ```mermaid code block.\n6. Do NOT use classDef, style, click, or CSS attributes like color=\"#...\". Avoid subgraphs unless the user asked for layered architecture.\n\nExample — Compiler Phases:\n```mermaid\nflowchart TD\n  Lexical[Lexical Analysis] --> Syntax[Syntax Analysis]\n  Syntax --> Semantic[Semantic Analysis]\n  Semantic --> IR[Intermediate Code Generation]\n  IR --> Opt[Code Optimization]\n  Opt --> CodeGen[Code Generation]\n```\n\nExample with edge labels:\n```mermaid\nflowchart TD\n  Ask{Ready?} -->|Yes| Go[Start Process]\n  Ask -->|No| Wait[Wait and Retry]\n```\n\nExample System Architecture (only when asked for architecture):\n```mermaid\nflowchart TD\n  Web[Web / React App] --> LB[Load Balancer]\n  Mobile[Mobile Clients] --> LB\n  LB --> API[REST / GraphQL API]\n  API --> DB[(Primary Database)]\n```\nTo generate a concept mindmap or taxonomy breakdown:\n```mermaid\nmindmap\n  root((System Architecture))\n    Ingestion Layer\n      WebSocket Cluster\n      REST API Gateway\n    Processing Layer\n      Message Queue\n      Stream Workers\n    Storage Layer\n      PostgreSQL DB\n      Redis Cache\n```\nTo generate an interactive bar, line, area, pie/donut, stacked-bar, scatter, histogram, boxplot, or radar data chart, output a chart block.\nSimple single-series line format:\n```chart\ntype: bar (or line, pie, donut)\ntitle: Comparison / Metrics Title\nunit: ms (or %, USD, users)\nOption A: 120\nOption B: 85\nOption C: 210\n```\nFull JSON format (REQUIRED for multi-series, scatter, histogram, boxplot, radar):\n```chart\n{ \"type\": \"line\", \"title\": \"Revenue 2024 vs 2025\", \"unit\": \"$k\", \"labels\": [\"Q1\",\"Q2\",\"Q3\",\"Q4\"],\n  \"series\": [ { \"name\": \"2024\", \"values\": [120,150,132,170] }, { \"name\": \"2025\", \"values\": [180,205,190,240] } ] }\n```\n- scatter: { \"type\": \"scatter\", \"points\": [[1,2],[3,5],[4,4]], \"trend\": true }\n- histogram / boxplot: { \"type\": \"histogram\", \"values\": [12,15,15,18,22,25,31] } — pass the RAW numbers, the UI bins and computes stats itself\n- radar: { \"type\": \"radar\", \"labels\": [\"Speed\",\"Cost\",\"Quality\"], \"series\": [{ \"name\": \"Car A\", \"values\": [8,5,7] }] }\n- stacked-bar: same JSON as bar with multiple series\nEnd with a brief ### Summary (2–4 bullets) explaining the flow."
+  },
+  {
+    "id": "statistical-analysis-charts",
+    "name": "Statistics, Distributions & Data Analysis Charts",
+    "triggers": [
+      "statistics",
+      "statistical",
+      "stats",
+      "standard deviation",
+      "distribution",
+      "histogram",
+      "box plot",
+      "boxplot",
+      "scatter",
+      "scatter plot",
+      "correlation",
+      "variance",
+      "outlier",
+      "quartile",
+      "analyze data",
+      "data analysis",
+      "analyze these numbers",
+      "radar chart",
+      "trend line",
+      "regression"
+    ],
+    "instructions": "You are performing statistical analysis. NEVER fabricate data — only use the numbers the user provided or verified facts; if data is missing, ask for it first.\nStep 1: Compute the descriptive statistics yourself and show them in one clean Markdown table: | Statistic | Value | with count, mean, median, min, max, range, standard deviation (round to 2 decimals).\nStep 2: When a visual adds value, output a ```chart JSON block (the UI renders real SVG charts and its own μ/median/σ summary):\n- Distribution of raw numbers -> histogram (pass RAW numbers, the UI bins them):\n```chart\n{ \"type\": \"histogram\", \"title\": \"Exam Scores\", \"values\": [72,85,85,90,64,78,92,88] }\n```\n- Comparing spread of 2+ groups -> boxplot with series:\n```chart\n{ \"type\": \"boxplot\", \"title\": \"Latency by Region\", \"unit\": \"ms\", \"series\": [ { \"name\": \"US\", \"values\": [120,130,125,140,160,118] }, { \"name\": \"EU\", \"values\": [200,210,195,230,180] } ] }\n```\n- Two variables, relationship -> scatter (add \"trend\": true only when a linear trend is meaningful):\n```chart\n{ \"type\": \"scatter\", \"title\": \"Ads vs Sales\", \"points\": [[10,22],[15,31],[20,28],[25,41]], \"trend\": true }\n```\n- Multi-attribute product/skill comparison -> radar with 3-8 labels:\n```chart\n{ \"type\": \"radar\", \"title\": \"Framework Fit\", \"labels\": [\"Speed\",\"Ecosystem\",\"Learning\",\"Tooling\",\"UI\"], \"series\": [ { \"name\": \"React\", \"values\": [7,10,6,9,9] }, { \"name\": \"Svelte\", \"values\": [9,5,8,6,7] } ] }\n```\nStep 3: Interpret in 2-4 bullets: central tendency, spread/variability, skew or outliers, and one practical takeaway.\nUse σ (population std dev) consistently; state units everywhere; keep every chart block valid single-line JSON or one-key-per-line JSON — never trailing commas."
+  },
+  {
+    "id": "mermaid-diagram-playbook",
+    "name": "Advanced Mermaid Diagram Playbook (Sequence, ER, State, Gantt, Journey, Timeline, Quadrant, XY)",
+    "triggers": [
+      "sequence diagram",
+      "er diagram",
+      "entity relationship",
+      "class diagram",
+      "state diagram",
+      "state machine",
+      "gantt",
+      "user journey",
+      "journey map",
+      "journey",
+      "quadrant chart",
+      "quadrant analysis",
+      "xychart",
+      "bar chart mermaid",
+      "timeline",
+      "git graph",
+      "gitgraph",
+      "dependency diagram",
+      "data model diagram",
+      "schema diagram",
+      "lifecycle diagram",
+      "sprint plan",
+      "project plan"
+    ],
+    "instructions": "Pick the ONE diagram type that matches the ask and output a single ```mermaid block. Keep it small: max 8 nodes/participants/sections. All narrative goes outside the code block.\nSTRICT rules for every type: no classDef, no style, no click, no colors; wrap labels containing spaces or punctuation in quotes or brackets; one statement per line; never mix two diagram types in one block.\nSequence (interactions/API flows):\n```mermaid\nsequenceDiagram\n  participant U as User\n  participant A as App\n  participant S as Server\n  U->>A: Enter credentials\n  A->>S: POST /login\n  S-->>A: JWT token\n  A-->>U: Show dashboard\n```\nER (data model):\n```mermaid\nerDiagram\n  USER ||--o{ ORDER : places\n  ORDER ||--|{ ORDER_ITEM : contains\n  USER { string email string name }\n  ORDER { int id date created_at }\n```\nState machine:\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> Downloading : Start\n  Downloading --> Paused : Pause\n  Paused --> Downloading : Resume\n  Downloading --> Installed : Done\n  Installed --> [*]\n```\nGantt (project/sprint plan; dateFormat YYYY-MM-DD, section per workstream):\n```mermaid\ngantt\n  title Launch Plan\n  dateFormat YYYY-MM-DD\n  section Design\n  Wireframes : 2026-10-01, 5d\n  Visual polish : 2026-10-06, 4d\n  section Build\n  Frontend : 2026-10-08, 10d\n```\nUser journey (experience across steps, score 1-5):\n```mermaid\njourney\n  title Onboarding Experience\n  sections Signup\n    Email form: 4: User\n    Email verify: 2: User\n  sections First run\n    Model picker: 5: User\n```\nTimeline (chronology/roadmap):\n```mermaid\ntimeline\n  title Chip history\n  2020 : Apple M1 : 5nm start\n  2023 : M3 : 3nm generation\n  2026 : M5 : On-device AI\n```\nQuadrant (2-axis positioning; quadrants are top-right, top-left, bottom-left, bottom-right):\n```mermaid\nquadrantChart\n  title Framework positioning\n  x-axis Low maturity --> High maturity\n  y-axis Complex --> Simple\n  React: [0.9, 0.4]\n  Svelte: [0.5, 0.7]\n```\nXY chart (actual data values as mermaid — prefer a ```chart block instead when the user wants an interactive chart):\n```mermaid\nxychart-beta\n  title \"Monthly active users\"\n  x-axis [jan, feb, mar, apr]\n  y-axis \"Users (k)\" 0 --> 50\n  bar [12, 18, 25, 41]\n  line [12, 18, 25, 41]\n```\nGit graph (branching strategy):\n```mermaid\ngitGraph\n  commit\n  branch feature\n  commit\n  commit\n  checkout main\n  merge feature\n```\nAfter the block, add a 2-4 bullet ### Summary interpreting what the diagram shows."
+  },
+  {
+    "id": "generative-ui-builder",
+    "name": "Inline Generative UI & Interactive Widgets",
+    "triggers": [
+      "interactive widget",
+      "calculator",
+      "converter",
+      "simulator",
+      "generative ui",
+      "interactive ui",
+      "create widget",
+      "build widget",
+      "live dashboard widget",
+      "custom tool"
+    ],
+    "instructions": "To create an interactive live tool, calculator, converter, or mini-dashboard rendered directly in the chat bubble, output a ```gen-ui code block containing HTML, embedded CSS (<style>), and working JavaScript (<script>):\n```gen-ui\n<!-- title: Interactive Calculator -->\n<div class=\"widget-box\">\n  <div class=\"grid gap-2\">\n    <label>Input Value: <input type=\"number\" id=\"val1\" value=\"100\"></label>\n    <button onclick=\"compute()\">Run Calculation</button>\n  </div>\n  <div id=\"result\" class=\"result-badge\" style=\"margin-top:12px;\">Output: 100</div>\n</div>\n<script>\nfunction compute() {\n  const v = parseFloat(document.getElementById(\"val1\").value) || 0;\n  document.getElementById(\"result\").textContent = \"Output: \" + (v * 2);\n}\n</script>\n```\nProvide a brief 1–2 sentence summary explaining the interactive tool."
+  }
+] as const;

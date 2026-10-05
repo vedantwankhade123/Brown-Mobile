@@ -19,9 +19,7 @@ import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import {
   ShieldCheckIcon,
-  CalendarIcon,
   UserIcon,
-  MailIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronDownIcon,
@@ -48,19 +46,14 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
   const [currentStep, setCurrentStep] = useState<number>(0);
   const keyboardInset = useKeyboardInset(0);
   const [fullName, setFullName] = useState<string>('');
-  const [birthdate, setBirthdate] = useState<string>('');
-  const [email, setEmail] = useState<string>('');
+
+
 
   const [error1, setError1] = useState<string>('');
-  const [error2, setError2] = useState<string>('');
-  const [error3, setError3] = useState<string>('');
 
-  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+
+
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
-  const [calendarView, setCalendarView] = useState<'days' | 'months' | 'years'>('days');
-  const [selectedMonth, setSelectedMonth] = useState<number>(7); // August (0-indexed)
-  const [selectedYear, setSelectedYear] = useState<number>(2005);
-  const [selectedDay, setSelectedDay] = useState<number | null>(15);
 
   const [isFinishing, setIsFinishing] = useState(false);
   const finishingRef = useRef(false);
@@ -76,8 +69,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
         try {
           const profile = JSON.parse(data);
           if (profile.fullName) setFullName(profile.fullName);
-          if (profile.birthdate) setBirthdate(profile.birthdate);
-          if (profile.email) setEmail(profile.email);
         } catch {}
       }
     });
@@ -101,8 +92,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
   const clearErrors = () => {
     setError1('');
-    setError2('');
-    setError3('');
   };
 
   const handleNext = async () => {
@@ -111,24 +100,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     if (currentStep === 1) {
       if (!fullName.trim()) {
         setError1('Please enter your name.');
-        return;
-      }
-      setCurrentStep(2);
-      return;
-    }
-
-    if (currentStep === 2) {
-      if (!birthdate.trim()) {
-        setError2('Please select a valid date of birth.');
-        return;
-      }
-      setCurrentStep(3);
-      return;
-    }
-
-    if (currentStep === 3) {
-      if (!email.trim() || !email.includes('@')) {
-        setError3('Please enter a valid email address.');
         return;
       }
       await finishOnboarding();
@@ -152,8 +123,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       // 1. Permanently record and archive user's legal agreement on device
       const consent = await ConsentService.recordConsent({
         fullName,
-        email,
-        birthdate,
         agreedToTerms: true,
         agreedToPrivacyPolicy: true,
         termsVersion: '1.0-offline',
@@ -162,8 +131,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
       const profile = {
         fullName,
-        birthdate,
-        email,
         completedAt: Date.now(),
         consentId: consent.id,
         consentTimestamp: consent.agreedAt,
@@ -177,105 +144,6 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       Alert.alert('Could not finish setup', 'Your profile could not be saved. Please try again.');
     }
   };
-
-  const handleSelectDay = (day: number) => {
-    setSelectedDay(day);
-    const formatted = `${String(day).padStart(2, '0')}/${String(selectedMonth + 1).padStart(2, '0')}/${selectedYear}`;
-    setBirthdate(formatted);
-    setShowDatePicker(false);
-    setCalendarView('days');
-  };
-
-  const handleBirthdateInput = (text: string) => {
-    // If user is deleting a slash, allow deletion smoothly
-    if (text.length < birthdate.length && (birthdate.endsWith('/') || birthdate.endsWith('/ '))) {
-      setBirthdate(text);
-      setError2('');
-      return;
-    }
-
-    // Extract only digits up to 8 (DDMMYYYY)
-    const numbers = text.replace(/\D/g, '').slice(0, 8);
-    let formatted = numbers;
-    if (numbers.length > 4) {
-      formatted = `${numbers.slice(0, 2)}/${numbers.slice(2, 4)}/${numbers.slice(4, 8)}`;
-    } else if (numbers.length > 2) {
-      formatted = `${numbers.slice(0, 2)}/${numbers.slice(2)}`;
-    }
-
-    setBirthdate(formatted);
-    setError2('');
-
-    // If complete valid date typed (DD/MM/YYYY), synchronize calendar view
-    if (numbers.length === 8) {
-      const d = parseInt(numbers.slice(0, 2), 10);
-      const m = parseInt(numbers.slice(2, 4), 10) - 1;
-      const y = parseInt(numbers.slice(4, 8), 10);
-      if (d >= 1 && d <= 31 && m >= 0 && m <= 11 && y >= 1900 && y <= 2026) {
-        setSelectedDay(d);
-        setSelectedMonth(m);
-        setSelectedYear(y);
-      }
-    }
-  };
-
-  const handlePrevCalendar = () => {
-    if (calendarView === 'days') {
-      if (selectedMonth === 0) {
-        setSelectedMonth(11);
-        setSelectedYear((prev) => prev - 1);
-      } else {
-        setSelectedMonth((prev) => prev - 1);
-      }
-    } else if (calendarView === 'months') {
-      setSelectedYear((prev) => prev - 1);
-    } else if (calendarView === 'years') {
-      setSelectedYear((prev) => Math.max(1930, prev - 12));
-    }
-  };
-
-  const handleNextCalendar = () => {
-    if (calendarView === 'days') {
-      if (selectedMonth === 11) {
-        setSelectedMonth(0);
-        setSelectedYear((prev) => prev + 1);
-      } else {
-        setSelectedMonth((prev) => prev + 1);
-      }
-    } else if (calendarView === 'months') {
-      setSelectedYear((prev) => prev + 1);
-    } else if (calendarView === 'years') {
-      setSelectedYear((prev) => Math.min(2026, prev + 12));
-    }
-  };
-
-  const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-  const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-  const prevMonthDaysCount = new Date(selectedYear, selectedMonth, 0).getDate();
-  const rawFirstDay = new Date(selectedYear, selectedMonth, 1).getDay();
-  // Monday start: Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
-  const firstDayOffset = rawFirstDay === 0 ? 6 : rawFirstDay - 1;
-
-  // Leading days from previous month
-  const prevMonthDays: number[] = [];
-  for (let i = firstDayOffset - 1; i >= 0; i--) {
-    prevMonthDays.push(prevMonthDaysCount - i);
-  }
-
-  // Current month days
-  const currentMonthDays = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-  // Trailing days from next month to complete 35 or 42 cells
-  const totalFilled = prevMonthDays.length + currentMonthDays.length;
-  const totalCells = totalFilled <= 35 ? 35 : 42;
-  const nextMonthDays = Array.from({ length: totalCells - totalFilled }, (_, i) => i + 1);
-
-  const yearList = Array.from({ length: 97 }, (_, i) => 2026 - i);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -342,9 +210,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {currentStep > 0 && (
             <View style={styles.onboardFormShell}>
               <Text style={styles.onboardStepHeading}>
-                {currentStep === 1 && 'Your Name'}
-                {currentStep === 2 && 'Your Date of Birth'}
-                {currentStep === 3 && 'Your Email'}
+                {currentStep === 1 && 'What should I call you?'}
               </Text>
 
               <View style={styles.onboardStepBody}>
@@ -378,269 +244,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   </View>
                 )}
 
-                {/* Step 2: Date of Birth */}
-                {currentStep === 2 && (
-                  <View style={styles.onboardStep}>
-                    <View style={styles.onboardFormGroup}>
-                      <View style={styles.onboardField}>
-                        <TextInput
-                          style={[
-                            styles.onboardInput,
-                            { paddingRight: 44 },
-                            isInputFocused && styles.onboardInputFocused,
-                            Platform.OS === 'web'
-                              ? ({
-                                  outline: 'none',
-                                  border: isInputFocused ? '2px solid #ffffff' : '1.5px solid #ffffff',
-                                } as any)
-                              : {},
-                          ]}
-                          value={birthdate}
-                          onChangeText={handleBirthdateInput}
-                          onFocus={() => setIsInputFocused(true)}
-                          onBlur={() => setIsInputFocused(false)}
-                          placeholder="DD/MM/YYYY"
-                          placeholderTextColor="#71717a"
-                          keyboardType="numeric"
-                          maxLength={10}
-                        />
-                        <TouchableOpacity
-                          style={styles.onboardDateToggleBtn}
-                          onPress={() => setShowDatePicker(!showDatePicker)}
-                          activeOpacity={0.7}
-                        >
-                          <CalendarIcon size={18} color="#ffffff" />
-                        </TouchableOpacity>
-                      </View>
 
-                      {/* Custom DOB Picker Popover */}
-                      {showDatePicker && (
-                        <View style={styles.customDatepickerPopover}>
-                          {/* Header with Month Year v and < > */}
-                          <View style={styles.datepickerHeader}>
-                            <TouchableOpacity
-                              style={styles.datepickerMonthYearBtn}
-                              onPress={() => setCalendarView(calendarView === 'days' ? 'months' : 'days')}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={styles.datepickerMonthYearText}>
-                                {months[selectedMonth]} {selectedYear}
-                              </Text>
-                              <ChevronDownIcon size={13} color="#a1a1aa" />
-                            </TouchableOpacity>
-
-                            <View style={styles.datepickerNavGroup}>
-                              <TouchableOpacity
-                                style={styles.datepickerNavBtn}
-                                onPress={handlePrevCalendar}
-                                activeOpacity={0.7}
-                              >
-                                <ChevronLeftIcon size={16} color="#d4d4d8" />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={styles.datepickerNavBtn}
-                                onPress={handleNextCalendar}
-                                activeOpacity={0.7}
-                              >
-                                <ChevronRightIcon size={16} color="#d4d4d8" />
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-
-                          {/* View 1: Days Grid */}
-                          {calendarView === 'days' && (
-                            <>
-                              <View style={styles.datepickerWeekdays}>
-                                {weekdays.map((w, i) => (
-                                  <Text key={i} style={styles.weekdayText}>{w}</Text>
-                                ))}
-                              </View>
-
-                              <View style={styles.datepickerDays}>
-                                {/* Previous month trailing days */}
-                                {prevMonthDays.map((d) => (
-                                  <TouchableOpacity
-                                    key={`prev-${d}`}
-                                    style={styles.datepickerDay}
-                                    onPress={() => {
-                                      if (selectedMonth === 0) {
-                                        setSelectedMonth(11);
-                                        setSelectedYear((prev) => prev - 1);
-                                      } else {
-                                        setSelectedMonth((prev) => prev - 1);
-                                      }
-                                      handleSelectDay(d);
-                                    }}
-                                    activeOpacity={0.6}
-                                  >
-                                    <Text style={styles.dayTextMuted}>{d}</Text>
-                                  </TouchableOpacity>
-                                ))}
-
-                                {/* Current month days */}
-                                {currentMonthDays.map((d) => {
-                                  const isSelected = selectedDay === d;
-                                  return (
-                                    <TouchableOpacity
-                                      key={`curr-${d}`}
-                                      style={styles.datepickerDay}
-                                      onPress={() => handleSelectDay(d)}
-                                      activeOpacity={0.7}
-                                    >
-                                      <View style={[styles.datepickerDayCircle, isSelected && styles.datepickerDaySelected]}>
-                                        <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>
-                                          {d}
-                                        </Text>
-                                      </View>
-                                    </TouchableOpacity>
-                                  );
-                                })}
-
-                                {/* Next month leading days */}
-                                {nextMonthDays.map((d) => (
-                                  <TouchableOpacity
-                                    key={`next-${d}`}
-                                    style={styles.datepickerDay}
-                                    onPress={() => {
-                                      if (selectedMonth === 11) {
-                                        setSelectedMonth(0);
-                                        setSelectedYear((prev) => prev + 1);
-                                      } else {
-                                        setSelectedMonth((prev) => prev + 1);
-                                      }
-                                      handleSelectDay(d);
-                                    }}
-                                    activeOpacity={0.6}
-                                  >
-                                    <Text style={styles.dayTextMuted}>{d}</Text>
-                                  </TouchableOpacity>
-                                ))}
-                              </View>
-                            </>
-                          )}
-
-                          {/* View 2: Single Column Vertical Months List */}
-                          {calendarView === 'months' && (
-                            <ScrollView
-                              keyboardShouldPersistTaps="handled" style={styles.verticalListScroll}
-                              contentContainerStyle={styles.verticalListContent}
-                              showsVerticalScrollIndicator={false}
-                            >
-                              {months.map((m, idx) => {
-                                const isSelected = selectedMonth === idx;
-                                return (
-                                  <TouchableOpacity
-                                    key={m}
-                                    style={[styles.verticalListItem, isSelected && styles.verticalListItemSelected]}
-                                    onPress={() => {
-                                      setSelectedMonth(idx);
-                                      // Step directly to vertical year selector
-                                      setCalendarView('years');
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Text style={[styles.verticalListText, isSelected && styles.verticalListTextSelected]}>
-                                      {m}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </ScrollView>
-                          )}
-
-                          {/* View 3: Single Column Vertical Years List */}
-                          {calendarView === 'years' && (
-                            <ScrollView
-                              keyboardShouldPersistTaps="handled" style={styles.verticalListScroll}
-                              contentContainerStyle={styles.verticalListContent}
-                              showsVerticalScrollIndicator={false}
-                            >
-                              {yearList.map((y) => {
-                                const isSelected = selectedYear === y;
-                                return (
-                                  <TouchableOpacity
-                                    key={y}
-                                    style={[styles.verticalListItem, isSelected && styles.verticalListItemSelected]}
-                                    onPress={() => {
-                                      setSelectedYear(y);
-                                      setCalendarView('days');
-                                    }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Text style={[styles.verticalListText, isSelected && styles.verticalListTextSelected]}>
-                                      {y}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </ScrollView>
-                          )}
-
-                          {/* Footer Actions: Clear & Today */}
-                          <View style={styles.datepickerFooter}>
-                            <TouchableOpacity
-                              style={styles.datepickerFooterBtn}
-                              onPress={() => {
-                                setBirthdate('');
-                                setSelectedDay(null);
-                                setShowDatePicker(false);
-                                setCalendarView('days');
-                              }}
-                            >
-                              <Text style={styles.footerBtnText}>Clear</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              style={styles.datepickerFooterBtn}
-                              onPress={() => {
-                                const now = new Date();
-                                setSelectedDay(now.getDate());
-                                setSelectedMonth(now.getMonth());
-                                setSelectedYear(now.getFullYear());
-                                handleSelectDay(now.getDate());
-                              }}
-                            >
-                              <Text style={styles.footerBtnText}>Today</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      )}
-
-                      {error2 ? <Text style={styles.onboardErrorMsg}>{error2}</Text> : null}
-                    </View>
-                  </View>
-                )}
-
-                {/* Step 3: Email */}
-                {currentStep === 3 && (
-                  <View style={styles.onboardStep}>
-                    <View style={styles.onboardFormGroup}>
-                      <View style={styles.onboardField}>
-                        <TextInput
-                          style={[
-                            styles.onboardInput,
-                            isInputFocused && styles.onboardInputFocused,
-                            Platform.OS === 'web'
-                              ? ({
-                                  outline: 'none',
-                                  border: isInputFocused ? '2px solid #ffffff' : '1.5px solid #ffffff',
-                                } as any)
-                              : {},
-                          ]}
-                          value={email}
-                          onChangeText={setEmail}
-                          onFocus={() => setIsInputFocused(true)}
-                          onBlur={() => setIsInputFocused(false)}
-                          placeholder="name@example.com"
-                          placeholderTextColor="#71717a"
-                          keyboardType="email-address"
-                          autoCapitalize="none"
-                          autoFocus
-                        />
-                      </View>
-                      {error3 ? <Text style={styles.onboardErrorMsg}>{error3}</Text> : null}
-                    </View>
-                  </View>
-                )}
 
               </View>
 
@@ -653,7 +257,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   activeOpacity={0.85}
                 >
                   <Text style={styles.btnOnboardPrimaryText}>
-                    {isFinishing ? 'Finishing…' : currentStep === 3 ? 'Finish' : 'Continue'}
+                    {isFinishing ? 'Finishing…' : 'Finish'}
                   </Text>
                   {isFinishing ? <ActivityIndicator size="small" color="#000000" /> : <ChevronRightIcon size={16} color="#000000" />}
                 </TouchableOpacity>
@@ -738,10 +342,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                   <UserIcon size={15} color="#93c5fd" />
                 </View>
                 <View style={[styles.avatarCircle, { backgroundColor: '#581c87', zIndex: 3, marginLeft: -8 }]}>
-                  <CalendarIcon size={15} color="#d8b4fe" />
+                  <UserIcon size={15} color="#d8b4fe" />
                 </View>
                 <View style={[styles.avatarCircle, { backgroundColor: '#78350f', zIndex: 2, marginLeft: -8 }]}>
-                  <MailIcon size={15} color="#fde68a" />
+                  <ShieldCheckIcon size={15} color="#fde68a" />
                 </View>
                 <View style={[styles.avatarCircle, { backgroundColor: '#064e3b', zIndex: 1, marginLeft: -8 }]}>
                   <ShieldCheckIcon size={16} color="#6ee7b7" />
@@ -764,25 +368,9 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                 </Text>
               </View>
 
-              <View style={styles.whyReasonItem}>
-                <View style={styles.whyReasonHeader}>
-                  <CalendarIcon size={14} color="#d8b4fe" />
-                  <Text style={styles.whyReasonTitle}>Date of Birth</Text>
-                </View>
-                <Text style={styles.whyReasonDesc}>
-                  Enables your on-device SLM to calibrate appropriate conversational tone and milestones locally.
-                </Text>
-              </View>
 
-              <View style={styles.whyReasonItem}>
-                <View style={styles.whyReasonHeader}>
-                  <MailIcon size={14} color="#fde68a" />
-                  <Text style={styles.whyReasonTitle}>Email Address</Text>
-                </View>
-                <Text style={styles.whyReasonDesc}>
-                  Acts as your local cryptographic workspace identifier for optional Wi-Fi sync. No server transmission.
-                </Text>
-              </View>
+
+
 
               <View style={styles.whyCallout}>
                 <ShieldCheckIcon size={16} color="#34d399" />
