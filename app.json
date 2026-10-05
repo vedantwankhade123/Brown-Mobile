@@ -2,7 +2,7 @@
   "expo": {
     "name": "Brown AI",
     "slug": "brown-mobile",
-    "version": "1.0.6",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./Assets/Brown-icon.png",
     "userInterfaceStyle": "dark",
@@ -40,7 +40,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC"
       ],
-      "versionCode": 15,
+      "versionCode": 16,
       "blockedPermissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
