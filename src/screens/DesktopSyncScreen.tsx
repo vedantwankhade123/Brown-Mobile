@@ -1,3 +1,4 @@
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -6,7 +7,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  
   TextInput,
   SafeAreaView,
   ActivityIndicator,
@@ -20,12 +21,12 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DesktopSyncService, isPrivateLanAddress, PairedDesktopHistoryItem } from '../services/sync/DesktopSync';
 import { DesktopInstance, ProfileConflict, SyncStatus } from '../types/sync';
+import { connectionPresentation } from '../services/sync/connectionPresentation';
 import { colors } from '../theme/colors';
 import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { MoreVerticalIcon, LaptopIcon, RefreshIcon, WifiIcon, WindowsIcon, CheckIcon, QrCodeIcon, ChevronRightIcon } from '../components/Icons';
 import { QRScannerModal } from '../components/QRScannerModal';
 import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
-import { revealValues } from '../utils/motion';
 
 const Easing = (Animated as any).Easing || {
   out: (f: any) => f,
@@ -36,11 +37,12 @@ const Easing = (Animated as any).Easing || {
 };
 
 interface DesktopSyncScreenProps {
+  isActive?: boolean;
   onBack: () => void;
   initialScan?: boolean;
 }
 
-export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, initialScan = false }) => {
+export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, initialScan = false, isActive = true }) => {
   const insets = useSafeAreaInsets();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
     isConnected: false,
@@ -63,12 +65,32 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   const [profileConflict, setProfileConflict] = useState<ProfileConflict | null>(null);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(initialScan);
   const [showCodeInput, setShowCodeInput] = useState(false);
+  const [connectingById, setConnectingById] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [transferBusy, setTransferBusy] = useState(false);
   const transferLock = useRef(false);
+  const shownTransferRequest = useRef<string | null>(null);
   const [savingAutoConnect, setSavingAutoConnect] = useState(false);
+  const scanLock = useRef(false);
+
+  useEffect(() => {
+    if (isActive) return;
+    setMenuOpen(false);
+    setShowCodeInput(false);
+    setIsQrScannerOpen(false);
+  }, [isActive]);
 
   const syncService = DesktopSyncService.getInstance();
+  useEffect(() => {
+    const request = syncStatus.transferRequest;
+    if (!isActive || !request || shownTransferRequest.current === request.id) return;
+    shownTransferRequest.current = request.id;
+    const description = request.action === 'profile' ? 'Share your desktop profile with this phone? You can keep profiles separate instead.' : request.action === 'merge' ? 'Merge both chat histories? Existing chats are kept and duplicate messages are skipped.' : request.action === 'import' ? 'Send phone chats to the desktop?' : 'Import desktop chats onto this phone?';
+    Alert.alert('Desktop request', description, [
+      { text: 'Keep separate', style: 'cancel', onPress: () => syncService.completeTransferRequest(false).catch(() => {}) },
+      { text: 'Approve', onPress: () => syncService.completeTransferRequest(true).then(() => { setProfileConflict(syncService.getPendingProfileConflict()); Alert.alert('Complete', 'The desktop request was completed.'); }).catch((error: any) => { shownTransferRequest.current = null; Alert.alert('Transfer failed', error?.message || 'Please try again.'); }) }
+    ]);
+  }, [syncStatus.transferRequest?.id, isActive]);
   const pinInputRef = useRef<any>(null);
   const scanSpin = useRef(new Animated.Value(0)).current;
 
@@ -76,23 +98,8 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   const liveDevices = devices.filter((d) => !d.isFallback);
   const fallbackDevice = devices.find((d) => d.isFallback);
 
-  const pageFade = useRef(new Animated.Value(0)).current;
-  const pageSlide = useRef(new Animated.Value(14)).current;
   const wifiPulse = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    // revealValues pins the end state even if the native animation is dropped,
-    // so this page can never stay at opacity 0.
-    revealValues(
-      [
-        { value: pageFade, from: 0, to: 1 },
-        { value: pageSlide, from: 14, to: 0 },
-      ],
-      240,
-      undefined,
-      false
-    );
-  }, [pageFade, pageSlide]);
 
   const loadHistory = async () => {
     try {
@@ -116,7 +123,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   }, []);
 
   useEffect(() => {
-    if (isScanning) {
+    if (isActive && isScanning) {
       scanSpin.setValue(0);
       const spin = Animated.loop(
         Animated.timing(scanSpin, {
@@ -124,33 +131,39 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
           duration: 900,
           easing: Easing.linear,
           useNativeDriver: true,
+          isInteraction: false,
         })
       );
       spin.start();
       return () => spin.stop();
     }
     Animated.timing(scanSpin, { toValue: 0, duration: 180, useNativeDriver: true }).start();
-  }, [isScanning]);
+  }, [isScanning, isActive]);
 
   useEffect(() => {
-    if (!syncStatus.isConnected) {
+    if (isActive && !syncStatus.isConnected) {
       const pulseLoop = Animated.loop(
         Animated.sequence([
-          Animated.timing(wifiPulse, { toValue: 1.14, duration: 900, useNativeDriver: true }),
-          Animated.timing(wifiPulse, { toValue: 1.0, duration: 900, useNativeDriver: true }),
+          Animated.timing(wifiPulse, { toValue: 1.14, duration: 900, useNativeDriver: true, isInteraction: false }),
+          Animated.timing(wifiPulse, { toValue: 1.0, duration: 900, useNativeDriver: true, isInteraction: false }),
         ])
       );
       pulseLoop.start();
       return () => pulseLoop.stop();
     }
-  }, [syncStatus.isConnected]);
+  }, [syncStatus.isConnected, isActive]);
 
   const handleScan = async () => {
+    if (scanLock.current) return;
+    scanLock.current = true;
     setIsScanning(true);
     try {
       const list = await syncService.scanLocalNetwork();
       setDevices(list);
+    } catch (error) {
+      console.warn('Desktop discovery failed', error);
     } finally {
+      scanLock.current = false;
       setIsScanning(false);
     }
   };
@@ -172,8 +185,11 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
   };
 
   const handleConnectById = async () => {
+    if (connectingById) return;
     const id = syncIdInput.trim().toUpperCase();
     if (!id) return;
+    setConnectingById(true);
+    try {
     const match = await syncService.connectBySyncId(id);
     if (!match) {
       Alert.alert(
@@ -182,7 +198,13 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
       );
       return;
     }
+    setShowCodeInput(false);
     await beginPairing(match);
+    } catch (error: any) {
+      Alert.alert('Could not connect', error?.message || 'Please try again.');
+    } finally {
+      setConnectingById(false);
+    }
   };
 
   const handlePair = async () => {
@@ -256,6 +278,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
             isPaired: false,
             lastSeen: Date.now(),
             syncId: devId,
+            companion: parsed.companion,
           };
           await pairFromQr(device, code);
           return;
@@ -345,31 +368,35 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
     if (transferLock.current || syncStatus.syncInProgress) return;
     try {
       await syncService.syncNow();
-      Alert.alert('Sync Complete', 'Conversations and notes updated with desktop.');
+      Alert.alert('Desktop refreshed', 'Desktop model access and shared settings are up to date. Use Chat sharing to transfer conversations.');
     } catch (err: any) {
       Alert.alert('Sync Error', err?.message || 'Failed to sync');
     }
   };
 
   const handleDisconnect = () => {
-    Alert.alert('Disconnect Desktop', 'Unpair from the desktop Brown node?', [
+    Alert.alert('Unpair desktop', 'Remove this saved desktop pairing?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Disconnect',
+        text: 'Unpair',
         style: 'destructive',
         onPress: () => syncService.disconnect(),
       },
     ]);
   };
 
-  const transferChats = async (direction: 'fetch' | 'export') => {
+  const transferChats = async (direction: 'fetch' | 'export' | 'merge') => {
     if (transferLock.current || syncStatus.syncInProgress) return;
     if (!syncStatus.isConnected) { Alert.alert('Pair your desktop first', 'Connect to Brown Desktop before transferring chats.'); return; }
     transferLock.current = true;
     setTransferBusy(true);
     setMenuOpen(false);
     try {
-      if (direction === 'fetch') {
+      if (direction === 'merge') {
+        await syncService.fetchDesktopChats();
+        await syncService.exportPhoneChats();
+        Alert.alert('Chats merged', 'Both devices now have the combined conversations. Existing messages are not duplicated.');
+      } else if (direction === 'fetch') {
         const result = await syncService.fetchDesktopChats();
         Alert.alert('Chats imported', `${result.sessions} conversations and ${result.messages} messages imported from your desktop.`);
       } else {
@@ -387,17 +414,25 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
     catch { Alert.alert('Could not save', 'Please try changing auto-connect again.'); }
     finally { setSavingAutoConnect(false); }
   };
+  const updateSharing = async (key: 'modelAccess' | 'voiceAccess' | 'profileMode' | 'livePreview', value: boolean) => {
+    try {
+      await syncService.setDevicePreferences({
+        modelAccess: syncStatus.preferences?.modelAccess !== false,
+        voiceAccess: syncStatus.preferences?.voiceAccess !== false,
+        profileMode: syncStatus.preferences?.profileMode || 'separate',
+        [key]: key === 'profileMode' ? (value ? 'shared' : 'separate') : value,
+      });
+      setProfileConflict(syncService.getPendingProfileConflict());
+    } catch (error: any) { Alert.alert('Could not update sharing', error?.message || 'Please reconnect and try again.'); }
+  };
 
-  const statusLabel = syncStatus.needsReauth
-    ? 'Disconnected'
-    : syncStatus.isConnected
-      ? 'Paired with Desktop'
-      : 'Disconnected';
+  const presentation = connectionPresentation(syncStatus);
+  const statusLabel = presentation.label;
   const statusDetail = syncStatus.needsReauth
     ? syncStatus.reauthReason || 'Network changed — enter the code on your PC.'
     : syncStatus.isConnected
-      ? syncStatus.activeDesktop?.name || 'Brown Desktop'
-      : 'No desktop paired. Keep Brown open on PC and tap refresh to scan.';
+      ? `${syncStatus.connectionType === 'relay' ? 'Encrypted relay' : syncStatus.connectionType === 'direct' ? 'Direct connection' : 'Local connection'} · Pairing saved`
+      : syncStatus.activeDesktop ? (syncStatus.reauthReason || 'Waiting for your desktop to reconnect…') : 'No desktop paired. Keep Brown open on PC and tap refresh to scan.';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -406,31 +441,24 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
         behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
       >
-        <Animated.View style={{ flex: 1, opacity: pageFade, transform: [{ translateY: pageSlide }] }}>
+        <View style={{ flex: 1 }}>
         <ScreenHeader title="Desktop Sync" onBack={onBack} scrolled={syncScrolled} right={
-          <TouchableOpacity style={styles.menuButton} onPress={() => setMenuOpen(true)} accessibilityLabel="Desktop sync options" accessibilityRole="button" accessibilityState={{ expanded: menuOpen }}>
+          <TouchableOpacity brownSurface="light" style={styles.menuButton} onPress={() => setMenuOpen(true)} accessibilityLabel="Desktop sync options" accessibilityRole="button" accessibilityState={{ expanded: menuOpen }}>
             <MoreVerticalIcon size={22} color="#ffffff" />
           </TouchableOpacity>
         } />
-        <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        {isActive && menuOpen && (<Modal visible={isActive && menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
           <View style={styles.menuOverlay}>
             <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)} accessibilityLabel="Close sync options" />
             <View style={[styles.menuDropdown, { top: insets.top + 60 }]} accessibilityViewIsModal>
               <View style={styles.menuToggleRow}>
-                <View style={{ flex: 1 }}><Text style={styles.menuLabel}>Auto-connect to paired PC</Text><Text style={styles.menuHint}>Reconnect securely on the same Wi-Fi.</Text></View>
+                <View style={{ flex: 1 }}><Text style={styles.menuLabel}>Auto-connect to paired PC</Text><Text style={styles.menuHint}>Reconnect when networks change; prefer local access.</Text></View>
                 <Switch value={syncStatus.autoConnectEnabled !== false} onValueChange={updateAutoConnect} disabled={savingAutoConnect} trackColor={{ false: '#343434', true: '#2563eb' }} thumbColor="#ffffff" />
               </View>
-              <Text style={styles.menuApproval}>Chat transfers need approval on your PC.</Text>
-              <TouchableOpacity style={styles.menuOption} onPress={() => transferChats('fetch')} disabled={!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress} accessibilityRole="button" accessibilityState={{ disabled: !syncStatus.isConnected || transferBusy || syncStatus.syncInProgress }}>
-                <View style={styles.menuOptionIcon}><ChevronRightIcon size={16} color="#111111" /></View><Text style={[styles.menuOptionLabel, (!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress) && styles.menuOptionLabelDisabled]}>Fetch desktop chats</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.menuOption} onPress={() => transferChats('export')} disabled={!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress} accessibilityRole="button" accessibilityState={{ disabled: !syncStatus.isConnected || transferBusy || syncStatus.syncInProgress }}>
-                <View style={styles.menuOptionIcon}><LaptopIcon size={16} color="#111111" /></View><Text style={[styles.menuOptionLabel, (!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress) && styles.menuOptionLabelDisabled]}>Export phone chats to PC</Text>
-              </TouchableOpacity>
-              {!syncStatus.isConnected && <Text style={styles.menuHint}>Pair a desktop to enable transfers.</Text>}
+
             </View>
           </View>
-        </Modal>
+        </Modal>)}
         {transferBusy && <View style={styles.transferNotice}><ActivityIndicator size="small" color="#ffffff" /><Text style={styles.menuLabel}>Waiting for desktop approval…</Text></View>}
         <ScrollView
           contentContainerStyle={styles.scrollArea}
@@ -440,10 +468,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
           scrollEventThrottle={16}
         >
           <View style={styles.connectionIntro}>
-            <Text style={styles.connectionHeading}>Connect Your Desktop</Text>
-            <Text style={[styles.connectionDescription, { textAlign: 'center' }]}>Use desktop models and sync chats on the same Wi-Fi. Brown on your PC approves pairing and chat sharing.</Text>
+            <Text style={styles.connectionHeading}>{presentation.heading}</Text>
           </View>
-          {!syncStatus.isConnected && !awaitingCode && (
+          {!syncStatus.isConnected && !syncStatus.activeDesktop && !awaitingCode && (
             <View style={styles.connectionShowcase}>
               <View style={styles.connectionArtwork}>
                 <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" accessible={false}>
@@ -458,11 +485,19 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 <Image source={require('../../Assets/Desktop App.png')} style={styles.connectionPreview} resizeMode="contain" />
               </View>
               <View style={styles.connectionCopy}>
-                <Text style={styles.connectionKicker}>LOCAL COMPANION</Text>
                 <Text style={styles.connectionCardTitle}>Brown for Windows</Text>
-                <Text style={styles.connectionDescription}>1. Open Connection on your PC.
-2. Enable mobile access and generate a pairing QR.
-3. Scan it below, or use your PC’s Sync ID.</Text>
+                <View style={styles.connectionSteps}>
+                  {[
+                    'Open Connection on your PC.',
+                    'Enable mobile access and generate a pairing QR.',
+                    'Scan it below, or use your PC’s Sync ID.',
+                  ].map((step, index) => (
+                    <View key={step} style={styles.connectionStep}>
+                      <Text style={styles.connectionStepNumber}>{index + 1}.</Text>
+                      <Text style={[styles.connectionDescription, { flex: 1 }]}>{step}</Text>
+                    </View>
+                  ))}
+                </View>
               </View>
             </View>
           )}
@@ -474,25 +509,26 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 <WifiIcon size={22} color={syncStatus.needsReauth ? '#F59E0B' : '#71717a'} />
               )}
             </Animated.View>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.statusTitle}>{statusLabel}</Text>
               <Text style={styles.statusDetail}>{statusDetail}</Text>
             </View>
             <TouchableOpacity
+              brownSurface="light"
               style={styles.statusRefreshBtn}
               onPress={async () => {
-                await syncService.refreshStatus();
-                handleScan();
+                const status = await syncService.refreshStatus();
+                if (!status.isConnected) handleScan();
               }}
               disabled={isScanning}
               activeOpacity={0.7}
               accessibilityLabel="Refresh sync status"
             >
-              <RefreshIcon size={16} color="#000000" />
+              <RefreshIcon size={16} color="#ffffff" />
             </TouchableOpacity>
           </View>
 
-          {syncStatus.isConnected && (() => {
+          {syncStatus.activeDesktop && (() => {
             const devName = syncStatus.activeDesktop?.name || 'Brown Desktop';
             const syncId = syncStatus.activeDesktop?.syncId || syncStatus.activeDesktop?.id || '';
 
@@ -515,7 +551,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 
                 <View style={styles.statRow}>
                   <View style={styles.statCell}>
-                    <Text style={styles.statLabel}>Last sync</Text>
+                    <Text style={styles.statLabel}>Last updated</Text>
                     <Text style={styles.statValue}>
                       {syncStatus.lastSyncTimestamp
                         ? new Date(syncStatus.lastSyncTimestamp).toLocaleTimeString([], {
@@ -527,21 +563,24 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statCell}>
-                    <Text style={styles.statLabel}>Threads</Text>
+                    <Text style={styles.statLabel}>Transferred items</Text>
                     <Text style={styles.statValue}>{syncStatus.syncedThreadsCount}</Text>
                   </View>
                 </View>
 
+                {syncStatus.isConnected && <TouchableOpacity style={[styles.ghostBtn, { flex: 0, marginBottom: 18 }]} onPress={() => Alert.alert('Disconnect desktop?', 'Pairing stays saved. Reopen either app to reconnect.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Disconnect', onPress: () => syncService.disconnectSession().catch((error: any) => Alert.alert('Could not disconnect', error.message)) }])} activeOpacity={0.8}><Text style={styles.ghostBtnDanger}>Disconnect</Text></TouchableOpacity>}
+                {!syncStatus.isConnected && syncStatus.reauthReason?.includes('Disconnected for this session') && <Text style={styles.sectionHint}>{syncStatus.reauthReason}</Text>}
                 <View style={styles.connectedActions}>
                   <TouchableOpacity
-                    style={styles.primaryBtn}
+                    brownSurface="light"
+                    style={[styles.primaryBtn, styles.refreshAction, (!syncStatus.isConnected || syncStatus.syncInProgress || transferBusy) && styles.primaryBtnDisabled]}
                     onPress={handleSyncNow}
-                    disabled={syncStatus.syncInProgress || transferBusy}
+                    disabled={!syncStatus.isConnected || syncStatus.syncInProgress || transferBusy}
                     activeOpacity={0.8}
                   >
-                    <RefreshIcon size={15} color="#000000" />
-                    <Text style={styles.primaryBtnText}>
-                      {syncStatus.syncInProgress ? 'Syncing…' : 'Sync now'}
+                    <View style={styles.buttonIcon}><RefreshIcon size={16} color="#ffffff" /></View>
+                    <Text style={[styles.primaryBtnText, { color: '#ffffff' }]}>
+                      {syncStatus.syncInProgress ? 'Refreshing…' : syncStatus.isConnected ? 'Refresh' : 'Offline'}
                     </Text>
                   </TouchableOpacity>
                     <TouchableOpacity style={styles.ghostBtn} onPress={handleDisconnect} activeOpacity={0.8}>
@@ -551,41 +590,37 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardKicker}>SHARED CAPABILITIES</Text>
-
-                <View style={styles.sharedCapabilityRow}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.sharedCapabilityTitle}>Desktop Ollama LLMs</Text>
-                    <Text style={styles.sharedCapabilityDesc}>Heavyweight models running on PC GPU streamed to mobile</Text>
-                  </View>
-                  <View style={styles.sharedBadge}>
-                    <Text style={styles.sharedBadgeText}>Available</Text>
-                  </View>
+                <Text style={styles.syncSectionTitle}>Desktop access</Text>
+                <Text style={styles.sectionHint}>Models stay on your PC. Choose what this phone can use.</Text>
+                <View style={styles.accessRow}>
+                  <View style={styles.accessCopy}><Text style={styles.accessTitle}>Live chat preview</Text><Text style={styles.accessHint}>Show this phone’s open chat on your paired desktop. Stops when you leave chat or background the app.</Text></View>
+                  <Switch disabled={!syncStatus.isConnected} value={syncStatus.preferences?.livePreview === true} onValueChange={(value: boolean) => updateSharing('livePreview', value)} trackColor={{ false: '#343434', true: '#2563eb' }} thumbColor="#ffffff" accessibilityLabel="Share live chat preview with desktop" />
                 </View>
-
-                <View style={styles.sharedDivider} />
-
-                <View style={styles.sharedCapabilityRow}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.sharedCapabilityTitle}>Cloud Model Settings</Text>
-                    <Text style={styles.sharedCapabilityDesc}>Available provider settings can sync from your desktop</Text>
+                {(['modelAccess', 'voiceAccess', 'profileMode'] as const).map((key) => (
+                  <View key={key} style={styles.accessRow}>
+                    <View style={styles.accessCopy}>
+                      <Text style={styles.accessTitle}>{key === 'modelAccess' ? 'Desktop models' : key === 'voiceAccess' ? 'Voice recognition' : 'Shared profile'}</Text>
+                      <Text style={styles.accessHint}>{key === 'modelAccess' ? 'Run responses on your desktop.' : key === 'voiceAccess' ? 'Transcribe recordings on your PC.' : syncStatus.preferences?.profileMode === 'shared' ? 'Profile sharing is enabled.' : 'Your phone profile stays separate.'}</Text>
+                    </View>
+                    <Switch disabled={!syncStatus.isConnected} value={key === 'profileMode' ? syncStatus.preferences?.profileMode === 'shared' : syncStatus.preferences?.[key] !== false} onValueChange={(value: boolean) => updateSharing(key, value)} trackColor={{ false: '#343434', true: '#2563eb' }} thumbColor="#ffffff" accessibilityLabel={key === 'modelAccess' ? 'Desktop model access' : key === 'voiceAccess' ? 'Desktop voice access' : 'Share profile'} />
                   </View>
-                  <View style={styles.sharedBadge}>
-                    <Text style={styles.sharedBadgeText}>Available</Text>
-                  </View>
-                </View>
-
-                <View style={styles.sharedDivider} />
-
-                <View style={styles.sharedCapabilityRow}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.sharedCapabilityTitle}>Chat History & Notes</Text>
-                    <Text style={styles.sharedCapabilityDesc}>Cross-device conversation continuity with desktop approval</Text>
-                  </View>
-                  <View style={styles.sharedBadge}>
-                    <Text style={styles.sharedBadgeText}>Available</Text>
-                  </View>
-                </View>
+                ))}
+              </View>
+              <View style={styles.card}>
+                <Text style={styles.syncSectionTitle}>Chat sharing</Text>
+                <Text style={styles.sectionHint}>Keep histories separate, or copy and merge chats with approval.</Text>
+                {([
+                  { action: 'fetch', title: 'Import desktop chats', detail: 'Copy PC conversations to this phone.' },
+                  { action: 'export', title: 'Send phone chats', detail: 'Add phone conversations to your PC.' },
+                  { action: 'merge', title: 'Merge both histories', detail: 'Combine chats without duplicate messages.' },
+                ] as const).map((item, index) => (
+                  <TouchableOpacity key={item.action} style={[styles.chatActionRow, index > 0 && styles.chatActionSeparator, (!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress) && styles.actionDisabled]} disabled={!syncStatus.isConnected || transferBusy || syncStatus.syncInProgress} onPress={() => transferChats(item.action)} accessibilityRole="button" accessibilityLabel={item.title}>
+                    <View style={styles.chatActionIcon}><LaptopIcon size={18} color="#93c5fd" /></View>
+                    <View style={styles.accessCopy}><Text style={styles.accessTitle}>{item.title}</Text><Text style={styles.accessHint}>{item.detail}</Text></View>
+                    <ChevronRightIcon size={18} color="#a8adb5" />
+                  </TouchableOpacity>
+                ))}
+                <Text style={styles.sharingFootnote}>{syncStatus.isConnected ? 'Transfers keep existing chats. Imported conversations get a device label.' : 'Reconnect your desktop to share chats.'}</Text>
               </View>
               </>
             );
@@ -593,11 +628,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 
           {!syncStatus.isConnected && awaitingCode && selectedDevice && (
             <View style={styles.card}>
-              <Text style={styles.cardKicker}>PAIRING CODE</Text>
               <Text style={styles.cardTitle}>Enter the code on your PC</Text>
               <Text style={styles.cardBody}>
-                A popup on Windows shows a 6-character code for{' '}
-                <Text style={styles.cardBodyStrong}>{selectedDevice.name}</Text>. It expires in 2 minutes.
+                Enter the 6-character code from your desktop. It expires in 2 minutes.
               </Text>
 
               <TouchableOpacity style={styles.otpRow} onPress={() => pinInputRef.current?.focus()} activeOpacity={0.9}>
@@ -619,23 +652,23 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 {...(Platform.OS === 'web' ? ({ outline: 'none' } as any) : {})}
               />
 
-              <TouchableOpacity
-                style={[styles.primaryBtn, pinCode.length < 6 && styles.primaryBtnDisabled]}
+              <TouchableOpacity brownSurface="light"
+                style={[styles.primaryBtn, styles.pairingAction, pinCode.length < 6 && styles.primaryBtnDisabled]}
                 onPress={handlePair}
                 disabled={pinCode.length < 6}
                 activeOpacity={0.8}
               >
                 <Text style={styles.primaryBtnText}>Verify & pair</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.textLink} onPress={cancelPairing} activeOpacity={0.7}>
-                <Text style={styles.textLinkLabel}>Cancel pairing</Text>
+              <TouchableOpacity style={[styles.ghostBtn, styles.pairingAction, { marginTop: 8 }]} onPress={cancelPairing} activeOpacity={0.7}>
+                <Text style={styles.ghostBtnDanger}>Cancel pairing</Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={styles.scanQrSecondaryBtn}
                 onPress={() => setIsQrScannerOpen(true)}
                 activeOpacity={0.8}
               >
-                <QrCodeIcon size={16} color="#60a5fa" />
+                <QrCodeIcon size={16} color="#ffffff" />
                 <Text style={styles.scanQrSecondaryText}>Scan QR code on desktop</Text>
               </TouchableOpacity>
             </View>
@@ -644,7 +677,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
           {!syncStatus.isConnected && !awaitingCode && (
             <>
               {/* Primary Action: Instant QR Scanner */}
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={styles.scanQrHeroBtn}
                 onPress={() => setIsQrScannerOpen(true)}
                 activeOpacity={0.85}
@@ -667,66 +700,17 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 <View style={styles.orLine} />
               </View>
 
-              {/* Connect with Code Option (Clicking opens the UI shown in the image) */}
-              {showCodeInput ? (
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <Text style={styles.cardTitle}>Connect to PC</Text>
-                    <TouchableOpacity
-                      onPress={() => setShowCodeInput(false)}
-                      hitSlop={8}
-                    >
-                      <Text style={styles.hideCodeText}>Cancel</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.cardBody}>
-                    Type the Sync ID from Brown on Windows. It looks like BROWN-WIN-7842.
-                  </Text>
-                  <Text style={styles.fieldLabel}>Sync ID</Text>
-                  <TextInput
-                    style={[styles.idInput, idFocused && styles.idInputFocused]}
-                    value={syncIdInput}
-                    onChangeText={(v: string) => setSyncIdInput(v.toUpperCase())}
-                    onFocus={() => setIdFocused(true)}
-                    onBlur={() => setIdFocused(false)}
-                    placeholder="BROWN-WIN-····"
-                    placeholderTextColor="#52525b"
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    maxLength={22}
-                    autoFocus
-                    {...(Platform.OS === 'web' ? ({ outline: 'none' } as any) : {})}
-                  />
-                  <TouchableOpacity
-                    style={[styles.primaryBtn, !canConnect && styles.primaryBtnDisabled]}
-                    onPress={handleConnectById}
-                    disabled={!canConnect}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.primaryBtnText}>Connect to PC</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.connectWithCodeBtn}
-                  onPress={() => setShowCodeInput(true)}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.codeIconCircle}>
-                    <Text style={styles.codeIconText}>#</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.connectWithCodeTitle}>Connect with Code</Text>
-                    <Text style={styles.connectWithCodeSub}>
-                      Type the Sync ID from Brown on Windows
-                    </Text>
-                  </View>
-                  <ChevronRightIcon size={18} color="#9ca3af" />
-                </TouchableOpacity>
-              )}
-
+              <TouchableOpacity brownSurface="light"
+                style={[styles.primaryBtn, styles.pairingAction]}
+                onPress={() => setShowCodeInput(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Connect to PC"
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryBtnText}>Connect to PC</Text>
+              </TouchableOpacity>
               {syncStatus.needsReauth && syncStatus.activeDesktop && (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.primaryBtn}
                   onPress={() => beginPairing(syncStatus.activeDesktop!)}
                   activeOpacity={0.8}
@@ -737,7 +721,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 
               <View style={styles.sectionHead}>
                 <Text style={styles.sectionTitle}>Nearby on Wi-Fi</Text>
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.scanAgainBtn}
                   onPress={handleScan}
                   disabled={isScanning}
@@ -767,7 +751,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 </View>
               ) : liveDevices.length > 0 ? (
                 liveDevices.map((device) => (
-                  <TouchableOpacity
+                  <TouchableOpacity brownSurface="light"
                     key={device.id + device.ipAddress}
                     style={[
                       styles.deviceCard,
@@ -795,7 +779,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                   <Text style={styles.emptyBody}>
                     Open Connection on Brown Desktop, enable mobile access, then scan its pairing QR here.
                   </Text>
-                  <TouchableOpacity
+                  <TouchableOpacity brownSurface="light"
                     style={styles.emptyQrBtn}
                     onPress={() => setIsQrScannerOpen(true)}
                     activeOpacity={0.85}
@@ -804,7 +788,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                     <Text style={styles.emptyQrBtnText}>Scan QR Code</Text>
                   </TouchableOpacity>
                   {fallbackDevice && (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.emptyFallbackBtn}
                       onPress={() => beginPairing(fallbackDevice)}
                       activeOpacity={0.8}
@@ -838,7 +822,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                   </TouchableOpacity>
                 </View>
 
-                {previousList.map((item) => (
+                {previousList.map((item, index) => (
                   <View key={item.id + item.ipAddress} style={styles.historyRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1, marginRight: 8 }}>
                       <WindowsIcon size={20} color="#a1a1aa" branded={true} />
@@ -849,7 +833,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                         </Text>
                       </View>
                     </View>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.reconnectBtn}
                       onPress={() => {
                         const device: DesktopInstance = {
@@ -874,10 +858,47 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
             );
           })()}
         </ScrollView>
-        </Animated.View>
+        </View>
       </KeyboardAvoidingView>
 
-      <Modal visible={!!profileConflict} transparent animationType="fade">
+      {isActive && showCodeInput && (<Modal visible={isActive && showCodeInput} transparent animationType="fade" onRequestClose={() => setShowCodeInput(false)}>
+        <KeyboardAvoidingView style={styles.connectModalBackdrop} behavior="padding">
+          <View style={[styles.card, styles.connectModalCard]} accessibilityViewIsModal>
+            <Text style={styles.connectModalTitle}>Connect to PC</Text>
+            <Text style={styles.connectFormDescription}>Open Connection in Brown on your PC and enter its Sync ID below.</Text>
+            <Text style={styles.fieldLabel}>Sync ID</Text>
+            <TextInput
+              style={[styles.idInput, idFocused && styles.idInputFocused]}
+              value={syncIdInput}
+              onChangeText={(value: string) => setSyncIdInput(value.toUpperCase())}
+              onFocus={() => setIdFocused(true)}
+              onBlur={() => setIdFocused(false)}
+              placeholder="BROWN-WIN-7842"
+              placeholderTextColor="#8e959f"
+              accessibilityLabel="Desktop Sync ID"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={22}
+              autoFocus
+              returnKeyType="go"
+              onSubmitEditing={() => { if (canConnect && !connectingById) handleConnectById(); }}
+              {...(Platform.OS === 'web' ? ({ outline: 'none' } as any) : {})}
+            />
+            <TouchableOpacity brownSurface="light"
+              style={[styles.primaryBtn, styles.pairingAction, (!canConnect || connectingById) && styles.primaryBtnDisabled]}
+              onPress={handleConnectById}
+              disabled={!canConnect || connectingById}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryBtnText}>{connectingById ? 'Connecting…' : 'Connect to PC'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.ghostBtn, { flex: 0, marginTop: 10 }]} onPress={() => setShowCodeInput(false)} accessibilityLabel="Cancel connecting to PC" activeOpacity={0.8}>
+              <Text style={styles.ghostBtnDanger}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>)}
+      {isActive && !!profileConflict && (<Modal visible={isActive && !!profileConflict} transparent animationType="fade">
         <View style={styles.conflictBackdrop}>
           <View style={styles.conflictCard}>
             <Text style={styles.conflictTitle}>Sync Profiles</Text>
@@ -888,24 +909,24 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
               <Text style={styles.conflictRow}>Desktop  ·  {profileConflict?.desktop.displayName || '—'}</Text>
               <Text style={styles.conflictRow}>Mobile  ·  {profileConflict?.mobile.displayName || '—'}</Text>
             </View>
-            <TouchableOpacity style={styles.conflictBtn} onPress={() => resolveConflict('desktop')}>
+            <TouchableOpacity brownSurface="light" style={styles.conflictBtn} onPress={() => resolveConflict('desktop')}>
               <Text style={styles.conflictBtnText}>Keep Desktop Profile</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.conflictBtn} onPress={() => resolveConflict('mobile')}>
+            <TouchableOpacity brownSurface="light" style={styles.conflictBtn} onPress={() => resolveConflict('mobile')}>
               <Text style={styles.conflictBtnText}>Keep Mobile Profile</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.conflictPrimary} onPress={() => resolveConflict('merge')}>
               <Text style={styles.conflictPrimaryText}>Merge details</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.conflictLaterBtn} onPress={() => setProfileConflict(null)}>
+            <TouchableOpacity brownSurface="light" style={styles.conflictLaterBtn} onPress={() => setProfileConflict(null)}>
               <Text style={styles.conflictLaterBtnText}>Later</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </Modal>)}
 
       <QRScannerModal
-        visible={isQrScannerOpen}
+        visible={isActive && isQrScannerOpen}
         onClose={() => setIsQrScannerOpen(false)}
         onScan={handleQrScanned}
       />
@@ -914,6 +935,18 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 };
 
 const styles = StyleSheet.create({
+  introDescription: { color: '#a8adb5', fontSize: 13, lineHeight: 20 },
+  syncSectionTitle: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  sectionHint: { color: '#a8adb5', fontSize: 12, lineHeight: 18, marginTop: 4, marginBottom: 8 },
+  accessRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderTopWidth: 1, borderColor: '#303030' },
+  accessCopy: { flex: 1, minWidth: 0 },
+  accessTitle: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  accessHint: { color: '#a8adb5', fontSize: 12, lineHeight: 17, marginTop: 3 },
+  chatActionRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 76, paddingVertical: 14, paddingHorizontal: 0 },
+  chatActionSeparator: { borderTopWidth: 1, borderTopColor: '#ffffff' },
+  chatActionIcon: { width: 34, height: 34, borderRadius: 9999, backgroundColor: '#17243b', alignItems: 'center', justifyContent: 'center' },
+  actionDisabled: { opacity: 0.45 },
+  sharingFootnote: { color: '#8e959f', fontSize: 11, lineHeight: 17, marginTop: 10 },
   menuButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   menuOverlay: { flex: 1 },
   // Percentage maxWidth resolves against an undefined containing block inside an
@@ -928,14 +961,24 @@ const styles = StyleSheet.create({
   menuOptionLabel: { flex: 1, color: '#ffffff', fontSize: 15, fontWeight: '600' },
   menuOptionLabelDisabled: { color: '#8a8f98' },
   transferNotice: { flexDirection: 'row', gap: 12, padding: 16, backgroundColor: '#172d58', alignItems: 'center' },
-  connectionIntro: { marginBottom: 6, alignItems: 'center' },
-  connectionHeading: { color: '#ffffff', fontSize: 24, fontWeight: '500', marginBottom: 10, textAlign: 'center' },
+  connectionIntro: { marginBottom: 2, gap: 6 },
+  connectionHeading: { color: '#ffffff', fontSize: 25, fontWeight: '600', marginBottom: 2, textAlign: 'center', width: '100%' },
   connectionDescription: { color: '#ffffff', fontSize: 14, lineHeight: 23 },
   connectionShowcase: { backgroundColor: '#202020', borderWidth: 1, borderColor: '#373737', borderRadius: 16, overflow: 'hidden' },
   connectionArtwork: { backgroundColor: '#0e1220', padding: 20, alignItems: 'center' },
   connectionPreview: { width: '100%', height: 180 },
   connectionCopy: { padding: 20, gap: 10, backgroundColor: '#202020' },
-  connectionKicker: { color: '#ffffff', fontSize: 11, letterSpacing: 1 },
+  connectionSteps: { gap: 10 },
+  connectionStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  connectionStepNumber: { color: '#a8adb5', fontSize: 14, lineHeight: 23, width: 18 },
+  connectForm: { padding: 20, borderColor: '#373737' },
+  connectModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  connectModalCard: { width: '100%', maxWidth: 380, padding: 20, borderColor: '#373737' },
+  connectModalTitle: { color: '#ffffff', fontSize: 20, fontWeight: '600', marginBottom: 8 },
+  connectFormHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 },
+  connectFormCancel: { minHeight: 40, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderRadius: 9999, backgroundColor: '#F5B6BD' },
+  connectFormCancelText: { color: '#70232E', fontSize: 13, fontWeight: '600' },
+  connectFormDescription: { color: '#a8adb5', fontSize: 13, lineHeight: 20, marginBottom: 18 },
   connectionCardTitle: { color: '#ffffff', fontSize: 20, fontWeight: '500' },
   container: {
     flex: 1,
@@ -964,17 +1007,17 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   statusDetail: {
-    color: '#ffffff',
-    fontSize: 13,
+    color: '#a8adb5',
+    fontSize: 12,
     lineHeight: 18,
   },
   statusRefreshBtn: {
     width: 34,
     height: 34,
     borderRadius: 9999,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#ffffff',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    borderColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
@@ -1054,20 +1097,20 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   idInput: {
-    backgroundColor: '#202020',
+    backgroundColor: '#141414',
     color: '#ffffff',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 14,
     fontSize: 16,
-    letterSpacing: 1.2,
+    letterSpacing: 0.5,
     fontWeight: '600',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     marginBottom: 14,
   },
   idInputFocused: {
-    borderColor: 'rgba(255,255,255,0.28)',
+    borderColor: '#a8adb5',
   },
   primaryBtn: {
     flex: 1,
@@ -1078,25 +1121,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: 9999,
     paddingVertical: 13,
+    paddingHorizontal: 16,
+    minHeight: 44,
+    minWidth: 0,
   },
+  buttonIcon: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  pairingAction: { flex: 0, borderWidth: 1, borderColor: '#48484b' },
   primaryBtnDisabled: {
     opacity: 0.28,
   },
+  refreshAction: { borderWidth: 1, borderColor: '#48484b' },
   primaryBtnText: {
     color: '#000000',
     fontSize: 15,
     fontWeight: '700',
+    flexShrink: 1,
+    textAlign: 'center',
   },
   ghostBtn: {
     flex: 1,
     borderRadius: 9999,
     paddingVertical: 13,
     paddingHorizontal: 16,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#5a1c1e',
-    backgroundColor: '#241416',
+    borderColor: '#F5B6BD',
+    backgroundColor: '#F5B6BD',
   },
   ghostBtnText: {
     color: '#ffffff',
@@ -1104,7 +1156,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   ghostBtnDanger: {
-    color: '#f87171',
+    color: '#70232E',
     fontWeight: '700',
     fontSize: 14,
   },
@@ -1150,8 +1202,10 @@ const styles = StyleSheet.create({
   },
   sectionHead: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
     marginTop: 4,
     paddingHorizontal: 4,
   },
@@ -1161,8 +1215,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   scanAgainBtn: {
+    width: 128,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 9999,
+    borderWidth: 1,
+    borderColor: '#48484b',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
   },
   sectionAction: {
@@ -1343,11 +1405,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 10,
-    marginTop: 4,
+    minHeight: 44,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 9999,
+    borderWidth: 1,
+    borderColor: '#48484b',
+    marginTop: 8,
   },
   scanQrSecondaryText: {
-    color: '#60a5fa',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '600',
   },

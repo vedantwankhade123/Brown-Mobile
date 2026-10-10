@@ -41,6 +41,7 @@ function requireTs(filePath) {
     if (modName === 'react-native') {
       return {
         Platform: { OS: 'android', select: (obj) => obj.android || obj.default },
+        AppState: { addEventListener: () => ({ remove() {} }) },
       };
     }
     if (modName === '@react-native-async-storage/async-storage') {

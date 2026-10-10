@@ -1,5 +1,6 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { ModelMetadata, ModelDownloadState } from '../types/model';
 import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon, PlayIcon, AlertIcon } from './Icons';
@@ -124,7 +125,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       {/* Dense model header */}
       <View style={styles.topRow}>
         <View style={styles.titleArea}>
-          <Text style={styles.modelName} numberOfLines={1}>
+          <Text style={styles.modelName} numberOfLines={2}>
             {model.name}
           </Text>
           <View style={styles.modelOriginRow}>
@@ -159,7 +160,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
             color={isPaused ? '#a1a1aa' : '#3b82f6'}
             trackColor="rgba(255, 255, 255, 0.1)"
           >
-            <TouchableOpacity
+            {isPaused || onPause ? <TouchableOpacity brownSurface
               onPress={() => (isPaused ? onResume?.(model.id) : onPause?.(model.id))}
               activeOpacity={0.7}
               accessibilityLabel={isPaused ? 'Resume download' : 'Pause download'}
@@ -170,7 +171,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               ) : (
                 <PauseIcon size={13} color="#ffffff" />
               )}
-            </TouchableOpacity>
+            </TouchableOpacity> : <DownloadIcon size={13} color="#ffffff" />}
           </CircularProgress>
 
           <View style={styles.progressTextCol}>
@@ -209,7 +210,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                   <Text style={styles.activePillText}>ACTIVE</Text>
                 </View>
               ) : (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.loadBtn}
                   onPress={() => onSelect(model)}
                   activeOpacity={0.7}
@@ -217,7 +218,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                   <Text style={styles.loadBtnText}>Load</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={styles.deleteBtn}
                 onPress={() => onDelete(model.id)}
                 activeOpacity={0.7}
@@ -226,7 +227,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               </TouchableOpacity>
             </>
           ) : isDownloading || isPaused ? (
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.cancelLink}
               onPress={() => (onCancel ? onCancel(model.id) : onDelete(model.id))}
               activeOpacity={0.7}
@@ -234,7 +235,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               <Text style={styles.cancelLinkText}>Cancel</Text>
             </TouchableOpacity>
           ) : isError ? (
-            <TouchableOpacity
+            <TouchableOpacity brownSurface="light"
               style={styles.retryBtn}
               onPress={() => (onResume ? onResume(model.id) : onDownload(model))}
               activeOpacity={0.8}
@@ -243,7 +244,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               <Text style={styles.retryBtnText}>Retry download</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity
+            <TouchableOpacity brownSurface="light"
               style={styles.downloadBtn}
               onPress={() => onDownload(model)}
               activeOpacity={0.8}
@@ -279,6 +280,7 @@ const styles = StyleSheet.create({
   },
   titleArea: {
     flex: 1,
+    minWidth: 0,
     marginRight: 8,
   },
   modelName: {
@@ -367,16 +369,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottomRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'stretch',
+    gap: 10,
     paddingTop: 8,
   },
   bottomSizeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    flex: 1,
   },
   bottomSizeText: {
     color: '#9ca3af',
@@ -385,10 +387,14 @@ const styles = StyleSheet.create({
   },
   actionsGroup: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 6,
   },
   downloadBtn: {
+    flex: 1,
+    minHeight: 42,
+    justifyContent: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -403,6 +409,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   retryBtn: {
+    flex: 1,
+    minHeight: 42,
+    justifyContent: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,

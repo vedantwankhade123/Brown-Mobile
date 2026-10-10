@@ -1,3 +1,5 @@
+import { VoiceDownloadIcon } from '../components/VoiceDownloadIcon';
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import { PreferencesScreen } from './PreferencesScreen';
 import { MAX_BACKUP_BYTES, validateBackup, restoreBackup } from '../services/storage/BackupService';
 import * as DocumentPicker from 'expo-document-picker';
@@ -11,7 +13,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  
   TextInput,
   SafeAreaView,
   Alert,
@@ -86,6 +88,7 @@ import {
   KokoroDownloadProgress,
   getActiveKokoroVoice,
   getKokoroInstallStatus,
+  getKokoroDownloadState,
   setActiveKokoroVoice,
 } from '../services/voice/KokoroTtsService';
 import { SpeechToTextService } from '../services/voice/SpeechToText';
@@ -232,7 +235,7 @@ const HoverableSettingsRow: React.FC<{
           alignItems: 'center',
           justifyContent: 'space-between',
           minHeight: 56,
-          paddingVertical: 20,
+          paddingVertical: 10,
           paddingHorizontal: 18,
         },
         isHovered && { backgroundColor: 'rgba(255, 255, 255, 0.05)' },
@@ -385,12 +388,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [voiceGridWidth, setVoiceGridWidth] = useState(0);
   const [kokoroProgress, setKokoroProgress] = useState('');
   useEffect(() => {
-    if (currentView !== 'voice') return;
-    getKokoroInstallStatus().then(status => {
-      setKokoroStatus(status);
-      setKokoroInstalled(KOKORO_VOICES.some(v => isKokoroVoiceInstalled(status, v.voiceId)));
-    }).catch(() => {});
-  }, [currentView]);
+    if (currentView !== 'voice' || !isActive) return;
+    let disposed = false, checking = false;
+    const refresh = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const status = await getKokoroInstallStatus();
+        if (disposed) return;
+        setKokoroStatus(status);
+        setKokoroInstalled(KOKORO_VOICES.some(v => isKokoroVoiceInstalled(status, v.voiceId)));
+        const state = getKokoroDownloadState();
+        setKokoroBusy(state.busy);
+        setActiveVoiceDownload(state.task);
+        if (state.task && state.progress) setVoiceDownloads(previous => ({ ...previous, [state.task!]: state.progress! }));
+      } catch {} finally { checking = false; }
+    };
+    refresh(); const timer = setInterval(refresh, 1000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [currentView, isActive]);
   const [previewingVoice, setPreviewingVoice] = useState<KokoroVoiceId | null>(null);
   const [desktopSyncStatus, setDesktopSyncStatus] = useState<{ isConnected: boolean; deviceName: string }>({
     isConnected: false,
@@ -1106,7 +1122,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         },
         {
           id: 'sounds',
-          title: 'Sounds & Voice input',
+          title: 'Sound',
           iconType: 'mic',
           iconColor: '#38bdf8',
           detail: nativeSpeech ? 'On-device dictation' : 'Whisper via PC',
@@ -1318,7 +1334,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   keyboardType="numeric"
                   maxLength={10}
                 />
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.calendarToggleBtn}
                   onPress={() => setShowDatePicker(!showDatePicker)}
                   activeOpacity={0.7}
@@ -1330,7 +1346,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {showDatePicker && (
                 <View style={styles.customDatepickerPopover}>
                   <View style={styles.datepickerHeader}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       style={styles.datepickerMonthYearBtn}
                       onPress={() => setCalendarView(calendarView === 'days' ? 'months' : 'days')}
                       activeOpacity={0.7}
@@ -1342,7 +1358,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     </TouchableOpacity>
 
                     <View style={styles.datepickerNavArrows}>
-                      <TouchableOpacity
+                      <TouchableOpacity brownSurface
                         style={styles.datepickerArrowBtn}
                         onPress={() => {
                           if (currentMonth === 0) {
@@ -1356,7 +1372,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       >
                         <ChevronLeftIcon size={16} color="#ffffff" />
                       </TouchableOpacity>
-                      <TouchableOpacity
+                      <TouchableOpacity brownSurface
                         style={styles.datepickerArrowBtn}
                         onPress={() => {
                           if (currentMonth === 11) {
@@ -1384,7 +1400,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         {daysArray.map((day) => {
                           const isSelected = day === selectedDay;
                           return (
-                            <TouchableOpacity
+                            <TouchableOpacity brownSurface
                               key={day}
                               style={[styles.datepickerDayCell, isSelected && styles.datepickerDayCellSelected]}
                               onPress={() => selectDay(day)}
@@ -1403,7 +1419,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   {calendarView === 'months' && (
                     <ScrollView keyboardShouldPersistTaps="handled" style={styles.verticalSelectionList} showsVerticalScrollIndicator={false}>
                       {MONTHS_LIST.map((mName, idx) => (
-                        <TouchableOpacity
+                        <TouchableOpacity brownSurface
                           key={mName}
                           style={[styles.verticalListItem, idx === currentMonth && styles.verticalListItemSelected]}
                           onPress={() => {
@@ -1423,7 +1439,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   {calendarView === 'years' && (
                     <ScrollView keyboardShouldPersistTaps="handled" style={styles.verticalSelectionList} showsVerticalScrollIndicator={false}>
                       {yearsList.map((yVal) => (
-                        <TouchableOpacity
+                        <TouchableOpacity brownSurface
                           key={yVal}
                           style={[styles.verticalListItem, yVal === currentYear && styles.verticalListItemSelected]}
                           onPress={() => {
@@ -1443,10 +1459,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               )}
 
               <View style={styles.fullPageActionRow}>
-                <TouchableOpacity style={styles.cancelFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
+                <TouchableOpacity brownSurface style={styles.cancelFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
                   <Text style={styles.cancelFullBtnText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.saveFullBtn} onPress={handleSaveProfile} activeOpacity={0.8}>
+                <TouchableOpacity brownSurface style={styles.saveFullBtn} onPress={handleSaveProfile} activeOpacity={0.8}>
                   <Text style={styles.saveFullBtnText}>Save Profile</Text>
                 </TouchableOpacity>
               </View>
@@ -1489,7 +1505,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={styles.accountNameText} numberOfLines={1}>{userName}</Text>
                 <Text style={styles.accountEmailText} numberOfLines={1}>{userEmail}</Text>
               </View>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={styles.accountEditHeaderBtn}
                 onPress={() => navigateToView('edit_profile')}
                 activeOpacity={0.7}
@@ -1501,7 +1517,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             <View style={styles.accountDeleteFooter}>
               <TouchableOpacity style={styles.deleteAccountButton} onPress={confirmDeleteAccount} accessibilityLabel="Delete Account" activeOpacity={0.8}>
-                <TrashIcon size={18} color="#ffffff" />
+                <TrashIcon size={18} color="#70232E" />
                 <Text style={styles.deleteAccountText}>Delete Account</Text>
               </TouchableOpacity>
             </View>
@@ -1553,7 +1569,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 </View>
                 {isGeminiConnected && (
-                  <TouchableOpacity onPress={disconnectGemini} activeOpacity={0.7} style={{ padding: 4 }}>
+                  <TouchableOpacity brownSurface="light" onPress={disconnectGemini} activeOpacity={0.7} style={{ padding: 4 }}>
                     <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
                   </TouchableOpacity>
                 )}
@@ -1565,7 +1581,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
 
               {!showGeminiKeyInput ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.addKeyBtn}
                   onPress={() => setShowGeminiKeyInput(true)}
                   activeOpacity={0.8}
@@ -1585,7 +1601,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     autoCorrect={false}
                   />
                   <View style={styles.geminiKeyActions}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.cancelKeyBtn}
                       onPress={() => setShowGeminiKeyInput(false)}
                       activeOpacity={0.7}
@@ -1593,7 +1609,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     >
                       <Text style={styles.cancelKeyBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={[styles.saveKeyBtn, geminiDiscovering && { opacity: 0.6 }]}
                       onPress={saveGeminiKey}
                       activeOpacity={0.8}
@@ -1645,7 +1661,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 </View>
                 {cloudConnected.openai && (
-                  <TouchableOpacity onPress={() => disconnectCloudProvider('openai')} activeOpacity={0.7} style={{ padding: 4 }}>
+                  <TouchableOpacity brownSurface="light" onPress={() => disconnectCloudProvider('openai')} activeOpacity={0.7} style={{ padding: 4 }}>
                     <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
                   </TouchableOpacity>
                 )}
@@ -1657,7 +1673,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
 
               {!showCloudKeyInput.openai ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.addKeyBtn}
                   onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, openai: true }))}
                   activeOpacity={0.8}
@@ -1677,7 +1693,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     autoCorrect={false}
                   />
                   <View style={styles.geminiKeyActions}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.cancelKeyBtn}
                       onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, openai: false }))}
                       activeOpacity={0.7}
@@ -1685,7 +1701,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     >
                       <Text style={styles.cancelKeyBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={[styles.saveKeyBtn, cloudDiscovering.openai && { opacity: 0.6 }]}
                       onPress={() => saveCloudProviderKey('openai')}
                       activeOpacity={0.8}
@@ -1737,7 +1753,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 </View>
                 {cloudConnected.anthropic && (
-                  <TouchableOpacity onPress={() => disconnectCloudProvider('anthropic')} activeOpacity={0.7} style={{ padding: 4 }}>
+                  <TouchableOpacity brownSurface="light" onPress={() => disconnectCloudProvider('anthropic')} activeOpacity={0.7} style={{ padding: 4 }}>
                     <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
                   </TouchableOpacity>
                 )}
@@ -1749,7 +1765,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
 
               {!showCloudKeyInput.anthropic ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.addKeyBtn}
                   onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, anthropic: true }))}
                   activeOpacity={0.8}
@@ -1769,7 +1785,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     autoCorrect={false}
                   />
                   <View style={styles.geminiKeyActions}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.cancelKeyBtn}
                       onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, anthropic: false }))}
                       activeOpacity={0.7}
@@ -1777,7 +1793,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     >
                       <Text style={styles.cancelKeyBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={[styles.saveKeyBtn, cloudDiscovering.anthropic && { opacity: 0.6 }]}
                       onPress={() => saveCloudProviderKey('anthropic')}
                       activeOpacity={0.8}
@@ -1829,7 +1845,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 </View>
                 {cloudConnected.deepseek && (
-                  <TouchableOpacity onPress={() => disconnectCloudProvider('deepseek')} activeOpacity={0.7} style={{ padding: 4 }}>
+                  <TouchableOpacity brownSurface="light" onPress={() => disconnectCloudProvider('deepseek')} activeOpacity={0.7} style={{ padding: 4 }}>
                     <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
                   </TouchableOpacity>
                 )}
@@ -1841,7 +1857,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
 
               {!showCloudKeyInput.deepseek ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.addKeyBtn}
                   onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, deepseek: true }))}
                   activeOpacity={0.8}
@@ -1861,7 +1877,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     autoCorrect={false}
                   />
                   <View style={styles.geminiKeyActions}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.cancelKeyBtn}
                       onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, deepseek: false }))}
                       activeOpacity={0.7}
@@ -1869,7 +1885,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     >
                       <Text style={styles.cancelKeyBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={[styles.saveKeyBtn, cloudDiscovering.deepseek && { opacity: 0.6 }]}
                       onPress={() => saveCloudProviderKey('deepseek')}
                       activeOpacity={0.8}
@@ -1921,7 +1937,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 </View>
                 {cloudConnected.groq && (
-                  <TouchableOpacity onPress={() => disconnectCloudProvider('groq')} activeOpacity={0.7} style={{ padding: 4 }}>
+                  <TouchableOpacity brownSurface="light" onPress={() => disconnectCloudProvider('groq')} activeOpacity={0.7} style={{ padding: 4 }}>
                     <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
                   </TouchableOpacity>
                 )}
@@ -1933,7 +1949,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
 
               {!showCloudKeyInput.groq ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.addKeyBtn}
                   onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, groq: true }))}
                   activeOpacity={0.8}
@@ -1953,7 +1969,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     autoCorrect={false}
                   />
                   <View style={styles.geminiKeyActions}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.cancelKeyBtn}
                       onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, groq: false }))}
                       activeOpacity={0.7}
@@ -1961,7 +1977,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     >
                       <Text style={styles.cancelKeyBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={[styles.saveKeyBtn, cloudDiscovering.groq && { opacity: 0.6 }]}
                       onPress={() => saveCloudProviderKey('groq')}
                       activeOpacity={0.8}
@@ -2019,7 +2035,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 </View>
                 {cloudConnected.custom && (
-                  <TouchableOpacity onPress={() => disconnectCloudProvider('custom')} activeOpacity={0.7} style={{ padding: 4 }}>
+                  <TouchableOpacity brownSurface="light" onPress={() => disconnectCloudProvider('custom')} activeOpacity={0.7} style={{ padding: 4 }}>
                     <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Disconnect</Text>
                   </TouchableOpacity>
                 )}
@@ -2030,7 +2046,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </Text>
 
               {!showCloudKeyInput.custom ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.addKeyBtn}
                   onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, custom: true }))}
                   activeOpacity={0.8}
@@ -2061,7 +2077,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     autoCorrect={false}
                   />
                   <View style={styles.geminiKeyActions}>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={styles.cancelKeyBtn}
                       onPress={() => setShowCloudKeyInput((prev) => ({ ...prev, custom: false }))}
                       activeOpacity={0.7}
@@ -2069,7 +2085,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     >
                       <Text style={styles.cancelKeyBtnText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface="light"
                       style={[styles.saveKeyBtn, cloudDiscovering.custom && { opacity: 0.6 }]}
                       onPress={() => saveCloudProviderKey('custom')}
                       activeOpacity={0.8}
@@ -2126,7 +2142,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             {/* Section 2: Installed & Configured Models Header with Fully Rounded + Add Models */}
             <View style={styles.installedModelsHeaderRow}>
               <Text style={styles.desktopSectionHeading}>Installed & Configured Models</Text>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={styles.addModelsTriggerBtn}
                 onPress={() => {
                   if (onOpenModelStore) onOpenModelStore();
@@ -2151,7 +2167,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {MODEL_TAG_FILTERS.map((tag) => {
                 const isActive = activeModelFilter === tag;
                 return (
-                  <TouchableOpacity
+                  <TouchableOpacity brownSurface="light"
                     key={tag}
                     style={[styles.tagFilterPill, isActive && styles.tagFilterPillActive]}
                     onPress={() => setActiveModelFilter(tag)}
@@ -2184,7 +2200,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 return (
                   <View key={m.id} style={[styles.desktopModelRowCard, isSelected && styles.desktopModelRowCardActive]}>
                     <View style={styles.modelRowCardHeader}>
-                      <View style={{ flex: 1 }}>
+                      <View style={{ width: '100%', minWidth: 0 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                           <Text style={styles.modelRowCardTitle}>{m.name}</Text>
                           <View style={[styles.weightsBadge, !isDevice && { borderColor: 'rgba(96, 165, 250, 0.35)', backgroundColor: 'rgba(96, 165, 250, 0.12)' }]}>
@@ -2208,7 +2224,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                       </View>
 
                       <View style={styles.modelRowCardActions}>
-                        <TouchableOpacity
+                        <TouchableOpacity brownSurface="light"
                           style={[styles.modelSelectActionBtn, isSelected && styles.modelSelectActionBtnActive]}
                           onPress={() => handleSelectModelFromSettings(m)}
                           activeOpacity={0.7}
@@ -2219,7 +2235,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         </TouchableOpacity>
 
                         {isDevice && (
-                          <TouchableOpacity
+                          <TouchableOpacity brownSurface="light"
                             style={styles.modelDeleteActionBtn}
                             onPress={() => {
                               Alert.alert('Delete Model', `Remove ${m.name} from this device?`, [
@@ -2240,7 +2256,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                             }}
                             activeOpacity={0.7}
                           >
-                            <TrashIcon size={14} color="#ef4444" />
+                            <TrashIcon size={16} color="#ffffff" />
                             <Text style={styles.modelDeleteActionBtnText}>Delete</Text>
                           </TouchableOpacity>
                         )}
@@ -2263,7 +2279,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
-          {renderFullPageHeader('Agent Sounds')}
+          {renderFullPageHeader('Sound')}
           <ScrollView
             key={currentView} keyboardShouldPersistTaps="handled" style={scrollStyle}
             contentContainerStyle={styles.fullPageScrollContent}
@@ -2330,7 +2346,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
               </View>
 
-              <View style={styles.toggleRow}>
+              <View style={[styles.toggleRow, styles.chimeOptionSeparator]}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fullPageRowLabel}>Tool Permission Chime</Text>
                   <Text style={styles.toggleDesc}>Play chime when confirmation is prompted</Text>
@@ -2345,7 +2361,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
               </View>
 
-              <View style={styles.toggleRow}>
+              <View style={[styles.toggleRow, styles.chimeOptionSeparator]}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fullPageRowLabel}>Question Prompt Chime</Text>
                   <Text style={styles.toggleDesc}>Play tone when assistant asks a clarifying question</Text>
@@ -2366,7 +2382,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     Chimes sound while Brown is open. Allow notifications so a finished answer
                     still reaches you when the app is in the background.
                   </Text>
-                  <TouchableOpacity
+                  <TouchableOpacity brownSurface="light"
                     style={styles.notifPermissionBtn}
                     activeOpacity={0.8}
                     disabled={requestingNotif}
@@ -2390,7 +2406,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   A finished answer notifies you only while Brown is still running in the
                   background. Check the whole path with a test notification.
                 </Text>
-                <TouchableOpacity
+                <TouchableOpacity brownSurface="light"
                   style={styles.notifPermissionBtn}
                   activeOpacity={0.8}
                   disabled={testingNotif}
@@ -2414,7 +2430,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             {/* Test Play Buttons (Fully Rounded) */}
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={[styles.secondaryFullBtn, { flex: 1 }]}
                 onPress={() => SoundService.playCompletion()}
                 activeOpacity={0.8}
@@ -2423,7 +2439,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={styles.secondaryFullBtnText}>Play Completion</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={[styles.secondaryFullBtn, { flex: 1 }]}
                 onPress={() => SoundService.playPermission()}
                 activeOpacity={0.8}
@@ -2433,7 +2449,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity style={styles.primaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
+            <TouchableOpacity brownSurface="light" style={styles.primaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
               <Text style={styles.primaryFullBtnText}>Save Preferences</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -2486,7 +2502,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         setVoiceDownloads(previous => ({ ...previous, [task]: { ...previous[task], ...p, ...(task === 'engine' && p.fileLabel?.toLowerCase().includes('tokenizer') ? { downloaded: previous[task]?.downloaded, total: previous[task]?.total } : {}) } }));
         setKokoroProgress(`${p.status} ${p.percent}%${p.downloaded ? ` · ${p.downloaded}${p.total ? ` / ${p.total}` : ''}` : ''}`);
       };
-      const result = voiceId ? await downloadKokoroVoice(voiceId, onProgress) : await downloadKokoroEngine(onProgress);
+      const result = await (voiceId ? downloadKokoroVoice(voiceId, onProgress) : downloadKokoroEngine(onProgress)).catch((error: any) => ({ success: false, error: error?.message || 'Could not start voice download.', cancelled: false }));
       setKokoroBusy(false);
       setActiveVoiceDownload(null);
       if (result.success) {
@@ -2514,22 +2530,38 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     return (
       <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
-          {renderFullPageHeader('Voice')}
+          <ScreenHeader overlay centered title="Voice" onBack={handleSmoothBack} scrolled={settingsScrolled} right={<TouchableOpacity brownSurface style={styles.voiceDownloadsButton} onPress={() => setShowVoiceDownloads(true)} accessibilityLabel="Show voice model downloads and progress" accessibilityState={{ busy: kokoroBusy }}><VoiceDownloadIcon busy={kokoroBusy} /></TouchableOpacity>} />
           <Modal visible={showVoiceDownloads} transparent animationType="fade" onRequestClose={() => setShowVoiceDownloads(false)}>
             <View style={styles.voiceDownloadsBackdrop}>
               <ScrollView style={styles.voiceDownloadsPanel} contentContainerStyle={{ padding: 18 }}>
-                <View style={styles.voiceIntroRow}><Text style={styles.voiceIntroTitle}>Voice downloads</Text><TouchableOpacity onPress={() => setShowVoiceDownloads(false)} accessibilityLabel="Close voice downloads"><Text style={styles.voiceDownloadClose}>×</Text></TouchableOpacity></View>
+                <View style={styles.voiceIntroRow}><Text style={styles.voiceIntroTitle}>Voice downloads</Text><TouchableOpacity brownSurface onPress={() => setShowVoiceDownloads(false)} accessibilityLabel="Close voice downloads"><Text style={styles.voiceDownloadClose}>×</Text></TouchableOpacity></View>
                 {['engine', ...KOKORO_VOICES.map(v => v.voiceId)].map(task => {
                   const progress = voiceDownloads[task];
                   const ready = task === 'engine' ? kokoroStatus?.engineInstalled : !!kokoroStatus && isKokoroVoiceInstalled(kokoroStatus, task as KokoroVoiceId);
+                  const active = kokoroBusy && activeVoiceDownload === task;
+                  const percent = ready ? 100 : Math.max(0, Math.min(100, progress?.percent || 0));
+                  const canDownload = !ready && !kokoroBusy && (task === 'engine' || !!kokoroStatus?.engineInstalled);
                   return <View key={task} style={styles.voiceDownloadItem}>
+                    <View style={styles.voiceDownloadCopy}>
                     <Text style={styles.voiceDownloadName}>{task === 'engine' ? 'Kokoro engine · 88.1 MB' : `${kokoroLabel(task as KokoroVoiceId)} voice · 510 KB`}</Text>
                     <Text style={styles.voiceDownloadDetail}>{ready ? 'Downloaded · 100%' : progress ? `${progress.status} · ${progress.percent}%` : task !== 'engine' && !kokoroStatus?.engineInstalled ? 'Download the engine first' : 'Not downloaded · 0%'}</Text>
                     {!!progress?.downloaded && <Text style={styles.voiceDownloadDetail}>{progress.downloaded}{progress.total ? ` / ${progress.total}` : ''}</Text>}
-                    <View style={styles.voiceDownloadTrack}><View style={[styles.voiceDownloadFill, { width: `${ready ? 100 : progress?.percent || 0}%` }]} /></View>
+                    </View>
+                    <View style={styles.voiceDownloadControls}>
+                      <TouchableOpacity disabled={!canDownload} onPress={() => handleDownload(task === 'engine' ? undefined : task as KokoroVoiceId)} accessibilityRole="button" accessibilityLabel={`${ready ? 'Downloaded' : active ? 'Downloading' : 'Download'} ${task === 'engine' ? 'Kokoro engine' : kokoroLabel(task as KokoroVoiceId)} · ${Math.round(percent)} percent`}>
+                        <Svg width={44} height={44} viewBox="0 0 44 44">
+                          <Circle cx={22} cy={22} r={19} fill="none" stroke="#3d3d42" strokeWidth={2.5} />
+                          <Circle cx={22} cy={22} r={19} fill="none" stroke={ready ? '#86d6ad' : '#f4f4f5'} strokeWidth={2.5} strokeDasharray={`${2 * Math.PI * 19}`} strokeDashoffset={2 * Math.PI * 19 * (1 - percent / 100)} strokeLinecap="round" rotation={-90} origin="22,22" />
+                          <Path d="M22 13v13m-5-5 5 5 5-5M14 28v4h16v-4" fill="none" stroke={canDownload || active || ready ? '#f4f4f5' : '#71717a'} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+                        </Svg>
+                      </TouchableOpacity>
+                      {active && <TouchableOpacity brownSurface onPress={() => cancelKokoroDownload(task).catch(err => Alert.alert('Download', err.message))} style={styles.voiceDownloadCancel} accessibilityRole="button" accessibilityLabel={`Cancel ${task === 'engine' ? 'Kokoro engine' : kokoroLabel(task as KokoroVoiceId)} download`}>
+                        <Text style={{ color: '#fafafa', fontSize: 22, lineHeight: 24 }}>×</Text>
+                      </TouchableOpacity>}
+                    </View>
                   </View>;
                 })}
-                {kokoroBusy && <TouchableOpacity onPress={cancelKokoroDownload} style={styles.secondaryFullBtn}><Text style={styles.voiceDownloadName}>Cancel download</Text></TouchableOpacity>}
+                {kokoroBusy && <TouchableOpacity brownSurface onPress={() => cancelKokoroDownload().catch(err => Alert.alert('Download', err.message))} style={[styles.secondaryFullBtn, { marginTop: 24, marginBottom: 4 }]}><Text style={styles.voiceDownloadName}>Cancel download</Text></TouchableOpacity>}
               </ScrollView>
             </View>
           </Modal>
@@ -2542,16 +2574,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           >
             {/* 1. Neural persona cards */}
             <View style={styles.voiceSection}>
-              <View style={styles.voiceIntroRow}>
-                <Text style={styles.voiceIntroTitle}>Neural personas</Text>
-                <TouchableOpacity style={styles.voiceDownloadsButton} onPress={() => setShowVoiceDownloads(true)} accessibilityLabel="Show voice model downloads and progress"><Svg width={21} height={21} viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><Path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></Svg>{kokoroBusy && <ActivityIndicator size="small" color="#ffffff" />}</TouchableOpacity>
+              <View style={[styles.voiceIntroRow, { justifyContent: 'center' }]}>
+                <Text style={[styles.voiceIntroTitle, { textAlign: 'center' }]}>Neural personas</Text>
+
               </View>
-              <Text style={styles.voiceIntroDescription}>
-                On-device Kokoro voices. Download the shared engine first, then download the voices you want to use.
+              <Text style={[styles.voiceIntroDescription, { textAlign: 'center' }]} textBreakStrategy="balanced">
+                Install Kokoro once for offline speech. Then choose the voices you want to use.
               </Text>
 
               {(!kokoroStatus?.engineInstalled || engineDownloadedBanner) && (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={[styles.primaryFullBtn, kokoroBusy && styles.voicePillDisabled]}
                   disabled={kokoroBusy || engineDownloadedBanner}
                   onPress={() => handleDownload()}
@@ -2586,14 +2618,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           </View>
                           <Text style={styles.voiceCardDesc} numberOfLines={3}>{v.description}</Text>
                           <View style={styles.voiceCardFoot}>
-                            <TouchableOpacity
+                            <TouchableOpacity brownSurface="light"
                               style={[styles.voicePlayPill, !voiceInstalled && styles.voicePillDisabled]}
                               disabled={!voiceInstalled}
                               onPress={() => handlePreview(v.voiceId)}
+                              accessibilityLabel={`${isPreviewing ? 'Stop' : 'Play'} ${v.label} voice preview`}
                               activeOpacity={0.8}
                             >
                               <VoiceCardIcon kind={isPreviewing ? 'stop' : 'play'} />
-                              <Text style={styles.voicePlayPillText}>{isPreviewing ? 'Stop' : 'Play'}</Text>
                             </TouchableOpacity>
 
                             {isActive && voiceInstalled ? (
@@ -2602,19 +2634,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                                 <Text style={styles.voiceSelectPillSelectedText}>Selected</Text>
                               </View>
                             ) : voiceInstalled ? (
-                              <TouchableOpacity style={styles.voiceSelectPill} onPress={() => handleSelect(v.voiceId)} activeOpacity={0.8}>
+                              <TouchableOpacity brownSurface="light" style={styles.voiceSelectPill} onPress={() => handleSelect(v.voiceId)} activeOpacity={0.8}>
                                 <VoiceCardIcon kind="star" />
-                                <Text style={styles.voiceSelectPillText}>Select</Text>
+                                <Text numberOfLines={1} style={styles.voiceSelectPillText}>Select</Text>
                               </TouchableOpacity>
                             ) : (
-                              <TouchableOpacity
+                              <TouchableOpacity brownSurface="light"
                                 style={[styles.voiceSelectPill, (kokoroBusy || !kokoroStatus?.engineInstalled) && styles.voicePillDisabled]}
                                 disabled={kokoroBusy || !kokoroStatus?.engineInstalled}
                                 onPress={() => handleDownload(v.voiceId)}
                                 accessibilityLabel={activeVoiceDownload === v.voiceId ? `Downloading ${v.label}` : `Download ${v.label} voice`}
                                 activeOpacity={0.8}
                               >
-                                {activeVoiceDownload === v.voiceId ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.voiceSelectPillText}>Download</Text>}
+                                {activeVoiceDownload === v.voiceId ? <ActivityIndicator size="small" color="#ffffff" /> : <Text numberOfLines={1} style={styles.voiceSelectPillText}>Download</Text>}
                               </TouchableOpacity>
                             )}
                           </View>
@@ -2649,7 +2681,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={styles.fullPageRowLabel}>Speech rate</Text>
                 <View style={styles.speedPillsRow}>
                   {[0.8, 1.0, 1.2, 1.4].map((spd) => (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       key={spd}
                       style={[styles.speedPill, speechRate === spd && styles.speedPillActive]}
                       onPress={() => {
@@ -2666,7 +2698,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
 
               {kokoroStatus?.engineInstalled ? (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={[styles.clearChatsBtn, { marginTop: 12 }]}
                   onPress={() => {
                     Alert.alert('Remove Kokoro?', 'Deletes the on-device engine and voice models.', [
@@ -2675,7 +2707,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         text: 'Delete',
                         style: 'destructive',
                         onPress: async () => {
-                          cancelKokoroDownload();
+                          try {
+                          await cancelKokoroDownload();
                           TextToSpeechService.stop();
                           await deleteKokoroAssets();
                           setKokoroInstalled(false);
@@ -2683,6 +2716,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                           setVoiceDownloads({});
                           setEngineDownloadedBanner(false);
                           setKokoroProgress('');
+                          } catch (err: any) { Alert.alert('Remove Kokoro', err.message || 'Could not remove voice files. Please retry.'); }
                         },
                       },
                     ]);
@@ -2748,7 +2782,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={styles.inputFieldLabel}>Use saved preferences</Text>
                 <ToggleSwitch value={memoryPersistence} onValueChange={async value => { await AssistantMemory.setEnabled(value); setMemoryPersistence(value); }} />
               </View>
-              <TouchableOpacity accessibilityLabel="View preferences" style={[styles.exportBackupBtn, { marginTop: 14 }]} onPress={() => navigateToView('preferences')}><SlidersIcon size={18} color="#ffffff" /><Text style={styles.exportBackupBtnText}>View preferences</Text></TouchableOpacity>
+              <TouchableOpacity brownSurface="light" accessibilityLabel="View preferences" style={[styles.exportBackupBtn, { marginTop: 14 }]} onPress={() => navigateToView('preferences')}><SlidersIcon size={18} color="#ffffff" /><Text style={styles.exportBackupBtnText}>View preferences</Text></TouchableOpacity>
             </View>
 
             {/* Clear Data Section */}
@@ -2758,23 +2792,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 Save or restore conversations and preferences. Erase history separately.
               </Text>
               <View style={styles.storageActionColumn}>
-                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleExportData} disabled={exporting || importing} activeOpacity={0.8}>
+                <TouchableOpacity brownSurface="light" style={styles.exportBackupBtn} onPress={handleExportData} disabled={exporting || importing} activeOpacity={0.8}>
                   <DownloadIcon size={16} color="#ffffff" />
                   <Text style={styles.exportBackupBtnText}>{exporting ? 'Exporting…' : 'Export Backup'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.exportBackupBtn} onPress={handleImportData} disabled={importing || exporting} activeOpacity={0.8} accessibilityLabel="Import backup">
+                <TouchableOpacity brownSurface="light" style={styles.exportBackupBtn} onPress={handleImportData} disabled={importing || exporting} activeOpacity={0.8} accessibilityLabel="Import backup">
                   <DownloadIcon size={16} color="#ffffff" />
                   <Text style={styles.exportBackupBtnText}>{importing ? 'Importing…' : 'Import Backup'}</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.clearChatsBtn} onPress={handleClearHistory} activeOpacity={0.8}>
+                <TouchableOpacity brownSurface="light" style={styles.clearChatsBtn} onPress={handleClearHistory} activeOpacity={0.8}>
                   <TrashIcon size={16} color="#ffffff" />
                   <Text style={styles.clearChatsBtnText}>Erase All Chat History</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            <TouchableOpacity style={styles.secondaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
+            <TouchableOpacity brownSurface="light" style={styles.secondaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
               <Text style={styles.secondaryFullBtnText}>Back to Settings</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -2845,7 +2879,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   </View>
                 ))}
                 {notes.length > 3 ? (
-                  <TouchableOpacity
+                  <TouchableOpacity brownSurface
                     style={styles.updateLinkRow}
                     onPress={() => setShowAllUpdateNotes((open) => !open)}
                     activeOpacity={0.7}
@@ -2905,7 +2939,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
             </View>
 
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={[styles.updatePrimaryBtn, updateStatus === 'checking' && styles.updatePrimaryBtnDisabled]}
               onPress={() => (hasUpdate ? setShowUpdateModal(true) : handleCheckUpdates())}
               disabled={updateStatus === 'checking'}
@@ -2998,7 +3032,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {/* Social Media Links (Only icons without bg, center-aligned in a single row) */}
               <View style={styles.aboutSocialIconsRow}>
 
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.aboutSocialIconBtn}
                   onPress={() => {
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -3013,7 +3047,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <InstagramIcon size={24} color="#ffffff" />
                 </TouchableOpacity>
 
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.aboutSocialIconBtn}
                   onPress={() => {
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -3034,7 +3068,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 <Text style={styles.alsoAvailableTitle}>Also Available On</Text>
                 <View style={styles.platformButtonsGrid}>
                   {otherPlatforms.map((platform) => (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       key={platform.id}
                       style={[styles.platformButton, platform.disabled && { opacity: 0.45 }]}
                       onPress={() => {
@@ -3079,7 +3113,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         {isSpotlightOpen ? (
           <View style={[styles.mainHeaderRow, styles.mainHeaderSearchActive, settingsScrolled && styles.mainHeaderRowScrolled]}>
             <HeaderFade />
-            <GlassSurface radius={9999} active={true} style={styles.headerSearchBar}>
+            <View style={styles.headerSearchBar}>
               <SearchIcon size={17} color="#9ca3af" />
               <TextInput
                 style={[
@@ -3088,21 +3122,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 ]}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search settings, models, audio, storage..."
-                placeholderTextColor="#71717a"
+                placeholder="Search settings…"
+                placeholderTextColor="#a8adb5"
+                accessibilityLabel="Search settings, models, audio, and storage"
+                autoCapitalize="none"
+                autoCorrect={false}
                 autoFocus
                 returnKeyType="search"
               />
               {searchQuery.length > 0 && (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   onPress={() => setSearchQuery('')}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  style={{ padding: 4 }}
+                  style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                  accessibilityLabel="Clear search"
                 >
                   <CloseIcon size={16} color="#a1a1aa" />
                 </TouchableOpacity>
               )}
-            </GlassSurface>
+            </View>
             <GlassControl radius={22} active={true}
               style={styles.searchCloseBtn}
               onPress={() => {
@@ -3217,7 +3255,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     {index > 0 ? <View style={styles.optionDivider} /> : null}
                     <HoverableSettingsRow onPress={item.action}>
                       <View style={styles.cleanMenuLeft}>
-                        {renderItemIcon(item.iconType, '#e4e4e7')}
+                        <View style={[styles.settingsColorIcon, { backgroundColor: item.iconColor }]}>{renderItemIcon(item.iconType, '#ffffff')}</View>
                         <Text style={styles.cleanMenuTitle}>{item.title}</Text>
                       </View>
 
@@ -3296,8 +3334,8 @@ const styles = StyleSheet.create({
   },
   accountScrollContent: { flexGrow: 1 },
   accountDeleteFooter: { marginTop: 'auto', paddingTop: 24 },
-  deleteAccountButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#b91c1c', borderRadius: 9999, paddingHorizontal: 18, paddingVertical: 14, minHeight: 48, marginTop: 18 },
-  deleteAccountText: { color: '#ffffff', fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  deleteAccountButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#F5B6BD', borderRadius: 9999, paddingHorizontal: 18, paddingVertical: 14, minHeight: 48, marginTop: 18 },
+  deleteAccountText: { color: '#70232E', fontSize: 15, fontWeight: '600', flexShrink: 1 },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3355,15 +3393,23 @@ const styles = StyleSheet.create({
   },
   headerSearchBar: {
     flex: 1,
+    minWidth: 0,
+    backgroundColor: '#202020',
+    borderWidth: 1,
+    borderColor: '#373737',
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 9999,
     paddingHorizontal: 12,
-    height: 42,
+    height: 44,
     gap: 8,
   },
   headerSearchInput: {
     flex: 1,
+    minWidth: 0,
+    height: 42,
+    textAlign: 'left',
+    textAlignVertical: 'center',
     color: '#ffffff',
     fontSize: 14,
     paddingVertical: 0,
@@ -3493,13 +3539,15 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   optionCard: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 26,
+    backgroundColor: '#161719',
+    borderRadius: 28,
     overflow: 'hidden',
   },
   optionDivider: {
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    marginLeft: 74,
+    marginRight: 18,
   },
   optionRow: {
     flexDirection: 'row',
@@ -3530,6 +3578,7 @@ const styles = StyleSheet.create({
     gap: 14,
     flex: 1,
   },
+  settingsColorIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   cleanMenuIconBox: {
     width: 24,
     alignItems: 'center',
@@ -3541,7 +3590,8 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '500',
     letterSpacing: -0.2,
   },
@@ -3911,6 +3961,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
   },
+  chimeOptionSeparator: { borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.45)' },
   toggleDesc: {
     color: '#71717a',
     fontSize: 11.5,
@@ -4015,19 +4066,21 @@ const styles = StyleSheet.create({
   },
   voiceCardFoot: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 1,
     gap: 6,
   },
   voicePlayPill: {
+    width: 36,
+    height: 36,
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
     borderRadius: 9999,
     backgroundColor: 'rgba(255, 255, 255, 0.16)',
     borderWidth: 1,
@@ -4042,8 +4095,9 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   voiceSelectPill: {
-    minWidth: 70,
-    minHeight: 28,
+    flex: 1,
+    minWidth: 0,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4061,6 +4115,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   voiceSelectPillSelected: {
+    flex: 1,
+    minWidth: 0,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -4078,11 +4135,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   voiceIntroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  voiceDownloadsButton: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 8, borderRadius: 20, backgroundColor: '#242424' },
+  voiceDownloadsButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', padding: 2, borderRadius: 22, backgroundColor: '#242424' },
   voiceDownloadsBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: 20 },
   voiceDownloadsPanel: { backgroundColor: '#202020', borderRadius: 22, maxHeight: '90%', flexGrow: 0 },
   voiceDownloadClose: { color: '#ffffff', fontSize: 28, paddingHorizontal: 8 },
-  voiceDownloadItem: { marginTop: 16 },
+  voiceDownloadItem: { marginTop: 18, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  voiceDownloadCopy: { flex: 1, minWidth: 0 },
+  voiceDownloadControls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  voiceDownloadCancel: { width: 28, height: 32, alignItems: 'center', justifyContent: 'center' },
   voiceDownloadName: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
   voiceDownloadDetail: { color: '#d4d4d4', fontSize: 12, lineHeight: 17, marginTop: 3 },
   voiceDownloadTrack: { height: 4, backgroundColor: '#444444', borderRadius: 2, overflow: 'hidden', marginTop: 8 },
@@ -4343,6 +4403,8 @@ const styles = StyleSheet.create({
   },
   installedModelsHeaderRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 6,
@@ -4374,12 +4436,12 @@ const styles = StyleSheet.create({
     borderColor: '#ffffff',
   },
   tagFilterPillText: {
-    color: '#a1a1aa',
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '600',
   },
   tagFilterPillTextActive: {
-    color: '#000000',
+    color: '#ffffff',
   },
   desktopModelRowCard: {
     backgroundColor: '#1A1A1A',
@@ -4393,12 +4455,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(59, 130, 246, 0.06)',
   },
   modelRowCardHeader: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 12,
   },
   modelRowCardTitle: {
+    flexShrink: 1,
     color: '#ffffff',
     fontSize: 14.5,
     fontWeight: '700',
@@ -4450,10 +4513,17 @@ const styles = StyleSheet.create({
   },
   modelRowCardActions: {
     flexDirection: 'row',
+    alignSelf: 'stretch',
     alignItems: 'center',
     gap: 8,
   },
   modelSelectActionBtn: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#27272a',
     borderRadius: 9999,
     paddingHorizontal: 14,
@@ -4464,7 +4534,7 @@ const styles = StyleSheet.create({
   },
   modelSelectActionBtnText: {
     color: '#ffffff',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   modelSelectActionBtnTextActive: {
@@ -4472,17 +4542,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   modelDeleteActionBtn: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    justifyContent: 'center',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     borderRadius: 9999,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 6,
   },
   modelDeleteActionBtnText: {
-    color: '#ef4444',
-    fontSize: 12,
+    color: '#ffffff',
+    fontSize: 13,
     fontWeight: '600',
   },
 
@@ -4491,7 +4565,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1B1B1B',
-    borderRadius: 9999,
+    borderRadius: 20,
     padding: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
@@ -4521,8 +4595,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   accountEditHeaderBtn: {
+    width: 80,
+    height: 40,
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     backgroundColor: '#27272a',
     paddingHorizontal: 14,

@@ -1,12 +1,13 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text,  StyleSheet } from 'react-native';
 import { FolderIcon, RefreshIcon } from './Icons';
 export const StorageLocationControl: React.FC<{ label: string; address: string; hint: string; onChoose: () => void | Promise<void>; onDefault: () => void | Promise<void> }> = ({ label, address, hint, onChoose, onDefault }) => (
   <View style={styles.group}>
     <Text style={styles.label}>{label}</Text>
     <View style={styles.address}><FolderIcon size={18} color="#a1a1aa" /><Text selectable style={styles.path} numberOfLines={2} ellipsizeMode="middle">{address}</Text></View>
-    <TouchableOpacity style={styles.action} onPress={onChoose} accessibilityLabel={'Choose folder for ' + label}><FolderIcon size={18} /><Text style={styles.actionText}>Choose folder</Text></TouchableOpacity>
-    <TouchableOpacity style={styles.action} onPress={onDefault} accessibilityLabel={'Use default folder for ' + label}><RefreshIcon size={18} /><Text style={styles.actionText}>Use default</Text></TouchableOpacity>
+    <TouchableOpacity brownSurface="light" style={styles.action} onPress={onChoose} accessibilityLabel={'Choose folder for ' + label}><FolderIcon size={18} /><Text style={styles.actionText}>Choose folder</Text></TouchableOpacity>
+    <TouchableOpacity brownSurface="light" style={styles.action} onPress={onDefault} accessibilityLabel={'Use default folder for ' + label}><RefreshIcon size={18} /><Text style={styles.actionText}>Use default</Text></TouchableOpacity>
     <Text style={styles.hint}>{hint}</Text>
   </View>
 );

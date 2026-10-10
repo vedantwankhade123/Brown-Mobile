@@ -9,6 +9,7 @@ export interface DesktopInstance {
   syncId?: string;
   isFallback?: boolean;
   platform?: string;
+  companion?: { v: number; addresses?: string[]; directUrl?: string; relayUrl?: string; relayRoom?: string; bootstrapKey?: string; keyId?: string };
 }
 
 export interface UltronRemoteProfile {
@@ -33,6 +34,9 @@ export interface SyncStatus {
   needsReauth?: boolean;
   reauthReason?: string;
   autoConnectEnabled?: boolean;
+  connectionType?: 'local' | 'direct' | 'relay';
+  preferences?: { modelAccess: boolean; voiceAccess: boolean; profileMode: 'separate' | 'shared'; livePreview?: boolean };
+  transferRequest?: { id: string; action: 'import' | 'send' | 'merge' | 'profile'; expiresAt: number } | null;
 }
 
 export interface PairingSession {

@@ -7,6 +7,7 @@ function load(file, mocks) {
   const module = {exports:{}};
   new Function('require','module','exports',source)((name) => {
     if (name in mocks) return mocks[name];
+    if (name.endsWith('/ButtonSurface')) return { BrownButton: () => null, ButtonSurface: () => null };
     throw new Error('Unexpected dependency: '+name);
   }, module, module.exports);
   return module.exports;
@@ -182,5 +183,14 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   await assert.rejects(()=>backupModule.restoreBackup(fresh),/limit/);
   assert.strictEqual(await new repositoryModule.ChatRepository().getSessionById('must-not-import'),null);
   await AssistantMemory.clear();
+  const syncRepo = new repositoryModule.ChatRepository();
+  const imported = {id:'desktop-origin-qa', title:'Desktop chat', modelId:'test', createdAt:3, updatedAt:4, messages:[{id:'desktop-message-qa',role:'assistant',content:'From desktop',timestamp:4}]};
+  await syncRepo.importBundle({sessions:[imported]});
+  await syncRepo.importBundle({sessions:[imported]});
+  assert.strictEqual((await syncRepo.getSessionById(imported.id)).syncOrigin,'desktop');
+  assert.strictEqual((await syncRepo.getMessagesForSession(imported.id)).length,1);
+  await syncRepo.importBundle({sessions:[{...imported,syncOrigin:'both'}]});
+  assert.strictEqual((await syncRepo.getSessionById(imported.id)).syncOrigin,'both');
+  console.log('PASS: Chat imports preserve origin labels and repeated merges do not duplicate messages.');
   console.log('PASS: Backup roundtrip deduplicates, preserves memory toggle, and rejects malformed/oversized files before mutation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

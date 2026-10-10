@@ -1,10 +1,11 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Modal,
-  TouchableOpacity,
+  
   Platform,
   ActivityIndicator,
   TextInput,
@@ -55,6 +56,10 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
     }
   };
 
+  // Release the native camera surface when the scanner closes. A hidden camera
+  // in a retained screen can keep drawing over the current Android surface.
+  if (!visible) return null;
+
   return (
     <Modal
       visible={visible}
@@ -92,7 +97,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
               <Text style={styles.permissionDesc}>
                 Allow camera permission to scan the pairing QR code on your desktop Brown app.
               </Text>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={styles.permissionBtn}
                 onPress={requestPermission}
                 activeOpacity={0.8}
@@ -141,7 +146,7 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
               autoCapitalize="characters"
               autoCorrect={false}
             />
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={[
                 styles.manualSubmitBtn,
                 !manualCode.trim() && styles.manualSubmitBtnDisabled,

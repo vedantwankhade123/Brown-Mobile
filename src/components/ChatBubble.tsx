@@ -1,5 +1,6 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useRef, useState, memo } from 'react';
-import { View, StyleSheet, TouchableOpacity, Animated, Text } from 'react-native';
+import { View, StyleSheet,  Animated, Text } from 'react-native';
 import { ChatMessage } from '../types/chat';
 import { spacing } from '../theme/typography';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -221,7 +222,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
         {showActions && (
           <View style={styles.actionsRow}>
             {onCopy && (
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={styles.actionIconBtn}
                 onPress={handleCopyPress}
                 activeOpacity={0.7}
@@ -236,7 +237,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
               </TouchableOpacity>
             )}
             {onSpeak && (
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={styles.actionIconBtn}
                 onPress={() => onSpeak(message.id, message.content)}
                 activeOpacity={0.6}

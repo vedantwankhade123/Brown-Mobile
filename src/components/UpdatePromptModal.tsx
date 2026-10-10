@@ -1,10 +1,11 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  
   ScrollView,
   Platform,
   Alert,
@@ -159,7 +160,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
     <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onDismiss}>
       <View style={[styles.page, { paddingTop: insets.top }]}>
         <View style={styles.topBar}>
-          <TouchableOpacity
+          <TouchableOpacity brownSurface
             style={styles.backBtn}
             onPress={onDismiss}
             activeOpacity={0.7}
@@ -264,7 +265,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
-          <TouchableOpacity
+          <TouchableOpacity brownSurface
             style={[styles.primaryBtn, noApk && styles.primaryBtnDisabled]}
             onPress={handleUpdateNow}
             disabled={noApk || installing}
@@ -283,7 +284,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.secondaryBtn} onPress={onDismiss} activeOpacity={0.7}>
+          <TouchableOpacity brownSurface style={styles.secondaryBtn} onPress={onDismiss} activeOpacity={0.7}>
             <Text style={styles.secondaryBtnText}>Not now</Text>
           </TouchableOpacity>
         </View>

@@ -44,6 +44,9 @@ export class SpeechToTextService {
   private static listening = false;
   private static options: STTOptions | null = null;
   private static engine: STTEngine | null = null;
+  private static starting = false;
+  private static generation = 0;
+  private static stopping: Promise<string> | null = null;
 
   // native recognizer state
   private static sub: { remove(): void } | null = null;
@@ -60,30 +63,44 @@ export class SpeechToTextService {
   private static autoStoppedUri: string | null = null;
 
   static async startListening(options: STTOptions): Promise<void> {
+    if (this.starting) return;
+    this.starting = true;
+    try {
     await SpeechToTextService.cancelListening();
+    const generation = this.generation;
 
     const perm = await Audio.requestPermissionsAsync();
+    if (generation !== this.generation) return;
     if (!perm.granted) {
       throw new Error(PERMISSION_DENIED);
     }
     try {
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
     } catch {}
+    if (generation !== this.generation) return;
 
     this.options = options;
     if (this.shouldUseNative() && this.startNative()) return;
     this.startWhisper();
+    } finally { this.starting = false; }
   }
 
   /** User confirmed stop — returns everything recognized so far. */
   static async stopListening(): Promise<string> {
+    if (this.stopping) return this.stopping;
+    if (this.starting) { await this.cancelListening(); return ''; }
     if (!this.listening) return '';
-    if (this.engine === 'native') return this.stopNative();
-    return this.stopWhisper();
+    const generation = this.generation;
+    this.stopping = this.engine === 'native' ? this.stopNative() : this.stopWhisper();
+    try {
+      const text = await this.stopping;
+      return generation === this.generation ? text : '';
+    } finally { this.stopping = null; }
   }
 
   /** User cancelled — discard without producing a transcript. */
   static async cancelListening(): Promise<void> {
+    ++this.generation;
     const engine = this.engine;
     const wasListening = this.listening;
     this.listening = false;
@@ -111,6 +128,7 @@ export class SpeechToTextService {
         cleanup(BrownRecorder.stopRecording());
       } catch {}
     }
+    this.engine = null;
   }
 
   static getIsListening(): boolean {
@@ -135,35 +153,40 @@ export class SpeechToTextService {
   // ---------------------------------------------------------------- native recognizer
 
   private static startNative(): boolean {
+    const generation = this.generation;
     this.lastPartial = '';
     this.engine = 'native';
     this.listening = true;
     this.sub = subscribeSpeech({
       onPartial: (text) => {
-        if (this.engine !== 'native') return;
+        if (this.engine !== 'native' || generation !== this.generation) return;
         this.lastPartial = text;
         this.options?.onPartialResult?.(text);
       },
       onFinal: (text) => {
-        if (this.engine !== 'native') return;
+        if (this.engine !== 'native' || generation !== this.generation) return;
         const final = (text || this.lastPartial).trim();
         this.lastPartial = final;
         this.listening = false;
         if (final) this.nativeUnavailable = false;
         this.deliver(final);
+        if (!final) this.options?.onError?.(new Error('No speech was detected. Tap the mic and try again.'));
+        this.teardownNative();
       },
       onError: (message, code, partialText) => {
-        if (this.engine !== 'native') return;
+        if (this.engine !== 'native' || generation !== this.generation) return;
         const heard = (partialText || this.lastPartial).trim();
         this.listening = false;
         // A failure at the tail of a sentence must not throw the sentence away.
         if (heard) {
           this.deliver(heard);
+          this.teardownNative();
           return;
         }
         if (NATIVE_UNAVAILABLE_CODES.includes(code)) this.nativeUnavailable = true;
         this.deliver('');
         this.options?.onError?.(new Error(message));
+        this.teardownNative();
       },
     });
 
@@ -185,12 +208,14 @@ export class SpeechToTextService {
       this.stopResolver = resolve;
       this.stopTimer = setTimeout(() => {
         const heard = this.lastPartial.trim();
+        cancelSpeech();
         this.teardownNative();
         this.resolveStop(heard);
       }, NATIVE_STOP_TIMEOUT_MS);
       try {
         stopSpeech();
       } catch {
+        cancelSpeech();
         this.teardownNative();
         this.resolveStop(this.lastPartial.trim());
       }
@@ -254,6 +279,7 @@ export class SpeechToTextService {
   }
 
   private static async stopWhisper(): Promise<string> {
+    const generation = this.generation;
     this.clearAutoTimer();
     this.listening = false;
     this.engine = null;
@@ -292,7 +318,7 @@ export class SpeechToTextService {
       // here too would put the same sentence in the composer twice.
       return await DesktopSyncService.getInstance().transcribeAudio(wavBase64);
     } catch (err: any) {
-      options?.onError?.(err);
+      if (generation === this.generation) options?.onError?.(err);
       throw err;
     }
   }

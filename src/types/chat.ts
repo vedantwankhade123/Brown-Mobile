@@ -22,6 +22,7 @@ export interface ChatSession {
   updatedAt: number;
   messageCount: number;
   lastMessagePreview?: string;
+  syncOrigin?: 'desktop' | 'mobile' | 'both';
 }
 
 export interface GenerationStats {

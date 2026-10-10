@@ -2,7 +2,7 @@
   "expo": {
     "name": "Brown AI",
     "slug": "brown-mobile",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./Assets/Brown-icon.png",
     "userInterfaceStyle": "dark",
@@ -40,7 +40,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_DATA_SYNC"
       ],
-      "versionCode": 16,
+      "versionCode": 17,
       "blockedPermissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -62,6 +62,7 @@
         }
       ],
       "./plugins/withSystemBarContrast.js",
+      "./plugins/withLocalCompanionNetwork.js",
       "expo-font",
       "./plugins/withLlamaRN.js",
       "onnxruntime-react-native",

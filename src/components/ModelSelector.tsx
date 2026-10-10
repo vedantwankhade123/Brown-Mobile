@@ -1,9 +1,10 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  
   Modal,
   ScrollView,
   Platform,
@@ -148,7 +149,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                     Get on-device models or add a cloud key
                   </Text>
                 </View>
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.promoPill}
                   activeOpacity={0.8}
                   onPress={() => {

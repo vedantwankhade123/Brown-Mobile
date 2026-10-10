@@ -1,5 +1,6 @@
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Alert } from 'react-native';
+import { View, Text, TextInput, ScrollView,  StyleSheet, SafeAreaView, Alert } from 'react-native';
 import { AssistantMemory } from '../services/storage/AssistantMemory';
 import { ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
 import { PencilIcon, TrashIcon } from '../components/Icons';
@@ -34,12 +35,12 @@ export const PreferencesScreen: React.FC<{ onBack: () => void }> = ({ onBack }) 
       {preferences.map(value => <View key={value} style={styles.card}>
         {editing === value ? <>
           <TextInput accessibilityLabel="Edit saved preference" style={styles.input} multiline maxLength={400} value={draft} onChangeText={setDraft} editable={!busy} autoFocus placeholderTextColor="#71717a" />
-          <View style={styles.actions}><TouchableOpacity style={styles.button} onPress={() => setEditing(null)} disabled={busy}><Text style={styles.text}>Cancel</Text></TouchableOpacity><TouchableOpacity accessibilityLabel="Save preference" style={[styles.button, styles.save]} onPress={save} disabled={busy || !draft.trim()}><Text style={styles.saveText}>Save</Text></TouchableOpacity></View>
+          <View style={styles.actions}><TouchableOpacity brownSurface style={styles.button} onPress={() => setEditing(null)} disabled={busy}><Text style={styles.text}>Cancel</Text></TouchableOpacity><TouchableOpacity brownSurface accessibilityLabel="Save preference" style={[styles.button, styles.save]} onPress={save} disabled={busy || !draft.trim()}><Text style={styles.saveText}>Save</Text></TouchableOpacity></View>
         </> : <>
           <Text style={styles.text}>{value}</Text>
           <View style={styles.actions}>
-            <TouchableOpacity accessibilityLabel="Edit preference" style={styles.button} disabled={busy} onPress={() => { setEditing(value); setDraft(value); }}><PencilIcon size={17} /><Text style={styles.text}>Edit</Text></TouchableOpacity>
-            <TouchableOpacity accessibilityLabel="Delete preference" style={styles.button} disabled={busy} onPress={() => remove(value)}><TrashIcon size={17} color="#e4e4e7" /><Text style={styles.text}>Delete</Text></TouchableOpacity>
+            <TouchableOpacity brownSurface accessibilityLabel="Edit preference" style={styles.button} disabled={busy} onPress={() => { setEditing(value); setDraft(value); }}><PencilIcon size={17} /><Text style={styles.text}>Edit</Text></TouchableOpacity>
+            <TouchableOpacity brownSurface accessibilityLabel="Delete preference" style={styles.button} disabled={busy} onPress={() => remove(value)}><TrashIcon size={17} color="#e4e4e7" /><Text style={styles.text}>Delete</Text></TouchableOpacity>
           </View>
         </>}
       </View>)}

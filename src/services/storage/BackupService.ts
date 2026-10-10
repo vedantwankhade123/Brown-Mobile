@@ -51,7 +51,7 @@ export async function restoreBackup(backup: ValidatedBackup): Promise<{ sessions
   const known = new Set(saved.map(p => p.toLowerCase()));
   const additions = backup.preferences.filter(p => !known.has(p.toLowerCase()));
   if (saved.length + additions.length > 20) throw new Error('Restoring these preferences would exceed the 20-preference limit. Remove some saved preferences first.');
-  const result = await new ChatRepository().importBundle({ sessions: backup.sessions });
+  const result = await new ChatRepository().importBundle({ sessions: backup.sessions }, 'backup');
   await AssistantMemory.merge(additions);
   return { ...result, preferences: additions.length };
 }

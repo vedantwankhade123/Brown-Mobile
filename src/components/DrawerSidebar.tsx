@@ -1,3 +1,4 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import { AppBackground } from './AppBackground';
 import { pushNavBarColor } from '../theme/systemBars';
 import React, { useState, useEffect, useRef } from 'react';
@@ -6,7 +7,7 @@ import {
   Text,
   TextInput,
   StyleSheet,
-  TouchableOpacity,
+  
   ScrollView,
   SafeAreaView,
   Animated,
@@ -196,7 +197,7 @@ const SwipeableHistoryRow: React.FC<{
             </Text>
           </TouchableOpacity>
           <Animated.View style={[styles.historyMenuWrap, { opacity: contentOpacity }]}>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.historyMenuBtn}
               onPress={onOpenActions}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -366,7 +367,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     return (
       <SwipeableHistoryRow
         key={item.id}
-        title={formattedTitle}
+        title={`${item.syncOrigin === 'desktop' ? '▣ ' : item.syncOrigin === 'both' ? '⇄ ' : ''}${formattedTitle}`}
         isActive={isActive}
         isFirst={isFirst}
         isLast={isLast}
@@ -409,7 +410,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     autoCorrect={false}
                   />
                   {searchQuery.length > 0 && (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       style={styles.searchClearBtn}
                       onPress={() => setSearchQuery('')}
                       accessibilityLabel="Clear search"
@@ -527,7 +528,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
 
           {/* QR scan and Settings — persistent bottom-right controls */}
           <View style={[styles.connectRow, { marginBottom: 14 + insets.bottom }]}>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.footerQrButton}
               onPress={() => {
                 onOpenSync({ scan: true });
@@ -538,7 +539,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             >
               <QrCodeIcon size={24} color="#ffffff" />
             </TouchableOpacity>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.connectCapsuleSettings}
               onPress={() => {
                 if (onOpenSettings) onOpenSettings();
@@ -559,10 +560,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         animationType="fade"
         onRequestClose={() => setSessionActionTarget(null)}
       >
-        <TouchableOpacity style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionActionTarget(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.sessionActionsCard} onPress={() => {}}>
+        <TouchableOpacity brownSurface style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionActionTarget(null)}>
+          <TouchableOpacity brownSurface activeOpacity={1} style={styles.sessionActionsCard} onPress={() => {}}>
             <Text style={styles.sessionActionsTitle} numberOfLines={1}>{sessionActionTarget?.title}</Text>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.sessionActionRow}
               onPress={() => {
                 if (!sessionActionTarget) return;
@@ -575,7 +576,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               <PencilIcon size={18} color="#ffffff" />
               <Text style={styles.sessionActionText}>Rename chat</Text>
             </TouchableOpacity>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.sessionActionRow}
               onPress={() => {
                 if (sessionActionTarget) setSessionToDelete(sessionActionTarget);
@@ -596,8 +597,8 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         animationType="fade"
         onRequestClose={() => setSessionToRename(null)}
       >
-        <TouchableOpacity style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionToRename(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
+        <TouchableOpacity brownSurface style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionToRename(null)}>
+          <TouchableOpacity brownSurface activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
             <Text style={styles.confirmModalTitle}>Rename chat</Text>
             <TextInput
               style={styles.renameInput}
@@ -610,10 +611,10 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               selectTextOnFocus
             />
             <View style={styles.confirmModalActionsRow}>
-              <TouchableOpacity style={styles.confirmCancelBtn} onPress={() => setSessionToRename(null)} activeOpacity={0.7}>
+              <TouchableOpacity brownSurface style={styles.confirmCancelBtn} onPress={() => setSessionToRename(null)} activeOpacity={0.7}>
                 <Text style={styles.confirmCancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={[styles.renameSaveBtn, !renameValue.trim() && styles.renameSaveBtnDisabled]}
                 onPress={async () => {
                   const nextTitle = renameValue.trim();
@@ -638,12 +639,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         animationType="fade"
         onRequestClose={() => setSessionToDelete(null)}
       >
-        <TouchableOpacity
+        <TouchableOpacity brownSurface
           style={styles.confirmModalOverlay}
           activeOpacity={1}
           onPress={() => setSessionToDelete(null)}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
+          <TouchableOpacity brownSurface activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
             <View style={styles.confirmModalHeader}>
               <View style={styles.confirmModalIconBox}>
                 <TrashIcon size={18} color="#ef4444" />
@@ -654,14 +655,14 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
               Permanently delete "{sessionToDelete?.title}"? All messages in this conversation will be removed. This cannot be undone.
             </Text>
             <View style={styles.confirmModalActionsRow}>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={styles.confirmCancelBtn}
                 onPress={() => setSessionToDelete(null)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.confirmCancelBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 style={styles.confirmDeleteBtn}
                 onPress={() => {
                   if (sessionToDelete) {

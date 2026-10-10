@@ -1,10 +1,11 @@
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  
   Pressable,
   SafeAreaView,
   Alert,
@@ -18,6 +19,7 @@ import {
 import { confirmFolderSelection } from '../utils/storageFolderPicker';
 import * as FileSystem from 'expo-file-system';
 import { ModelCard } from '../components/ModelCard';
+import { backgroundDownloadsAvailable } from '../services/modelManager/BackgroundDownload';
 import {
   MOBILE_GGUF_LIBRARY,
   filterMobileSafeModels,
@@ -292,7 +294,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => downloader.deleteModel(modelId),
+        onPress: () => downloader.deleteModel(modelId).catch(err => Alert.alert('Delete model', err.message)),
       },
     ]);
   };
@@ -338,7 +340,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
       ) : (
         <View style={[styles.headerBar, styles.headerBarSearchActive, storeScrolled && styles.headerBarScrolled]}>
           <HeaderFade />
-          <GlassSurface radius={9999} active={true} style={styles.searchBarInner}>
+          <View style={styles.searchBarInner}>
             <SearchIcon size={17} color="#9ca3af" />
             <TextInput
               autoFocus
@@ -347,13 +349,14 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
               onChangeText={setSearchQuery}
               placeholder="Search Hugging Face GGUFs..."
               placeholderTextColor="#71717a"
+              accessibilityLabel="Search Hugging Face models"
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
               onSubmitEditing={() => runHuggingFaceSearch(searchQuery, false)}
             />
             {searchQuery.trim().length > 0 && (
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 onPress={() => runHuggingFaceSearch(searchQuery, false)}
                 style={styles.headerSubmitBtn}
                 activeOpacity={0.8}
@@ -361,7 +364,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
                 <Text style={styles.headerSubmitBtnText}>Search</Text>
               </TouchableOpacity>
             )}
-          </GlassSurface>
+          </View>
           <GlassControl radius={22} active={true}
             onPress={() => {
               setIsSearchOpen(false);
@@ -400,7 +403,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
         {/* Filter by GGUF download size */}
         <View style={styles.filterBlock}>
           <View style={styles.filterRow}>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={[styles.filterPill, sizeFilter === 'all' && styles.filterPillOn]}
               onPress={() => setSizeFilter('all')}
               activeOpacity={0.8}
@@ -412,7 +415,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
               </Text>
             </TouchableOpacity>
             {SIZE_BUCKET_ORDER.map((bucket) => (
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 key={bucket}
                 style={[styles.filterPill, sizeFilter === bucket && styles.filterPillOn]}
                 onPress={() => setSizeFilter(bucket)}
@@ -453,14 +456,14 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
                   onSelect={handleSelectModel}
                   onDownload={handleDownload}
                   onDelete={handleDelete}
-                  onPause={(id) => downloader.pauseDownload(id)}
+                  onPause={backgroundDownloadsAvailable() ? undefined : (id) => downloader.pauseDownload(id).catch(err => Alert.alert('Pause download', err.message))}
                   onResume={(id) => downloader.resumeDownload(id)}
-                  onCancel={(id) => downloader.cancelDownload(id)}
+                  onCancel={(id) => downloader.cancelDownload(id).catch(err => Alert.alert('Cancel download', err.message))}
                 />
               ))}
 
             {(hfNextUrl || hfVisible.length > 0) && (
-              <TouchableOpacity
+              <TouchableOpacity brownSurface="light"
                 style={[styles.loadMoreBtn, hfLoading && { opacity: 0.6 }]}
                 onPress={() => runHuggingFaceSearch(lastQuery, true, hfNextUrl, hfSkip)}
                 activeOpacity={0.8}
@@ -496,9 +499,9 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
                   onSelect={handleSelectModel}
                   onDownload={handleDownload}
                   onDelete={handleDelete}
-                  onPause={(id) => downloader.pauseDownload(id)}
+                  onPause={backgroundDownloadsAvailable() ? undefined : (id) => downloader.pauseDownload(id).catch(err => Alert.alert('Pause download', err.message))}
                   onResume={(id) => downloader.resumeDownload(id)}
-                  onCancel={(id) => downloader.cancelDownload(id)}
+                  onCancel={(id) => downloader.cancelDownload(id).catch(err => Alert.alert('Cancel download', err.message))}
                 />
               ))}
             </View>
@@ -526,7 +529,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
             </View>
             <View style={styles.sheetHeaderRow}>
               <Text style={[styles.sheetTitle, styles.sheetTitleFlex]} numberOfLines={1}>Download location</Text>
-              <TouchableOpacity
+              <TouchableOpacity brownSurface
                 onPress={closeLocationSheet}
                 style={styles.sheetCloseBtn}
                 activeOpacity={0.7}
@@ -562,10 +565,10 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
               </Text>
             </TouchableOpacity>
             <View style={styles.sheetActions}>
-              <TouchableOpacity style={styles.sheetCancel} onPress={closeLocationSheet}>
+              <TouchableOpacity brownSurface style={styles.sheetCancel} onPress={closeLocationSheet}>
                 <Text style={styles.sheetCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.sheetConfirm} onPress={saveLocation}>
+              <TouchableOpacity brownSurface style={styles.sheetConfirm} onPress={saveLocation}>
                 <Text style={styles.sheetConfirmText}>Save location</Text>
               </TouchableOpacity>
             </View>
@@ -604,20 +607,29 @@ const styles = StyleSheet.create({
   },
   searchBarInner: {
     flex: 1,
+    minWidth: 0,
+    backgroundColor: '#202020',
+    borderWidth: 1,
+    borderColor: '#373737',
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 9999,
     paddingHorizontal: 14,
-    height: 42,
+    height: 44,
     gap: 8,
   },
   headerSearchInput: {
     flex: 1,
+    minWidth: 0,
+    height: 42,
+    textAlign: 'left',
+    textAlignVertical: 'center',
     color: '#ffffff',
     fontSize: 14,
     paddingVertical: 0,
   },
   headerSubmitBtn: {
+    flexShrink: 0,
     backgroundColor: '#ffffff',
     borderRadius: 9999,
     paddingHorizontal: 10,

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -23,6 +24,11 @@ class BrownSpeechModule : Module() {
   private val main = Handler(Looper.getMainLooper())
   private var recognizer: SpeechRecognizer? = null
   private var pendingRestart: Runnable? = null
+  private var stopDeadline: Runnable? = null
+  private var sessionDeadline: Runnable? = null
+  private var generation = 0
+  private var partial = ""
+  private var retries = 0
 
   @Volatile
   private var active = false
@@ -33,7 +39,7 @@ class BrownSpeechModule : Module() {
   private var transcript = StringBuilder()
   private var startedAt = 0L
 
-  private val listener = object : RecognitionListener {
+  private fun listener(token: Int): RecognitionListener = object : RecognitionListener {
     override fun onReadyForSpeech(params: Bundle?) {}
 
     override fun onBeginningOfSpeech() {}
@@ -45,29 +51,58 @@ class BrownSpeechModule : Module() {
     override fun onEndOfSpeech() {}
 
     override fun onPartialResults(results: Bundle?) {
-      if (!active) return
+      if (!active || token != generation) return
       val text = bestResult(results)
       if (text.isEmpty()) return
+      partial = text
       sendEvent(EVENT_PARTIAL, mapOf("text" to preview(text)))
     }
 
     override fun onResults(results: Bundle?) {
-      if (!active) return
-      append(bestResult(results))
+      if (!active || token != generation) return
+      append(bestResult(results).ifEmpty { partial })
+      partial = ""
+      retries = 0
       if (shouldContinue()) restart() else finishSession()
     }
 
     override fun onError(error: Int) {
-      if (!active) return
+      if (!active || token != generation) return
       // Silence between sentences surfaces as an error, not as a result. While dictating it
       // only means "listen again"; once the user pressed stop it means the tail was quiet.
       val quiet = error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
       if (quiet && finishing) {
+        append(partial)
+        partial = ""
         finishSession()
         return
       }
       if (quiet && shouldContinue()) {
+        // Keep an unfinalized hypothesis across a recognizer silence timeout.
+        append(partial)
+        partial = ""
         restart()
+        return
+      }
+      // Some phones have an offline recognizer but lack this language's pack.
+      // Retry once with the system service instead of leaving the microphone stuck.
+      if ((error == 12 || error == 13) && preferOffline && !finishing) {
+        preferOffline = false
+        releaseRecognizer()
+        val ctx = appContext.reactContext
+        if (ctx != null) {
+          try {
+            val replacement = SpeechRecognizer.createSpeechRecognizer(ctx)
+            recognizer = replacement
+            replacement.setRecognitionListener(listener(++generation))
+            restart()
+            return
+          } catch (@Suppress("unused") e: Exception) {}
+        }
+      }
+      val transient = error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY || error == SpeechRecognizer.ERROR_SERVER || error == 11
+      if (transient && !finishing && retries++ < 2 && shouldContinue()) {
+        restart(500L * retries)
         return
       }
       errorOut(describe(error), error)
@@ -112,6 +147,15 @@ class BrownSpeechModule : Module() {
         }
         try {
           current.stopListening()
+          val deadline = Runnable {
+            if (active && finishing) {
+              append(partial)
+              partial = ""
+              finishSession()
+            }
+          }
+          stopDeadline = deadline
+          main.postDelayed(deadline, 3500L)
         } catch (@Suppress("unused") e: Exception) {
           finishSession()
         }
@@ -129,15 +173,21 @@ class BrownSpeechModule : Module() {
   }
 
   private fun beginSession(ctx: Context) {
+    ++generation
+    clearDeadlines()
     cancelPendingRestart()
     releaseRecognizer()
     transcript = StringBuilder()
+    partial = ""
+    retries = 0
     startedAt = System.currentTimeMillis()
     finishing = false
     active = true
 
     val created = try {
-      SpeechRecognizer.createSpeechRecognizer(ctx)
+      if (preferOffline && Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)) {
+        SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
+      } else SpeechRecognizer.createSpeechRecognizer(ctx)
     } catch (@Suppress("unused") e: Exception) {
       null
     }
@@ -146,7 +196,17 @@ class BrownSpeechModule : Module() {
       return
     }
     recognizer = created
-    created.setRecognitionListener(listener)
+    created.setRecognitionListener(listener(generation))
+    val deadline = Runnable {
+      if (active) {
+        finishing = true
+        append(partial)
+        partial = ""
+        finishSession()
+      }
+    }
+    sessionDeadline = deadline
+    main.postDelayed(deadline, MAX_SESSION_MS)
     try {
       created.startListening(buildIntent(ctx))
     } catch (@Suppress("unused") e: Exception) {
@@ -171,7 +231,7 @@ class BrownSpeechModule : Module() {
   private fun shouldContinue(): Boolean =
     continuous && !finishing && active && System.currentTimeMillis() - startedAt < MAX_SESSION_MS
 
-  private fun restart() {
+  private fun restart(delay: Long = RESTART_DELAY_MS) {
     val ctx = appContext.reactContext
     val current = recognizer
     if (ctx == null || current == null) {
@@ -189,7 +249,7 @@ class BrownSpeechModule : Module() {
       }
     }
     pendingRestart = task
-    main.postDelayed(task, RESTART_DELAY_MS)
+    main.postDelayed(task, delay)
   }
 
   private fun append(text: String) {
@@ -200,7 +260,10 @@ class BrownSpeechModule : Module() {
 
   private fun finishSession() {
     if (!active) return
+    append(partial)
+    partial = ""
     active = false
+    clearDeadlines()
     val text = transcript.toString().trim()
     cancelPendingRestart()
     releaseRecognizer()
@@ -211,7 +274,8 @@ class BrownSpeechModule : Module() {
   private fun errorOut(message: String, code: Int) {
     if (!active) return
     active = false
-    val text = transcript.toString().trim()
+    clearDeadlines()
+    val text = preview(partial).trim()
     cancelPendingRestart()
     releaseRecognizer()
     sendEvent(EVENT_ERROR, mapOf("message" to message, "code" to code, "text" to text))
@@ -219,12 +283,22 @@ class BrownSpeechModule : Module() {
   }
 
   private fun teardown() {
+    ++generation
+    clearDeadlines()
     val wasActive = active
     active = false
     transcript = StringBuilder()
+    partial = ""
     cancelPendingRestart()
     releaseRecognizer()
     if (wasActive) sendEvent(EVENT_END, mapOf("text" to ""))
+  }
+
+  private fun clearDeadlines() {
+    stopDeadline?.let { main.removeCallbacks(it) }
+    sessionDeadline?.let { main.removeCallbacks(it) }
+    stopDeadline = null
+    sessionDeadline = null
   }
 
   private fun cancelPendingRestart() {

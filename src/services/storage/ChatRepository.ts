@@ -31,7 +31,7 @@ export class ChatRepository {
 
   async getAllSessions(): Promise<ChatSession[]> {
     const rows = await this.db.getAll<any>(
-      `SELECT id, title, model_id as modelId, created_at as createdAt, updated_at as updatedAt, message_count as messageCount, last_message_preview as lastMessagePreview
+      `SELECT id, title, model_id as modelId, created_at as createdAt, updated_at as updatedAt, message_count as messageCount, last_message_preview as lastMessagePreview, sync_origin as syncOrigin
        FROM sessions ORDER BY updated_at DESC`
     );
     return rows;
@@ -39,7 +39,7 @@ export class ChatRepository {
 
   async getSessionById(sessionId: string): Promise<ChatSession | null> {
     const row = await this.db.getFirst<any>(
-      `SELECT id, title, model_id as modelId, created_at as createdAt, updated_at as updatedAt, message_count as messageCount, last_message_preview as lastMessagePreview
+      `SELECT id, title, model_id as modelId, created_at as createdAt, updated_at as updatedAt, message_count as messageCount, last_message_preview as lastMessagePreview, sync_origin as syncOrigin
        FROM sessions WHERE id = ?`,
       [sessionId]
     );
@@ -81,8 +81,8 @@ export class ChatRepository {
 
   async upsertSession(session: ChatSession): Promise<void> {
     await this.db.exec(
-      `INSERT OR REPLACE INTO sessions (id, title, model_id, created_at, updated_at, message_count, last_message_preview)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO sessions (id, title, model_id, created_at, updated_at, message_count, last_message_preview, sync_origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         session.id,
         session.title,
@@ -91,6 +91,7 @@ export class ChatRepository {
         session.updatedAt,
         session.messageCount,
         session.lastMessagePreview || '',
+        session.syncOrigin || '',
       ]
     );
   }
@@ -124,7 +125,7 @@ export class ChatRepository {
 
   async importBundle(bundle: {
     sessions: Array<Partial<ChatSession> & { id: string; messages?: ChatMessage[] }>;
-  }): Promise<{ sessions: number; messages: number }> {
+  }, source: 'desktop' | 'backup' = 'desktop'): Promise<{ sessions: number; messages: number }> {
     let sessionCount = 0;
     let messageCount = 0;
     const existingSessions = await this.getAllSessions();
@@ -147,15 +148,17 @@ export class ChatRepository {
           updatedAt,
           messageCount: nested.length || incoming.messageCount || 0,
           lastMessagePreview: incoming.lastMessagePreview || nested[nested.length - 1]?.content?.slice(0, 80),
+          syncOrigin: source === 'backup' ? incoming.syncOrigin : incoming.syncOrigin === 'mobile' || incoming.syncOrigin === 'both' ? 'both' : 'desktop',
         });
         sessionIds.add(incoming.id);
         sessionCount++;
-      } else if (existing && updatedAt > existing.updatedAt) {
+      } else if (existing) {
         await this.upsertSession({
           ...existing,
-          title,
-          updatedAt,
+          title: updatedAt > existing.updatedAt ? title : existing.title,
+          updatedAt: Math.max(updatedAt, existing.updatedAt),
           lastMessagePreview: incoming.lastMessagePreview || existing.lastMessagePreview,
+          syncOrigin: source === 'backup' ? existing.syncOrigin || incoming.syncOrigin : existing.syncOrigin === 'desktop' && incoming.syncOrigin !== 'both' ? 'desktop' : 'both',
         });
       }
 

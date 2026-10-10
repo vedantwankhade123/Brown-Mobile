@@ -57,7 +57,8 @@ export class AppDatabase implements IDatabaseService {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         message_count INTEGER DEFAULT 0,
-        last_message_preview TEXT
+        last_message_preview TEXT,
+        sync_origin TEXT
       );
     `;
 
@@ -109,6 +110,11 @@ export class AppDatabase implements IDatabaseService {
           await this.db.execAsync(createMessagesTable);
           await this.db.execAsync(createConsentsTable);
           await this.db.execAsync(createIndexes);
+        }
+        const columns = this.db.getAllSync ? this.db.getAllSync('PRAGMA table_info(sessions)') : await this.db.getAllAsync('PRAGMA table_info(sessions)');
+        if (!columns.some((column: any) => column.name === 'sync_origin')) {
+          if (this.db.execSync) this.db.execSync('ALTER TABLE sessions ADD COLUMN sync_origin TEXT');
+          else await this.db.execAsync('ALTER TABLE sessions ADD COLUMN sync_origin TEXT');
         }
       } catch (err) {
         console.warn('SQLite migration error:', err);
@@ -180,6 +186,7 @@ export class AppDatabase implements IDatabaseService {
         updated_at: params[4],
         message_count: params[5] || 0,
         last_message_preview: params[6] || '',
+        sync_origin: params[7] || '',
       });
     } else if (lower.includes('insert into messages') || lower.includes('insert or replace into messages')) {
       this.memoryStore.messages = this.memoryStore.messages.filter((m) => m.id !== params[0]);
@@ -232,6 +239,7 @@ export class AppDatabase implements IDatabaseService {
           updatedAt: s.updated_at,
           messageCount: s.message_count,
           lastMessagePreview: s.last_message_preview,
+          syncOrigin: s.sync_origin || undefined,
         }));
       if (lower.includes('where id') && params[0]) {
         return rows.filter((s) => s.id === params[0]) as unknown as T[];

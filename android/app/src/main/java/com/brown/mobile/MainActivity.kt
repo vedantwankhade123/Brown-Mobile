@@ -2,6 +2,10 @@ package com.brown.mobile
 
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.graphics.drawable.BitmapDrawable
+import expo.modules.splashscreen.SplashScreenView
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -17,6 +21,22 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+    alignSplashBrand(window.decorView)
+    window.decorView.post { alignSplashBrand(window.decorView) }
+  }
+
+  override fun onContentChanged() {
+    super.onContentChanged()
+    alignSplashBrand(window.decorView)
+  }
+
+  private fun alignSplashBrand(view: View) {
+    if (view is SplashScreenView) {
+      val source = view.imageView.drawable as? BitmapDrawable ?: return
+      view.imageView.setImageDrawable(CenteredBrandDrawable(source.bitmap))
+    } else if (view is ViewGroup) {
+      for (index in 0 until view.childCount) alignSplashBrand(view.getChildAt(index))
+    }
   }
 
   /**
