@@ -36,6 +36,8 @@
 
 ## 💾 Download APK
 
+![Brown AI mobile app on Android](Assets/Mobile_Download_Mockup.png)
+
 Download the official Android release directly from **[Brown-Mobile Releases](https://github.com/vedantwankhade123/Brown-Mobile/releases)**. The link below is a stable `latest` alias, so it always resolves to the newest build:
 
 | Platform | Package | ABI | Description |

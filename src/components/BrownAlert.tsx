@@ -1,10 +1,11 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   Modal,
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  
   Pressable,
 } from 'react-native';
 
@@ -117,7 +118,7 @@ export const BrownAlertHost: React.FC = () => {
                   !buttons.some((b) => b.style === 'primary'));
 
               return (
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   key={`${btn.text}-${idx}`}
                   style={[
                     styles.btn,

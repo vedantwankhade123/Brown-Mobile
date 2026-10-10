@@ -1,18 +1,19 @@
 {
   "name": "brown-mobile",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Brown Mobile - Privacy-First On-Device AI Assistant",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
   "private": true,
   "main": "index.js",
   "scripts": {
+    "build:desktop-preview": "node scripts/build-desktop-preview.cjs",
     "start": "expo start",
     "start:offline": "expo start --offline",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/kokoro-download.test.cjs && node tests/verify-mobile-suite.js && node tests/chat-behavior.test.cjs",
+    "test": "node tests/companion-reconnect.test.cjs && node tests/microphone-lifecycle.test.cjs && node tests/background-download.test.cjs && node tests/kokoro-download.test.cjs && node tests/verify-mobile-suite.js && node tests/chat-behavior.test.cjs",
     "build:apk": "cd android && gradlew.bat assembleRelease",
     "release:apk": "node scripts/release-apk.js",
     "publish:apk": "node scripts/release-apk.js --publish"
@@ -54,8 +55,11 @@
     "react-native-web": "~0.19.10"
   },
   "devDependencies": {
+    "@fontsource/roboto": "^5.3.0",
     "@types/react": "~18.2.79",
+    "@types/react-dom": "^18.3.7",
     "@types/react-native": "^0.72.8",
+    "esbuild": "^0.28.2",
     "typescript": "~5.3.3"
   }
 }

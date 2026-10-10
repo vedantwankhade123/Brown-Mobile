@@ -1,10 +1,11 @@
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
+  
   SafeAreaView,
   ActivityIndicator,
   Alert,
@@ -150,7 +151,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
       {/* Top Skip Button for Personalization (Steps 1-4) */}
       {currentStep >= 1 && currentStep <= 3 && (
         <View style={styles.onboardTopBar}>
-          <TouchableOpacity
+          <TouchableOpacity brownSurface
             style={styles.onboardSkipBtn}
             onPress={finishOnboarding}
             disabled={isFinishing}
@@ -194,7 +195,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
           {currentStep === 0 && (
             <View style={styles.onboardWelcome}>
               <View style={styles.onboardBtnStack}>
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={[styles.btnOnboardPrimary, styles.btnGetStarted]}
                   onPress={handleStart}
                   activeOpacity={0.85}
@@ -250,7 +251,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
               {/* Action Buttons: Continue + Back */}
               <View style={styles.onboardFooterActions}>
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={[styles.btnOnboardPrimary, styles.btnOnboardPrimaryFull]}
                   onPress={handleNext}
                   disabled={isFinishing}
@@ -263,7 +264,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
                 </TouchableOpacity>
 
                 {/* Back button on EVERY step below Continue */}
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.btnOnboardBack}
                   onPress={handleBack}
                   disabled={isFinishing}
@@ -287,7 +288,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               {' & '}
               <Text style={styles.legalLink} onPress={() => setShowPrivacyModal(true)}>Privacy Policy</Text>.
             </Text>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.whyBottomTriggerBtn}
               onPress={() => setShowWhyModal(true)}
               activeOpacity={0.7}
@@ -323,7 +324,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
             </Text>
 
             {/* Primary Capsule Action Button */}
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.modalCapsuleBtn}
               onPress={() => setShowWhyModal(false)}
               activeOpacity={0.85}
@@ -449,7 +450,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               </Text>
             </View>
 
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.fullPageActionBtn}
               onPress={() => setShowTermsModal(false)}
               activeOpacity={0.85}
@@ -535,7 +536,7 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
               </Text>
             </View>
 
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.fullPageActionBtn}
               onPress={() => setShowPrivacyModal(false)}
               activeOpacity={0.85}

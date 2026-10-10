@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { StoragePaths } from '../storage/StoragePaths';
 import { KOKORO_HF_ASSETS, resetKokoroOnnxSession } from './KokoroOnnxEngine';
+import { backgroundDownloadsAvailable, backgroundDownloadKeys, hasBackgroundDownload, enqueueBackgroundDownload, receiveBackgroundDownload, cancelBackgroundDownloadPrefix, cancelBackgroundDownload } from '../modelManager/BackgroundDownload';
 
 /** Mirrors desktop `voice-tts.js` catalog keys */
 export type KokoroVoiceId = 'af_heart' | 'am_michael' | 'bm_george' | 'bm_lewis';
@@ -212,16 +213,22 @@ export function keyToVoiceId(key: KokoroVoiceKey): KokoroVoiceId {
 let downloadCancelled = false;
 let downloadInProgress = false;
 let activeResumable: any = null;
+let lastProgress: KokoroDownloadProgress | null = null;
+let activeDownloadTask: string | null = null;
+export function getKokoroDownloadState() {
+  return { busy: downloadInProgress, task: activeDownloadTask, progress: lastProgress };
+}
 
 export function isKokoroDownloadInProgress(): boolean {
   return downloadInProgress;
 }
 
-export function cancelKokoroDownload(): void {
+export async function cancelKokoroDownload(task?: string): Promise<void> {
+  if (task && (!downloadInProgress || activeDownloadTask !== task)) return;
   downloadCancelled = true;
-  try {
-    activeResumable?.pauseAsync?.()?.catch?.(() => {});
-  } catch {}
+  await cancelBackgroundDownloadPrefix('kokoro:');
+  if (activeResumable?.cancelAsync) await activeResumable.cancelAsync();
+  else await activeResumable?.pauseAsync?.();
 }
 
 export function isKokoroVoiceInstalled(status: KokoroInstallStatus, voiceId: KokoroVoiceId): boolean {
@@ -230,8 +237,7 @@ export function isKokoroVoiceInstalled(status: KokoroInstallStatus, voiceId: Kok
 }
 
 export async function stopKokoroForAccountDeletion(): Promise<void> {
-  cancelKokoroDownload();
-  await activeResumable?.pauseAsync?.();
+  await cancelKokoroDownload();
   const deadline = Date.now() + 15000;
   while (downloadInProgress) {
     if (Date.now() > deadline) throw new Error('A voice download is still stopping. Retry deletion.');
@@ -266,11 +272,13 @@ async function downloadFile(
 ): Promise<void> {
   const FileSystem = require('expo-file-system');
   const partialDest = `${dest}.part`;
+  let lastWritten = 0, lastAdvance = Date.now();
   const callback = (progressEvent: any) => {
     if (downloadCancelled) return;
     const total = Number(progressEvent?.totalBytesExpectedToWrite || 0);
     const written = Number(progressEvent?.totalBytesWritten || 0);
-    const ratio = total > 0 ? written / total : 0;
+    if (written > lastWritten) { lastWritten = written; lastAdvance = Date.now(); }
+    const ratio = written / (total > 0 ? total : minBytes);
     const percent = Math.min(99, Math.round(progressOffset + ratio * progressSpan));
     onProgress?.({
       phase: 'download',
@@ -278,9 +286,32 @@ async function downloadFile(
       status: `Downloading ${label}…`,
       fileLabel: label,
       downloaded: `${(written / (1024 * 1024)).toFixed(1)} MB`,
-      total: total > 0 ? `${(total / (1024 * 1024)).toFixed(1)} MB` : undefined,
+      total: `${((total > 0 ? total : minBytes) / (1024 * 1024)).toFixed(1)} MB`,
     });
   };
+
+  if (backgroundDownloadsAvailable()) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const result = await receiveBackgroundDownload(`kokoro:${dest}`, partialDest, minBytes,
+          () => downloadCancelled, callback, state => onProgress?.({ phase: 'download', percent: lastProgress?.percent || Math.round(progressOffset), fileLabel: label, status: state, downloaded: lastProgress?.downloaded, total: lastProgress?.total }), minBytes < 1024 * 1024 ? 15000 : 30000);
+        if (downloadCancelled) throw new Error('Download cancelled.');
+        await FileSystem.moveAsync({ from: result.uri, to: dest });
+        return;
+      } catch (error: any) {
+        if (downloadCancelled || /storage|private|gated|no longer available/i.test(error?.message || '')) throw error;
+        await cancelBackgroundDownload(`kokoro:${dest}`);
+        if (downloadCancelled) throw new Error('Download cancelled.');
+        if (attempt >= 1) {
+          onProgress?.({ phase: 'download', percent: Math.round(progressOffset), status: `Android download stalled. Switching to direct download for ${label}…` });
+          await activateKeepAwake();
+          break;
+        }
+        onProgress?.({ phase: 'download', percent: Math.round(progressOffset), status: `Retrying ${label} (${attempt + 2}/3)…` });
+        await enqueueBackgroundDownload(`kokoro:${dest}`, url, label);
+      }
+    }
+  }
 
   let attempts = 0;
   const maxAttempts = 5;
@@ -292,12 +323,37 @@ async function downloadFile(
       if (finalUrl.includes('huggingface.co') && !finalUrl.includes('download=true')) {
         finalUrl = finalUrl.includes('?') ? `${finalUrl}&download=true` : `${finalUrl}?download=true`;
       }
+      if (finalUrl.includes('huggingface.co')) finalUrl += `${finalUrl.includes('?') ? '&' : '?'}brown_retry=${Date.now()}-${attempts}`;
       await FileSystem.deleteAsync(partialDest, { idempotent: true });
+      lastWritten = 0; lastAdvance = Date.now();
+      const startedAt = lastAdvance;
       const resumable = FileSystem.createDownloadResumable(finalUrl, partialDest, {
-        headers: { 'User-Agent': 'BrownAI-Mobile/1.0', 'Accept-Encoding': 'identity' },
+        sessionType: FileSystem.FileSystemSessionType?.BACKGROUND,
+        headers: { 'User-Agent': 'BrownAI-Mobile/1.0', 'Accept-Encoding': 'identity', 'Cache-Control': 'no-cache' },
       }, callback);
       activeResumable = resumable;
-      const result = await resumable.downloadAsync();
+      const transfer = resumable.downloadAsync();
+      let watchdog: ReturnType<typeof setInterval> | undefined;
+      const stalled = new Promise<never>((_, reject) => {
+        watchdog = setInterval(() => {
+          const now = Date.now();
+          if (now - lastAdvance > 30000 || now - startedAt > (minBytes < 1024 * 1024 ? 90000 : 600000)) {
+            reject(new Error(`${label} download stalled. Retrying with a fresh connection.`));
+          }
+        }, 1000);
+      });
+      let result;
+      try {
+        result = await Promise.race([transfer, stalled]);
+      } catch (error) {
+        // Stop and settle the writer before deleting/reusing its partial file.
+        if (resumable.cancelAsync) await resumable.cancelAsync();
+        else await resumable.pauseAsync();
+        await transfer.catch(() => {});
+        throw error;
+      } finally {
+        if (watchdog) clearInterval(watchdog);
+      }
       activeResumable = null;
       if (downloadCancelled) throw new Error('Download cancelled.');
       if (!result || result.status < 200 || result.status >= 300) {
@@ -319,8 +375,9 @@ async function downloadFile(
       if (downloadCancelled) throw err;
       const msg = String(err?.message || '');
       const retryable =
-        /network|timeout|reset|broken pipe|CANCEL|stream was reset|incomplete/i.test(msg);
+        /network|timeout|stalled|reset|broken pipe|CANCEL|stream was reset|incomplete|HTTP (403|408|429|5\d\d)/i.test(msg);
       if (retryable && attempts < maxAttempts) {
+        onProgress?.({ phase: 'download', percent: Math.round(progressOffset), fileLabel: label, status: `Retrying ${label} (${attempts + 1}/${maxAttempts})…` });
         // Wait until app is active again (phone may have slept)
         if (AppState.currentState !== 'active') {
           await new Promise<void>((resolve) => {
@@ -345,12 +402,12 @@ async function downloadFile(
 }
 
 /**
- * Downloads Kokoro ONNX engine + all bundled voice bins (same as desktop HF assets).
+ * Compatibility entry point: installs the shared engine only. Voices are opt-in.
  */
 export async function downloadKokoroOnboardingDefaults(
   onProgress?: (p: KokoroDownloadProgress) => void
 ): Promise<{ success: boolean; error?: string; cancelled?: boolean }> {
-  return downloadAssets(KOKORO_ASSETS.files, onProgress);
+  return downloadKokoroEngine(onProgress);
 }
 
 export async function downloadKokoroEngine(onProgress?: (p: KokoroDownloadProgress) => void) {
@@ -371,7 +428,12 @@ async function downloadAssets(
   }
   downloadInProgress = true;
   downloadCancelled = false;
-  await activateKeepAwake();
+  activeDownloadTask = assets.some(asset => asset.id === 'engine' || asset.id === 'tokenizer') ? 'engine' : assets[0]?.id || null;
+  lastProgress = null;
+  const notify = onProgress;
+  onProgress = progress => { lastProgress = progress; notify?.(progress); };
+  if (!backgroundDownloadsAvailable()) await activateKeepAwake();
+  const newFiles: string[] = [];
 
   try {
     const cacheDir = await getCacheDir();
@@ -388,6 +450,17 @@ async function downloadAssets(
     }
 
     const totalBytes = assets.reduce((sum, asset) => sum + asset.minBytes, 0);
+    // Enqueue the entire selected set before waiting for JS progress. All files
+    // can finish while the screen is off, including tokenizer and voice bins.
+    for (const asset of assets) {
+      if (downloadCancelled) throw new Error('Download cancelled.');
+      const dest = `${cacheDir}${asset.fileName}`;
+      const info = await fileInfo(dest);
+      if (!(info.exists && info.size >= asset.minBytes)) {
+        newFiles.push(dest);
+        if (backgroundDownloadsAvailable()) await enqueueBackgroundDownload(`kokoro:${dest}`, asset.url, asset.label);
+      }
+    }
     let offset = 5;
     for (const asset of assets) {
       const span = 94 * asset.minBytes / totalBytes;
@@ -429,22 +502,47 @@ async function downloadAssets(
     return { success: true };
   } catch (err: any) {
     if (downloadCancelled) return { success: false, cancelled: true, error: 'Download cancelled.' };
+    await cancelBackgroundDownloadPrefix('kokoro:');
     return { success: false, error: err?.message || 'Kokoro download failed.' };
   } finally {
+    try {
+    if (downloadCancelled) {
+      await cancelBackgroundDownloadPrefix('kokoro:');
+      const FileSystem = require('expo-file-system');
+      for (const dest of newFiles) {
+        for (const target of [dest, `${dest}.part`, `${dest}.part.background-part`]) {
+          await FileSystem.deleteAsync(target, { idempotent: true });
+        }
+      }
+    }
+    } finally {
     downloadInProgress = false;
+    activeDownloadTask = null;
     downloadCancelled = false;
     activeResumable = null;
     await deactivateKeepAwake();
+    }
   }
 }
 
 export async function deleteKokoroAssets(): Promise<void> {
-  try {
+    await stopKokoroForAccountDeletion();
     const cacheDir = await getCacheDir();
     const FileSystem = require('expo-file-system');
     await FileSystem.deleteAsync(cacheDir, { idempotent: true });
     resetKokoroOnnxSession();
-  } catch {}
+}
+
+export async function resumePendingKokoroDownloads(): Promise<void> {
+  if (!backgroundDownloadsAvailable() || downloadInProgress) return;
+  const keys = await backgroundDownloadKeys();
+  const cache = await getCacheDir();
+  const pending = KOKORO_ASSETS.files.filter(asset => keys.includes(`kokoro:${cache}${asset.fileName}`));
+  const live = [];
+  for (const asset of pending) {
+    if (await hasBackgroundDownload(`kokoro:${cache}${asset.fileName}`)) live.push(asset);
+  }
+  if (live.length && !downloadCancelled) await downloadAssets(live);
 }
 
 export const KokoroTtsService = {

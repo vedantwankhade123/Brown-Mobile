@@ -20,6 +20,7 @@ class BrownRecorderModule : Module() {
   @Volatile
   private var recording = false
   private var pcm: ByteArrayOutputStream? = null
+  private var audioRecord: AudioRecord? = null
 
   override fun definition() = ModuleDefinition {
     Name("BrownRecorder")
@@ -34,6 +35,12 @@ class BrownRecorderModule : Module() {
 
     Function("isRecording") {
       recording
+    }
+    OnDestroy {
+      recording = false
+      try { audioRecord?.stop() } catch (@Suppress("unused") e: Exception) {}
+      recordThread?.join(500)
+      pcm = null
     }
   }
 
@@ -65,8 +72,15 @@ class BrownRecorderModule : Module() {
 
     val out = ByteArrayOutputStream()
     pcm = out
+    try {
+      record.startRecording()
+    } catch (@Suppress("unused") e: Exception) {
+      record.release()
+      pcm = null
+      return false
+    }
+    audioRecord = record
     recording = true
-    record.startRecording()
     recordThread = thread(name = "brown-recorder") {
       val buffer = ByteArray(bufSize)
       val maxBytes = sampleRate * 2 * 35 // hard cap ~35 s
@@ -74,6 +88,7 @@ class BrownRecorderModule : Module() {
         while (recording) {
           val read = record.read(buffer, 0, buffer.size)
           if (read > 0) out.write(buffer, 0, read)
+          if (read < 0) break
           if (out.size() > maxBytes) break
         }
       } catch (@Suppress("unused") e: Exception) {
@@ -90,7 +105,9 @@ class BrownRecorderModule : Module() {
   private fun stopAndSave(): String? {
     if (!recording) return null
     recording = false
+    try { audioRecord?.stop() } catch (@Suppress("unused") e: Exception) {}
     recordThread?.join(1500)
+    audioRecord = null
     recordThread = null
     val out = pcm
     pcm = null

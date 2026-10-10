@@ -1,3 +1,4 @@
+import { ButtonSurface } from './ButtonSurface';
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { GridMenuIcon, SettingsIcon } from './Icons';
@@ -32,7 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
         </GlassControl>
         <View style={styles.modelTitleAnchor}>
           <View style={[headerTitleSurface, styles.modelTitleButton]}>
-            <Text style={styles.brandTitle}>Brown</Text>
+            <ButtonSurface />
+            <Text style={[styles.brandTitle, { zIndex: 1 }]}>Brown</Text>
           </View>
         </View>
 

@@ -1,9 +1,10 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
+  
   ScrollView,
 } from 'react-native';
 import { colors } from '../theme/colors';
@@ -393,7 +394,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                 <Text style={styles.codeLangText}>
                   {codeLanguage ? codeLanguage.toUpperCase() : 'CODE'}
                 </Text>
-                <TouchableOpacity
+                <TouchableOpacity brownSurface
                   style={styles.copyBtn}
                   onPress={() => handleCopyCode(codeContent, currIndex)}
                   activeOpacity={0.7}

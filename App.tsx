@@ -1,6 +1,6 @@
 import { appSurfaces } from './src/theme/appSurfaces';
 import './src/utils/animatedPolyfill';
-import React, { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,6 @@ import {
   StatusBar,
   Platform,
   TouchableOpacity,
-  Animated,
-  Easing,
   BackHandler,
   Alert,
 } from 'react-native';
@@ -20,8 +18,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as NavigationBar from 'expo-navigation-bar';
 import { setNavBarColor } from './src/theme/systemBars';
 import { ScreenTransition } from './src/components/ScreenTransition';
-import { BrownLogo } from './src/components/BrownLogo';
-import { animateOnce } from './src/utils/motion';
 import { consumeBackPress } from './src/utils/backStack';
 import { saveSelectedModel } from './src/services/modelManager/ModelSelection';
 import {
@@ -47,6 +43,7 @@ import { colors } from './src/theme/colors';
 import { BrownAlertHost, installBrownAlertPatch } from './src/components/BrownAlert';
 import { SoundService } from './src/services/sound/SoundService';
 import { ErrorLogService, installGlobalErrorHandlers } from './src/services/diagnostics/ErrorLogService';
+import { resumePendingKokoroDownloads } from './src/services/voice/KokoroTtsService';
 
 installBrownAlertPatch();
 installGlobalErrorHandlers();
@@ -55,9 +52,6 @@ type ScreenType = 'onboarding' | 'chat' | 'modelStore' | 'settings' | 'desktopSy
 
 // Keep the native launch screen until startup and fonts are ready.
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-// Shortest time the animated mark is on screen, so a warm start still reads as a launch.
-const MIN_SPLASH_MS = 2000;
 
 // Inject Outfit Google Font & Obsidian Dark theme globally on Web
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
@@ -221,60 +215,14 @@ export default function App() {
   const [requestedModel, setRequestedModel] = useState<ModelMetadata | null>(null);
   const [fontsFallback, setFontsFallback] = useState<boolean>(false);
 
-  // One branded splash, not two. The native layer is a plain black frame; the animated
-  // mark lives here and stays up for a beat even when boot is instant, so the app reads
-  // as "Brown starting" instead of flashing a bare spinner or an empty black page.
-  const [minSplashElapsed, setMinSplashElapsed] = useState<boolean>(false);
-  const [appReady, setAppReady] = useState<boolean>(false);
-  const [handoffStarted, setHandoffStarted] = useState<boolean>(false);
-  const [splashGone, setSplashGone] = useState<boolean>(false);
-  const splashOpacity = useRef(new Animated.Value(1)).current;
-  const splashWordmarkOpacity = useRef(new Animated.Value(0)).current;
-
+  // The OS launch screen is the only branded splash. Reveal onboarding/chat
+  // directly once startup is ready, without replaying the logo in React.
+  const booting = isLoading || (!fontsLoaded && !fontsFallback);
   useEffect(() => {
-    const animation = Animated.timing(splashWordmarkOpacity, {
-      toValue: 1, duration: 420, delay: 180,
-      easing: Easing.out(Easing.cubic), useNativeDriver: true,
-    });
-    animation.start();
-    const fallback = setTimeout(() => splashWordmarkOpacity.setValue(1), 900);
-    return () => { clearTimeout(fallback); animation.stop(); };
-  }, [splashWordmarkOpacity]);
-
-  useEffect(() => {
-    const t = setTimeout(() => setMinSplashElapsed(true), MIN_SPLASH_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    setAppReady(!isLoading && (Boolean(fontsLoaded) || fontsFallback));
-  }, [isLoading, fontsLoaded, fontsFallback]);
-
-  useEffect(() => {
-    const t = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 150);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    if (!appReady || !minSplashElapsed || handoffStarted) return;
-    setHandoffStarted(true);
-    // animateOnce guarantees the fade-out callback lands even if the animation is lost,
-    // so the splash can never stay stuck covering the app.
-    animateOnce(
-      [
-        Animated.timing(splashOpacity, {
-          toValue: 0,
-          duration: 320,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ],
-      320,
-      () => setSplashGone(true)
-    );
-  }, [appReady, minSplashElapsed, handoffStarted, splashOpacity]);
-
-  const booting = !handoffStarted;
+    if (booting && !bootStalled) return;
+    const frame = requestAnimationFrame(() => SplashScreen.hideAsync().catch(() => {}));
+    return () => cancelAnimationFrame(frame);
+  }, [booting, bootStalled]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -283,7 +231,9 @@ export default function App() {
       .then(() => {
         NavigationBar.setButtonStyleAsync('light').catch(() => {});
         NavigationBar.setBorderColorAsync('transparent').catch(() => {});
-        setNavBarColor(appSurfaces.top);
+        // Match the composited bottom stop of the chat input's blue glow.
+        // Some Android gesture bars remain black even with a transparent surface.
+        setNavBarColor(currentScreen === 'chat' ? '#102046' : appSurfaces.top);
       })
       .catch(() => {});
   }, [currentScreen]);
@@ -303,6 +253,7 @@ export default function App() {
       try {
         SoundService.init().catch(() => {});
         await withTimeout(bootstrapApp(), 9000, 'Local storage took too long to open');
+        resumePendingKokoroDownloads().catch(() => {});
         if (cancelled) return;
         await checkOnboardingStatus();
       } catch (err: any) {
@@ -443,6 +394,7 @@ export default function App() {
       case 'desktopSync':
         return (
           <DesktopSyncScreen
+            isActive={active}
             onBack={() => {
               setSyncInitialScan(false);
               navigateBack();
@@ -454,6 +406,7 @@ export default function App() {
       default:
         return (
           <ChatScreen
+            isActive={active}
             key={chatKey}
             revision={chatRevision}
             requestedModel={requestedModel}
@@ -482,18 +435,8 @@ export default function App() {
             <ScreenTransition screen={currentScreen} renderScreen={renderScreen} />
           )}
 
-          {!splashGone && (
-            <Animated.View
-              style={[StyleSheet.absoluteFill, styles.splash, { opacity: splashOpacity }]}
-              pointerEvents={booting ? 'auto' : 'none'}
-            >
-              <View style={styles.splashBrandGroup}>
-                <View style={styles.splashLogoFrame}>
-                  <BrownLogo size={104} style={{ transform: [{ translateX: -2.55 }, { translateY: -3.47 }] }} />
-                </View>
-                <Animated.Text style={[styles.splashMark, { opacity: splashWordmarkOpacity }]}>Brown</Animated.Text>
-              </View>
-              {bootStalled && (
+          {booting && bootStalled && (
+            <View style={[StyleSheet.absoluteFill, styles.splash]}>
                 <View style={styles.splashStallCard}>
                   <Text style={styles.splashStallText}>
                     Startup is taking longer than it should. Local storage may be busy.
@@ -506,8 +449,7 @@ export default function App() {
                     <Text style={styles.splashStallBtnText}>Continue anyway</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </Animated.View>
+            </View>
           )}
 
         </ScreenSafeArea>

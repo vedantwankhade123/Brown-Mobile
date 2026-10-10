@@ -1,4 +1,5 @@
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
+import { CompanionTransport, companionNative, connectionSessionId } from './CompanionTransport';
 import { DesktopInstance, PairingSession, ProfileConflict, SyncStatus, UltronRemoteProfile } from '../../types/sync';
 import { SecureStore } from '../storage/SecureStore';
 import { isAccountResetting } from '../storage/AccountLifecycle';
@@ -49,9 +50,22 @@ export class DesktopSyncService {
   private listeners: Set<(status: SyncStatus) => void> = new Set();
   private pairing: PairingSession | null = null;
   private pendingConflict: ProfileConflict | null = null;
+  private transferRequestBusy = false;
+  private transport = new CompanionTransport();
+  private reconnectTask: Promise<'connected' | 'needs-code' | 'disabled' | 'skipped'> | null = null;
+  private connectionGeneration = 0;
+  private networkTimer: ReturnType<typeof setTimeout> | null = null;
 
   private constructor() {
     this.restoreSession();
+    AppState.addEventListener('change', state => { if (state === 'active') this.networkChanged(); });
+    try { companionNative()?.addListener('networkChanged', () => this.networkChanged()); } catch {}
+  }
+
+  private networkChanged(): void {
+    this.transport.reset();
+    if (this.networkTimer) clearTimeout(this.networkTimer);
+    this.networkTimer = setTimeout(() => { if (this.status.autoConnectEnabled && !isAccountResetting()) this.tryAutoConnect().catch(() => {}); }, 750);
   }
 
   public static getInstance(): DesktopSyncService {
@@ -102,6 +116,7 @@ export class DesktopSyncService {
         this.status.activeDesktop = desktop;
         this.status.authToken = token;
         this.status.isConnected = false;
+        this.startHealthLoop();
         this.notify();
         if (this.status.autoConnectEnabled) {
           this.tryAutoConnect().catch(() => {});
@@ -146,11 +161,11 @@ export class DesktopSyncService {
     return (ip || '').split('.').slice(0, 3).join('.');
   }
 
-  private async fetchDiscover(host: string, timeoutMs = 700): Promise<DesktopInstance | null> {
+  private async fetchDiscover(host: string, timeoutMs = 700, port = SYNC_PORT): Promise<DesktopInstance | null> {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
     const timer = setTimeout(() => controller?.abort(), timeoutMs);
     try {
-      const res = await fetch(`http://${host}:${SYNC_PORT}/discover`, {
+      const res = await fetch(`http://${host}:${port}/discover`, {
         signal: controller?.signal as any,
       });
       if (!res.ok) return null;
@@ -160,11 +175,12 @@ export class DesktopSyncService {
         id: data.syncId,
         name: data.name || 'Brown Desktop',
         ipAddress: host,
-        port: data.port || SYNC_PORT,
+        port: data.port || port,
         version: data.version || '1.0.0',
         isPaired: false,
         lastSeen: Date.now(),
         syncId: data.syncId,
+        companion: data.companion,
       };
     } catch {
       return null;
@@ -181,8 +197,20 @@ export class DesktopSyncService {
     const found: DesktopInstance[] = [];
     const seen = new Set<string>();
     const lastIp = await SecureStore.getItem(LAST_IP_KEY);
+    let discoveryPort = this.status.activeDesktop?.port || SYNC_PORT;
+    try { const saved = await SecureStore.getItem(DESKTOP_KEY); if (saved) discoveryPort = JSON.parse(saved).port || discoveryPort; } catch {}
     const hosts = lastIp ? [lastIp, ...this.probeCandidates()] : this.probeCandidates();
-    const probes = await Promise.all([...new Set(hosts)].map((host) => this.fetchDiscover(host)));
+    try {
+      const localAddresses: string[] = await companionNative()?.addresses() || [];
+      for (const ip of localAddresses.filter(isPrivateLanAddress)) {
+        const prefix = this.networkPrefix(ip);
+        // Wi-Fi, phone-hosted hotspots and USB tethering each supply their own subnet.
+        for (let host = 1; host < 255; host++) hosts.push(`${prefix}.${host}`);
+      }
+    } catch {}
+    const candidates = [...new Set(hosts)];
+    const probes: Array<DesktopInstance | null> = [];
+    for (let offset = 0; offset < candidates.length; offset += 32) probes.push(...await Promise.all(candidates.slice(offset, offset + 32).map(host => this.fetchDiscover(host, 350, discoveryPort))));
     for (const device of probes) {
       if (device && !seen.has(device.id + device.ipAddress)) {
         seen.add(device.id + device.ipAddress);
@@ -233,6 +261,10 @@ export class DesktopSyncService {
   }
 
   private async markPaired(desktop: DesktopInstance, token: string): Promise<void> {
+    if (isAccountResetting()) return;
+    const generation = this.connectionGeneration;
+    const wasConnected = this.status.isConnected;
+    if (desktop.companion) desktop = { ...desktop, companion: { ...desktop.companion, bootstrapKey: undefined, keyId: undefined } };
     await SecureStore.setItem(TOKEN_KEY, token);
     await SecureStore.setItem(DESKTOP_KEY, JSON.stringify(desktop));
     await SecureStore.setItem(LAST_IP_KEY, desktop.ipAddress);
@@ -252,6 +284,7 @@ export class DesktopSyncService {
       await SecureStore.setNonSecretItem(HISTORY_KEY, JSON.stringify(history.slice(0, 10)));
     } catch {}
 
+    if (generation !== this.connectionGeneration || isAccountResetting()) return;
     this.status.isConnected = true;
     this.status.activeDesktop = desktop;
     this.status.authToken = token;
@@ -259,11 +292,12 @@ export class DesktopSyncService {
     this.status.lastSyncTimestamp = Date.now();
     this.status.needsReauth = false;
     this.status.reauthReason = undefined;
+    this.status.connectionType = this.transport.type || 'local';
     this.pairing = null;
     this.notify();
     this.startHealthLoop();
     // Pre-warm desktop Whisper so the first voice message isn't slow.
-    this.warmDesktopStt();
+    if (!wasConnected) this.warmDesktopStt();
   }
 
   private healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -272,7 +306,7 @@ export class DesktopSyncService {
     this.stopHealthLoop();
     this.healthTimer = setInterval(() => {
       this.healthCheck().catch(() => {});
-    }, 30 * 1000);
+    }, 15 * 1000);
   }
 
   private stopHealthLoop(): void {
@@ -286,22 +320,20 @@ export class DesktopSyncService {
     const desktop = this.status.activeDesktop;
     const token = this.status.authToken;
     if (!desktop || !token) return;
-    const session = await this.validateSession(desktop, token);
-    if (session.ok) {
-      if (!this.status.isConnected) {
-        this.status.isConnected = true;
-        this.status.needsReauth = false;
-        this.status.reauthReason = undefined;
+    if (this.status.isConnected) {
+      try {
+        const info = await this.authorizedJson('/session');
+        this.status.preferences = info.preferences;
+        this.status.transferRequest = info.transferRequest;
+        this.notify();
+        return;
+      } catch {
+        this.status.isConnected = false;
         this.notify();
       }
-      return;
     }
-    if (this.status.isConnected || !this.status.needsReauth) {
-      this.status.isConnected = false;
-      this.status.needsReauth = true;
-      this.status.reauthReason = session.reason || 'Desktop unreachable';
-      this.notify();
-    }
+    if (!this.status.autoConnectEnabled) return;
+    await this.tryAutoConnect();
   }
 
   async getPairedHistory(): Promise<PairedDesktopHistoryItem[]> {
@@ -320,10 +352,11 @@ export class DesktopSyncService {
   }
 
   async pairWithDesktop(desktop: DesktopInstance, pin: string): Promise<boolean> {
+    const generation = this.connectionGeneration;
     if (pin.length < 6) {
       throw new Error('Enter the 6-character code shown on your PC');
     }
-    if (!isPrivateLanAddress(desktop.ipAddress)) {
+    if (!isPrivateLanAddress(desktop.ipAddress) && !desktop.companion?.bootstrapKey) {
       throw new Error('That desktop address is not on your local network. Pairing refused.');
     }
 
@@ -345,28 +378,38 @@ export class DesktopSyncService {
     const clientPlatform = Platform.OS === 'ios' ? 'ios' : 'android';
     let res: Response;
     try {
-      res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/verify`, {
+      const init = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ requestId, code: pin.trim().toUpperCase(), deviceName: devName, platform: clientPlatform }),
-      });
-    } catch {
+      };
+      if (desktop.companion?.bootstrapKey) {
+        await this.transport.select(desktop, desktop.companion.bootstrapKey, true);
+        const result = await this.transport.request(desktop, desktop.companion.bootstrapKey, '/pair/verify', init, true);
+        res = { ok: result.status >= 200 && result.status < 300, json: async () => result.body } as Response;
+      } else res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/verify`, init);
+    } catch (error: any) {
       return fail(
-        `Could not reach ${desktop.name || 'the desktop'} at ${desktop.ipAddress}:${desktop.port}. Check both devices are on the same Wi-Fi and Brown Desktop is open.`
+        `Could not connect to ${desktop.name || 'the desktop'} at ${desktop.ipAddress}:${desktop.port}. ${error?.message || 'Connection failed'}. Keep Brown Desktop open on the same Wi-Fi, phone hotspot, or USB connection, and scan a fresh pairing QR.`
       );
     }
     const data = await res.json().catch(() => ({}));
     if (res.ok && data?.ok && data?.token) {
+      if (generation !== this.connectionGeneration || isAccountResetting()) return false;
+      desktop = { ...desktop, companion: data.desktop?.companion || desktop.companion };
+      this.transport.reset();
+      if (desktop.companion?.v === 2) await this.transport.select(desktop, data.token);
       await this.markPaired(desktop, data.token);
-      if (data.desktop?.geminiApiKey || data.profile?.geminiApiKey) {
+      this.status.preferences = data.preferences;
+      if (data.preferences?.profileMode !== 'separate' && (data.desktop?.geminiApiKey || data.profile?.geminiApiKey)) {
         await SecureStore.setItem(
           'gemini_api_key',
           data.profile?.geminiApiKey || data.desktop.geminiApiKey
         );
-      } else {
+      } else if (data.preferences?.profileMode !== 'separate') {
         await this.inheritGeminiKey();
       }
-      await this.detectProfileConflict(data.profile);
+      if (data.preferences?.profileMode !== 'separate') await this.detectProfileConflict(data.profile);
       this.status.syncedThreadsCount = 1;
       this.notify();
       return true;
@@ -416,6 +459,14 @@ export class DesktopSyncService {
   }
 
   async tryAutoConnect(): Promise<'connected' | 'needs-code' | 'disabled' | 'skipped'> {
+    if (this.reconnectTask) return this.reconnectTask;
+    const task = this.reconnect();
+    this.reconnectTask = task;
+    try { return await task; } finally { if (this.reconnectTask === task) this.reconnectTask = null; }
+  }
+
+  private async reconnect(): Promise<'connected' | 'needs-code' | 'disabled' | 'skipped'> {
+    const generation = this.connectionGeneration;
     const enabled = await this.isAutoConnectEnabled();
     this.status.autoConnectEnabled = enabled;
     if (!enabled) return 'disabled';
@@ -425,11 +476,37 @@ export class DesktopSyncService {
     if (!token || !raw) return 'skipped';
 
     const saved = JSON.parse(raw) as DesktopInstance;
+    if (saved.companion?.v === 2) {
+      try {
+        let info: any;
+        try { info = await this.transport.select(saved, token); }
+        catch {
+          const discovered = (await this.scanLocalNetwork()).find(d => (d.syncId || d.id) === (saved.syncId || saved.id));
+          if (!discovered) throw new Error('Desktop unreachable');
+          saved.ipAddress = discovered.ipAddress; saved.port = discovered.port;
+          info = await this.transport.select(saved, token);
+        }
+        if (generation !== this.connectionGeneration || isAccountResetting()) return 'skipped';
+        if (info.disconnected) { this.status.isConnected = false; this.status.needsReauth = false; this.status.reauthReason = info.error; this.notify(); return 'skipped'; }
+        saved.companion = info.companion || saved.companion;
+        await this.markPaired(saved, token);
+        this.status.preferences = info.preferences;
+        this.status.transferRequest = info.transferRequest;
+        this.notify();
+        return 'connected';
+      } catch (error: any) {
+        if (generation !== this.connectionGeneration) return 'skipped';
+        this.status.isConnected = false;
+        this.status.needsReauth = false;
+        this.status.reauthReason = error?.message || 'Waiting for desktop to reconnect';
+        this.notify();
+        return 'skipped';
+      }
+    }
     const lastIp = (await SecureStore.getItem(LAST_IP_KEY)) || saved.ipAddress;
     const devices = await this.scanLocalNetwork();
     const match =
-      devices.find((d) => (d.syncId || d.id) === (saved.syncId || saved.id)) ||
-      devices.find((d) => d.ipAddress === lastIp);
+      devices.find((d) => (d.syncId || d.id) === (saved.syncId || saved.id));
 
     if (!match) {
       this.status.isConnected = false;
@@ -442,6 +519,7 @@ export class DesktopSyncService {
     const ipChanged = this.networkPrefix(match.ipAddress) !== this.networkPrefix(lastIp);
     const session = await this.validateSession(match, token);
     if (session.ok) {
+      if (generation !== this.connectionGeneration) return 'skipped';
       await this.markPaired(match, token);
       this.status.syncedThreadsCount = Math.max(this.status.syncedThreadsCount, 1);
       this.notify();
@@ -463,8 +541,12 @@ export class DesktopSyncService {
     token: string
   ): Promise<{ ok: boolean; reason?: string }> {
     try {
+      if (desktop.companion?.v === 2) {
+        const info = await this.transport.select(desktop, token);
+        return { ok: info.syncId === (desktop.syncId || desktop.id) };
+      }
       const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/session`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'X-Brown-Session': connectionSessionId },
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 401 || data?.needReauth) {
@@ -480,15 +562,24 @@ export class DesktopSyncService {
     const desktop = this.status.activeDesktop;
     const token = this.status.authToken;
     if (!desktop || !token) throw new Error('Not connected to Brown Desktop');
+    if (desktop.companion?.v === 2) {
+      const result = await this.transport.request(desktop, token, path, init);
+      if (result.body?.disconnected) { this.status.isConnected = false; this.status.needsReauth = false; this.status.reauthReason = result.body.error; this.notify(); throw new Error(result.body.error); }
+      if (result.status === 401) { this.status.isConnected = false; this.status.needsReauth = true; this.notify(); }
+      if (result.status >= 400) throw new Error(result.body?.error || `Desktop returned ${result.status}`);
+      return result.body;
+    }
     const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
+        'X-Brown-Session': connectionSessionId,
         ...(init?.headers || {}),
       },
     });
     const data = await res.json().catch(() => ({}));
+    if (data?.disconnected) { this.status.isConnected = false; this.status.needsReauth = false; this.status.reauthReason = data.error; this.notify(); throw new Error(data.error); }
     if (res.status === 401) {
       this.status.isConnected = false;
       this.status.needsReauth = true;
@@ -507,10 +598,7 @@ export class DesktopSyncService {
     const token = this.status.authToken;
     if (!desktop || !token) return null;
     try {
-      const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/gemini-key`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
+      const data = await this.authorizedJson('/gemini-key');
       if (data?.geminiApiKey) {
         await SecureStore.setItem('gemini_api_key', data.geminiApiKey);
         return data.geminiApiKey;
@@ -551,6 +639,39 @@ export class DesktopSyncService {
     return result;
   }
 
+  async setDevicePreferences(preferences: NonNullable<SyncStatus['preferences']>): Promise<void> {
+    const result = await this.authorizedJson('/sync/preferences', { method: 'POST', body: JSON.stringify(preferences) });
+    this.status.preferences = result.preferences;
+    this.notify();
+    if (preferences.profileMode === 'shared') {
+      const profile = await this.fetchDesktopProfile();
+      if (profile) await this.detectProfileConflict(profile);
+    }
+  }
+
+  async completeTransferRequest(approved: boolean): Promise<void> {
+    if (this.transferRequestBusy) return;
+    const request = this.status.transferRequest;
+    if (!request || request.expiresAt < Date.now()) return;
+    this.transferRequestBusy = true;
+    try {
+    if (approved) {
+      if (request.action === 'profile') await this.setDevicePreferences({ modelAccess: this.status.preferences?.modelAccess !== false, voiceAccess: this.status.preferences?.voiceAccess !== false, profileMode: 'shared' });
+      if (request.action === 'send' || request.action === 'merge') await this.fetchDesktopChats();
+      if (request.action === 'import' || request.action === 'merge') await this.exportPhoneChats();
+    }
+    await this.authorizedJson('/sync/ack', { method: 'POST', body: JSON.stringify({ id: request.id, success: approved }) });
+    this.status.transferRequest = null;
+    this.notify();
+    } finally { this.transferRequestBusy = false; }
+  }
+  async publishChatPreview(snapshot: { visible: boolean; sessionId?: string | null; title?: string; model?: string; generating?: boolean; messages?: Array<{ id: string; role: string; content: string }> }): Promise<void> {
+    if (!this.status.isConnected || !this.status.preferences?.livePreview) return;
+    const messages = snapshot.messages?.slice(-60);
+    if (messages) while (messages.length > 1 && JSON.stringify({ ...snapshot, messages }).length > 190000) messages.shift();
+    await this.authorizedJson('/sync/activity', { method: 'POST', body: JSON.stringify({ ...snapshot, messages }) });
+  }
+
   async exportPhoneChats(): Promise<{ sessions: number }> {
     const repo = this.chatRepo();
     const bundle = await repo.exportAll();
@@ -575,10 +696,7 @@ export class DesktopSyncService {
     const token = this.status.authToken;
     if (!desktop || !token) return [];
     try {
-      const res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/ollama/tags`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
+      const data = await this.authorizedJson('/ollama/tags');
       return Array.isArray(data?.models) ? data.models : [];
     } catch {
       return [];
@@ -591,9 +709,9 @@ export class DesktopSyncService {
     if (!desktop || !token) {
       throw new Error('Pair with Brown Desktop to use models from your PC');
     }
-    let res: Response;
+    let data: any;
     try {
-      res = await fetch(`http://${desktop.ipAddress}:${desktop.port}/ollama/chat`, {
+      data = await this.authorizedJson('/ollama/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -605,9 +723,8 @@ export class DesktopSyncService {
       throw new Error(`Could not connect to desktop (${desktop.ipAddress}): ${err?.message || 'Network error'}. Make sure Brown Desktop is open.`);
     }
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.error) {
-      let rawError = data?.error || `Desktop returned status ${res.status}`;
+    if (data?.error) {
+      let rawError = data.error;
       if (/allocate|buffer|cuda|out of memory|vram|projector cpu offload/i.test(rawError)) {
         throw new Error(`PC Out of Memory: Your desktop ran out of GPU/RAM memory while loading "${model}". Try switching to a lighter model (like Llama 3.2 1B or 3B) or free up memory on your PC.`);
       }
@@ -696,12 +813,28 @@ export class DesktopSyncService {
     return this.getStatus();
   }
 
+  async disconnectSession(): Promise<void> {
+    // The desktop retains a runtime block; health probes can reconnect after its restart.
+    const result = await this.authorizedJson('/sync/disconnect', { method: 'POST' });
+    if (!result.success) throw new Error(result.error || 'Could not disconnect');
+    this.connectionGeneration++;
+    this.status.isConnected = false;
+    this.status.needsReauth = false;
+    this.status.reauthReason = 'Disconnected for this session. Reopen either app to reconnect.';
+    this.status.transferRequest = null;
+    this.notify();
+  }
+
   async disconnect(): Promise<void> {
+    this.connectionGeneration++;
+    if (this.networkTimer) clearTimeout(this.networkTimer);
+    this.stopHealthLoop();
+    await this.reconnectTask?.catch(() => {});
     const desktop = this.status.activeDesktop;
     const token = this.status.authToken;
     if (desktop && token) {
       try {
-        fetch(`http://${desktop.ipAddress}:${desktop.port}/pair/unpair`, {
+        this.authorizedJson('/pair/unpair', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -713,9 +846,12 @@ export class DesktopSyncService {
     await SecureStore.deleteItem(TOKEN_KEY);
     await SecureStore.deleteItem(DESKTOP_KEY);
     this.stopHealthLoop();
+    this.transport.reset();
     this.status.isConnected = false;
     this.status.activeDesktop = undefined;
     this.status.authToken = undefined;
+    this.status.preferences = undefined;
+    this.status.transferRequest = null;
     this.status.syncInProgress = false;
     this.status.needsReauth = false;
     this.status.reauthReason = undefined;
@@ -723,6 +859,9 @@ export class DesktopSyncService {
   }
 
   stopForAccountDeletion(): void {
+    this.connectionGeneration++;
+    if (this.networkTimer) clearTimeout(this.networkTimer);
+    this.transport.reset();
     this.stopHealthLoop();
     this.pairing = null;
     this.pendingConflict = null;

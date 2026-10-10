@@ -1,3 +1,4 @@
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import { AppBackground } from '../components/AppBackground';
 import { AssistantMemory } from '../services/storage/AssistantMemory';
 import { buildAssistantInstructions } from '../services/inference/ChatCapabilities';
@@ -9,9 +10,10 @@ import {
   StyleSheet,
   FlatList,
   ListRenderItemInfo,
-  TouchableOpacity,
+  
   Alert,
   Animated,
+  AppState,
   Easing,
   Keyboard,
   Platform,
@@ -61,8 +63,10 @@ import { getContextualThinkingLabel, ANSWERING_PROMOTE_MS, GENERATING_PROMOTE_MS
 import { generateSessionTitle, isDefaultSessionTitle } from '../utils/sessionTitle';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { useBackLayer } from '../utils/backStack';
+import { DesktopSyncService } from '../services/sync/DesktopSync';
 
 interface ChatScreenProps {
+  isActive?: boolean;
   /** Bumped whenever the app returns to chat, so the model list re-reads storage. */
   revision?: number;
   /** Model the user just activated elsewhere (Model Store / Settings). */
@@ -120,8 +124,7 @@ const QuickActionCard: React.FC<{
         },
       ]}
     >
-      <TouchableOpacity
-        style={styles.quickCard}
+      <TouchableOpacity style={styles.quickCard}
         onPress={onPress}
         activeOpacity={0.55}
         accessibilityLabel={label}
@@ -139,6 +142,7 @@ const QuickActionCard: React.FC<{
 };
 
 export const ChatScreen: React.FC<ChatScreenProps> = ({
+  isActive = true,
   revision,
   requestedModel,
   onOpenModelStore,
@@ -150,6 +154,26 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<ModelMetadata | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const previewSnapshot = useRef<any>(null);
+  const previewActive = useRef(isActive);
+  previewActive.current = isActive;
+  previewSnapshot.current = { visible: true, sessionId: currentSessionId,
+    title: sessions.find(s => s.id === currentSessionId)?.title || 'New chat',
+    model: activeModel?.name || '', generating: isGenerating,
+    messages: messages.slice(-60).map(m => ({ id: m.id, role: m.role, content: m.content, isStreaming: m.isStreaming, statusLabel: m.statusLabel })) };
+  useEffect(() => {
+    let busy = false, disposed = false;
+    const service = DesktopSyncService.getInstance();
+    const publish = async () => {
+      if (busy) return;
+      busy = true;
+      try { await service.publishChatPreview(previewActive.current && AppState.currentState === 'active' ? previewSnapshot.current : { visible: false }); }
+      catch {} finally { busy = false; if (disposed) service.publishChatPreview({ visible: false }).catch(() => {}); }
+    };
+    const timer = setInterval(publish, 1000);
+    const listener = AppState.addEventListener('change', publish);
+    return () => { disposed = true; clearInterval(timer); listener.remove(); service.publishChatPreview({ visible: false }).catch(() => {}); };
+  }, []);
   const [isListening, setIsListening] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [ttsPaused, setTtsPaused] = useState(false);
@@ -366,51 +390,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
   };
 
-  const promptKokoroDownload = (messageId: string, text: string) => {
-    Alert.alert(
-      'Kokoro TTS Required',
-      'Download the Kokoro TTS engine and the Heart (female) & Michael (male) voice models to use Speak / Listen. Same voices as Brown Desktop (~120 MB).',
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: 'Download',
-          onPress: () => startKokoroDownload(messageId, text),
-        },
-      ]
-    );
+  const promptKokoroDownload = async (_messageId: string, _text: string) => {
+    const status = await getKokoroInstallStatus();
+    Alert.alert(status.engineInstalled ? 'Choose a voice' : 'Kokoro engine required',
+      status.engineInstalled ? 'Your Kokoro engine is installed. Open Settings → Voice and download the voice you want to use.' : 'Install the shared Kokoro engine first. Voice profiles are downloaded separately when you choose them.',
+      [{ text: 'Not now', style: 'cancel' }, { text: 'Open Settings', onPress: onOpenSettings }]);
   };
-
-  const startKokoroDownload = async (messageId: string, text: string) => {
-    if (kokoroDownloading) return;
-    setKokoroDownloading(true);
-    Alert.alert('Downloading Kokoro TTS', 'Downloading neural engine and voice models…');
-    try {
-      const result = await downloadKokoroOnboardingDefaults((p: KokoroDownloadProgress) => {
-        if (p.percent >= 100 || p.phase === 'complete') return;
-      });
-      if (!result.success) {
-        Alert.alert('Download Failed', result.error || 'Could not download Kokoro TTS.');
-        return;
-      }
-      const status = await getKokoroInstallStatus();
-      if (!status.fullyInstalled) {
-        Alert.alert('Download Incomplete', 'Kokoro assets are still missing. Please retry from Settings → Voice & Speech.');
-        return;
-      }
-      Alert.alert('Kokoro Ready', 'Heart & Michael voices are installed. Playing your message…');
-      setSpeakingMessageId(messageId);
-      setTtsPaused(false);
-      await TextToSpeechService.speak(text, () => {
-        setSpeakingMessageId(null);
-        setTtsPaused(false);
-      });
-    } catch (e: any) {
-      Alert.alert('Download Failed', e?.message || 'Could not download Kokoro TTS.');
-    } finally {
-      setKokoroDownloading(false);
-    }
-  };
-
   const initApp = async () => {
     await downloader.whenReady();
 
@@ -714,6 +699,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
   const [voiceInsertText, setVoiceInsertText] = useState<string | null>(null);
   const [voicePartial, setVoicePartial] = useState('');
+  useEffect(() => () => { SpeechToTextService.cancelListening().catch(() => {}); }, []);
   const voicePartialAtRef = useRef(0);
 
   const showVoicePartial = (text: string) => {
@@ -751,6 +737,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           Alert.alert('Voice Input', err?.message || 'Could not transcribe the recording.');
         },
       });
+      setIsListening(SpeechToTextService.getIsListening());
     } catch (err: any) {
       setIsListening(false);
       Alert.alert('Voice Input', err?.message || 'Could not start voice input.');

@@ -6,6 +6,7 @@ import { StorageBudgetService } from './StorageBudget';
 import { StoragePaths } from '../storage/StoragePaths';
 import { CURATED_MODELS, getModelById, MOBILE_GGUF_LIBRARY } from './ModelCatalog';
 import { alertDownloadComplete, alertModelFailed } from '../NotificationService';
+import { backgroundDownloadsAvailable, backgroundDownloadBytes, hasBackgroundDownload, enqueueBackgroundDownload, receiveBackgroundDownload, cancelBackgroundDownload, cancelBackgroundDownloadPrefix } from './BackgroundDownload';
 
 const LEGACY_DOWNLOADS_KEY = '@ultron_downloaded_models';
 const DOWNLOADS_KEY = '@ultron_downloaded_models_v2';
@@ -57,9 +58,19 @@ export class ModelDownloader {
   private pausedModels: Map<string, ModelMetadata> = new Map();
   private ready: Promise<void>;
   private activeTasks = new Set<Promise<void>>();
+  private tasksByModel = new Map<string, Promise<void>>();
+  private cancelledModels = new Set<string>();
 
   private constructor() {
     this.ready = this.restoreDownloadedState();
+    this.ready.then(async () => {
+      if (!backgroundDownloadsAvailable() || isAccountResetting()) return;
+      for (const [id, model] of this.pausedModels) {
+        if (await hasBackgroundDownload(`gguf:${id}`)) {
+          if (this.pausedModels.get(id) === model && !this.cancelledModels.has(id)) this.startDownload(model).catch(() => {});
+        }
+      }
+    }).catch(() => {});
   }
 
   public static getInstance(): ModelDownloader {
@@ -249,10 +260,15 @@ export class ModelDownloader {
   }
 
   async startDownload(model: ModelMetadata, destDir?: string): Promise<void> {
+    await this.ready;
     if (isAccountResetting()) throw new Error('Account deletion is in progress.');
+    const active = this.tasksByModel.get(model.id);
+    if (active) return active;
+    this.cancelledModels.delete(model.id);
     const task = this.runDownload(model, destDir);
+    this.tasksByModel.set(model.id, task);
     this.activeTasks.add(task);
-    try { await task; } finally { this.activeTasks.delete(task); }
+    try { await task; } finally { this.activeTasks.delete(task); this.tasksByModel.delete(model.id); }
   }
 
   private async runDownload(model: ModelMetadata, destDir?: string): Promise<void> {
@@ -277,7 +293,7 @@ export class ModelDownloader {
 
     this.downloadStates.set(model.id, state);
     this.notifyListeners();
-    await activateKeepAwake(`gguf-${model.id}`);
+    if (!backgroundDownloadsAvailable()) await activateKeepAwake(`gguf-${model.id}`);
 
     try {
       const FileSystem = require('expo-file-system');
@@ -288,16 +304,21 @@ export class ModelDownloader {
 
       if (FileSystem?.createDownloadResumable && downloadUrl.startsWith('http')) {
         const stats = await StorageBudgetService.getDeviceStorageStats();
-        if (stats.freeStorageBytes < model.sizeBytes + 50 * 1024 * 1024) {
+        const stagedBytes = backgroundDownloadsAvailable() ? await backgroundDownloadBytes(`gguf:${model.id}`) : 0;
+        const requiredBytes = model.sizeBytes * (backgroundDownloadsAvailable() ? 2 : 1) - Math.min(model.sizeBytes, stagedBytes);
+        if (stats.freeStorageBytes < requiredBytes + 50 * 1024 * 1024) {
           throw new Error('Not enough free storage for this GGUF download');
         }
         await StoragePaths.ensureLayout();
         const dir = destDir || (await StoragePaths.getModelsDir());
         await StoragePaths.ensureDir(dir);
         const dest = joinPath(dir, model.filename);
+        state.localPath = dest;
+        await this.persistStates();
         const startTime = Date.now();
         let lastProgressAt = Date.now();
         const callback = (progress: any) => {
+          if (this.abortControllers.get(model.id)) return;
           const total = progress.totalBytesExpectedToWrite || model.sizeBytes;
           const downloaded = progress.totalBytesWritten || 0;
           const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
@@ -311,11 +332,34 @@ export class ModelDownloader {
         };
 
         const downloadOptions = {
+          sessionType: FileSystem.FileSystemSessionType?.BACKGROUND,
           headers: {
             'Accept-Encoding': 'identity',
             'User-Agent': 'BrownAI-Mobile/1.0',
           },
         };
+
+        if (backgroundDownloadsAvailable()) {
+          const key = `gguf:${model.id}`;
+          if (!this.abortControllers.get(model.id)) await enqueueBackgroundDownload(key, downloadUrl, model.name);
+          const result = await receiveBackgroundDownload(key, dest, 1024 * 1024,
+            () => !!this.abortControllers.get(model.id), callback);
+          if (this.abortControllers.get(model.id)) return;
+          const info = await FileSystem.getInfoAsync(result.uri);
+          state.status = 'downloaded';
+          state.localPath = result.uri;
+          state.totalBytes = state.downloadedBytes = Number(info.size);
+          state.progress = 100;
+          state.speedBytesPerSec = 0;
+          state.error = undefined;
+          this.downloadStates.set(model.id, { ...state });
+          this.pausedModels.delete(model.id);
+          await this.clearResumable(model.id);
+          this.notifyListeners();
+          await this.persistStates();
+          alertDownloadComplete(model.name);
+          return;
+        }
 
         let resumable = this.resumables.get(model.id);
         let hadResumable = !!resumable;
@@ -341,6 +385,7 @@ export class ModelDownloader {
         const maxAttempts = 8;
 
         while (attempts < maxAttempts) {
+          if (this.abortControllers.get(model.id)) break;
           // A socket that stalls mid-transfer never settles downloadAsync(); without this
           // the UI sits at a frozen percentage forever instead of retrying.
           let stallTimer: any = null;
@@ -389,35 +434,8 @@ export class ModelDownloader {
               errMsg.includes('is not available') ||
               errMsg.includes('ERR_UNAVAILABLE');
 
-            if (isUnavailability && typeof FileSystem?.downloadAsync === 'function') {
-              let progressTimer: any = null;
-              try {
-                progressTimer = setInterval(async () => {
-                  try {
-                    if (this.abortControllers.get(model.id)) return;
-                    if (FileSystem?.getInfoAsync) {
-                      const info = await FileSystem.getInfoAsync(dest);
-                      if (info?.exists && typeof info?.size === 'number') {
-                        const downloaded = info.size;
-                        const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
-                        state.downloadedBytes = downloaded;
-                        state.totalBytes = model.sizeBytes;
-                        state.progress = Math.min(Math.round((downloaded / model.sizeBytes) * 100), 99);
-                        state.speedBytesPerSec = Math.round(downloaded / elapsed);
-                        this.downloadStates.set(model.id, { ...state });
-                        this.notifyListeners();
-                      }
-                    }
-                  } catch {}
-                }, 600);
-
-                result = await FileSystem.downloadAsync(downloadUrl, dest, downloadOptions);
-                if (progressTimer) clearInterval(progressTimer);
-                break;
-              } catch (fallbackErr: any) {
-                if (progressTimer) clearInterval(progressTimer);
-                throw fallbackErr;
-              }
+            if (isUnavailability) {
+              throw new Error('Cancellable downloads are not available in this build. Install the updated Brown app.');
             }
 
             if (this.abortControllers.get(model.id)) {
@@ -489,6 +507,7 @@ export class ModelDownloader {
         }
 
         if (this.abortControllers.get(model.id)) {
+          if (this.cancelledModels.has(model.id)) return;
           state.status = 'paused';
           this.downloadStates.set(model.id, { ...state });
           this.notifyListeners();
@@ -546,6 +565,7 @@ export class ModelDownloader {
     } catch (err: any) {
       const errMsg = String(err?.message || err || '');
       if (this.abortControllers.get(model.id)) {
+        if (this.cancelledModels.has(model.id)) return;
         // The user paused or cancelled: that is a paused download, not a failure.
         state.status = 'paused';
         state.speedBytesPerSec = 0;
@@ -577,7 +597,9 @@ export class ModelDownloader {
         await this.persistStates();
         return;
       } else if (errMsg.includes('ENOSPC') || errMsg.includes('Not enough free storage')) {
-        friendlyError = 'Not enough free device storage for this model.';
+        friendlyError = backgroundDownloadsAvailable()
+          ? 'Not enough free storage. Background downloads need temporary space to safely save the model.'
+          : 'Not enough free device storage for this model.';
       }
 
       state.status = 'error';
@@ -600,6 +622,19 @@ export class ModelDownloader {
 
   async pauseDownload(modelId: string): Promise<void> {
     this.abortControllers.set(modelId, true);
+    if (backgroundDownloadsAvailable()) {
+      await cancelBackgroundDownload(`gguf:${modelId}`);
+      await this.tasksByModel.get(modelId);
+      const state = this.downloadStates.get(modelId);
+      if (state) {
+        state.status = 'paused';
+        state.downloadedBytes = state.progress = state.speedBytesPerSec = 0;
+        state.error = 'Paused. Tap Resume to restart the download.';
+        this.notifyListeners();
+        await this.persistStates();
+      }
+      return;
+    }
     const resumable = this.resumables.get(modelId);
     try {
       if (resumable?.pauseAsync) {
@@ -638,6 +673,14 @@ export class ModelDownloader {
   }
 
   async deleteModel(modelId: string): Promise<void> {
+    await this.ready;
+    this.cancelledModels.add(modelId);
+    this.abortControllers.set(modelId, true);
+    await cancelBackgroundDownload(`gguf:${modelId}`);
+    const active = this.resumables.get(modelId);
+    if (active?.cancelAsync) await active.cancelAsync();
+    else if (active?.pauseAsync) await active.pauseAsync();
+    await this.tasksByModel.get(modelId);
     const existing = this.downloadStates.get(modelId);
     const model = this.pausedModels.get(modelId) || findModelById(modelId);
     const targets = new Set<string>();
@@ -651,12 +694,10 @@ export class ModelDownloader {
       } catch {}
     }
     for (const path of targets) {
-      try {
-        const FileSystem = require('expo-file-system');
-        if (FileSystem?.deleteAsync) {
-          await FileSystem.deleteAsync(path, { idempotent: true });
-        }
-      } catch {}
+      const FileSystem = require('expo-file-system');
+      for (const target of [path, `${path}.part`, `${path}.background-part`]) {
+        await FileSystem.deleteAsync(target, { idempotent: true });
+      }
     }
     this.downloadStates.delete(modelId);
     this.resumables.delete(modelId);
@@ -679,6 +720,7 @@ export class ModelDownloader {
       if (state.localPath && !isPlaceholderPath(state.localPath)) files.add(state.localPath);
     }
     for (const id of this.abortControllers.keys()) this.abortControllers.set(id, true);
+    await cancelBackgroundDownloadPrefix('gguf:');
     await Promise.allSettled(Array.from(this.resumables.values()).map(task => task.pauseAsync?.()));
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {

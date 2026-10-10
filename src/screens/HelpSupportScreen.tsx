@@ -1,3 +1,4 @@
+import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -5,7 +6,7 @@ import {
   ScrollView,
   StyleSheet,
   Linking,
-  TouchableOpacity,
+  
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -187,7 +188,7 @@ export const HelpSupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) 
                   : 'No cached error logs'}
               </Text>
             </View>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={[styles.sendButton, sendState.phase === 'sending' && styles.sendButtonDisabled]}
               onPress={handleSendLogs}
               disabled={sendState.phase === 'sending'}

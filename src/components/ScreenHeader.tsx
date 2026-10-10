@@ -1,3 +1,4 @@
+import { ButtonSurface } from './ButtonSurface';
 import React, { useCallback, useState } from 'react';
 import {
   View,
@@ -36,7 +37,8 @@ export const HeaderTitle: React.FC<{ title: string; style?: StyleProp<ViewStyle>
   return (
     <View pointerEvents="none" style={style} onLayout={(event: { nativeEvent: { layout: { width: number } } }) => setAvailableWidth(event.nativeEvent.layout.width)}>
       <View style={[headerTitleSurface, { maxWidth: '100%' }]}>
-        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55} style={{ flexShrink: 1, color: '#ffffff', fontSize, fontWeight: '600', letterSpacing: -0.3 }}>{label}</Text>
+        <ButtonSurface />
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55} style={{ zIndex: 1, flexShrink: 1, color: '#ffffff', fontSize, fontWeight: '600', letterSpacing: -0.3 }}>{label}</Text>
       </View>
     </View>
   );
@@ -51,7 +53,8 @@ interface GlassSurfaceProps {
 
 export const GlassSurface: React.FC<GlassSurfaceProps> = ({ radius, active = true, style, children }) => (
   <View style={[glass.base, { borderRadius: radius }, style, !active && glass.clear]}>
-    {children}
+    <ButtonSurface radius={radius} />
+    <View pointerEvents="box-none" style={{ zIndex: 1, alignItems: 'center', justifyContent: 'center' }}>{children}</View>
   </View>
 );
 
@@ -77,7 +80,7 @@ export const GlassControl: React.FC<GlassControlProps> = ({
     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
   >
     <GlassSurface radius={radius} active={active} style={style}>
-      {children}
+      <View pointerEvents="box-none" style={{ zIndex: 1, alignItems: 'center', justifyContent: 'center' }}>{children}</View>
     </GlassSurface>
   </TouchableOpacity>
 );

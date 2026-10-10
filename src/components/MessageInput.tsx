@@ -1,11 +1,13 @@
+import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  
   Pressable,
   StyleSheet,
   KeyboardAvoidingView,
@@ -356,6 +358,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           },
         ]}
       >
+        <LinearGradient pointerEvents="none" colors={['rgba(18,35,76,0)', 'rgba(24,49,107,0.65)']} style={StyleSheet.absoluteFill} />
         <View style={styles.container}>
           <View style={styles.modelBar}>
             <ModelSelector models={models} activeModel={activeModel}
@@ -428,7 +431,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                           },
                         ]}
                       >
-                        <TouchableOpacity
+                        <TouchableOpacity brownSurface
                           style={[styles.contextMenuItem, hoveredOption === 'file' && styles.contextMenuItemHovered]}
                           onPress={handleAttachFile}
                           activeOpacity={0.7}
@@ -444,7 +447,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                           <Text style={styles.contextMenuText}>Add files</Text>
                           <ChevronRightIcon size={14} color="#71717a" />
                         </TouchableOpacity>
-                        <TouchableOpacity
+                        <TouchableOpacity brownSurface
                           style={styles.contextMenuItem}
                           onPress={() => setShowAttachMenu(false)}
                           accessibilityLabel="Cancel file upload"
@@ -460,7 +463,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                       </Modal>
                     )}
 
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       style={styles.plusActionIconBtn}
                       onPress={() => {
                         if (isListening) return;
@@ -479,7 +482,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                 {isListening ? (
                   <View style={styles.voiceRecordingCenter}>
                     <View style={styles.voiceRecordingPill}>
-                      <TouchableOpacity
+                      <TouchableOpacity brownSurface
                         style={styles.voicePillCircleBtn}
                         onPress={() => (onVoiceCommit || onVoicePress)()}
                         activeOpacity={0.8}
@@ -496,7 +499,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                         <Text style={styles.voiceTimerText}>
                           {formatTimer(recordingSeconds)}
                         </Text>
-                        <TouchableOpacity
+                        <TouchableOpacity brownSurface
                           style={styles.voicePillCancelBtn}
                           onPress={() => (onVoiceCancel || onVoicePress)()}
                           activeOpacity={0.7}
@@ -513,7 +516,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
                 <View style={styles.rightActionsGroup}>
                   {!isListening ? (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       style={styles.plainActionIconBtn}
                       onPress={onVoicePress}
                       activeOpacity={0.7}
@@ -525,7 +528,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                   ) : null}
 
                   {isGenerating ? (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       style={styles.sendCircleBtn}
                       onPress={onStopGeneration}
                       activeOpacity={0.7}
@@ -534,7 +537,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                       <StopIcon size={15} color="#ffffff" />
                     </TouchableOpacity>
                   ) : (
-                    <TouchableOpacity
+                    <TouchableOpacity brownSurface
                       style={[styles.sendCircleBtn, !hasText && styles.sendCircleBtnIdle]}
                       onPress={handleSend}
                       disabled={!hasText || disabled || isListening}

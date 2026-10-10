@@ -15,6 +15,7 @@ export const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ label = 'T
     let disposed = false;
     let animation: { start: () => void; stop: () => void } | undefined;
     const setMotion = (reduceMotion: boolean) => {
+      if (disposed) return;
       animation?.stop();
       opacity.setValue(1);
       if (reduceMotion || disposed) return;
@@ -39,7 +40,7 @@ export const ThinkingIndicator: React.FC<ThinkingIndicatorProps> = ({ label = 'T
     return () => {
       disposed = true;
       animation?.stop();
-      subscription.remove();
+      subscription?.remove();
     };
   }, [opacity]);
 
