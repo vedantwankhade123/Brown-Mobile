@@ -15,6 +15,6 @@ export function connectionPresentation(status: SyncStatus) {
   return {
     heading: 'Connect your desktop',
     description: 'Pair once. Use your PC’s models over Wi-Fi, your phone’s hotspot or USB.',
-    label: 'Not connected',
+    label: 'Unpaired',
   };
 }

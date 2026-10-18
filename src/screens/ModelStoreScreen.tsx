@@ -1,3 +1,4 @@
+import { AnimatedModal as Modal } from "../components/AnimatedModal";
 import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -10,7 +11,6 @@ import {
   SafeAreaView,
   Alert,
   Animated,
-  Modal,
   PanResponder,
   TextInput,
   ActivityIndicator,
@@ -43,6 +43,7 @@ import { colors } from '../theme/colors';
 import { typography, spacing, borderRadius } from '../theme/typography';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
 import { HeaderFade } from '../components/HeaderFade';
+import { AnimatedSearchSwap } from '../components/AnimatedSearchSwap';
 import { HeaderTitle, headerButtonStyle, GlassControl, GlassSurface, useStickyHeader } from '../components/ScreenHeader';
 import { SearchIcon, BackArrowIcon, ChevronRightIcon, CloseIcon, DatabaseIcon } from '../components/Icons';
 
@@ -312,7 +313,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
   return (
     <SafeAreaView style={styles.container}>
       {/* Dynamic Header: Standard vs Full-Width Search */}
-      {!isSearchOpen ? (
+      <AnimatedSearchSwap style={{ zIndex: 20 }} active={isSearchOpen} collapsed={(
         <View style={[styles.headerBar, storeScrolled && styles.headerBarScrolled]}>
           <HeaderFade />
           <GlassControl radius={22} active={true}
@@ -337,7 +338,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
             <SearchIcon size={20} color="#ffffff" />
           </GlassControl>
         </View>
-      ) : (
+      )} expanded={(
         <View style={[styles.headerBar, styles.headerBarSearchActive, storeScrolled && styles.headerBarScrolled]}>
           <HeaderFade />
           <View style={styles.searchBarInner}>
@@ -377,7 +378,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
             <CloseIcon size={20} color="#ffffff" />
           </GlassControl>
         </View>
-      )}
+      )} />
 
       <ScrollView
         keyboardShouldPersistTaps="handled" style={styles.scrollArea}

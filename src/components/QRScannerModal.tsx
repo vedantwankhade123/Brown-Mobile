@@ -1,11 +1,10 @@
+import { AnimatedModal as Modal } from "./AnimatedModal";
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Modal,
-  
   Platform,
   ActivityIndicator,
   TextInput,
@@ -58,7 +57,6 @@ export const QRScannerModal: React.FC<QRScannerModalProps> = ({
 
   // Release the native camera surface when the scanner closes. A hidden camera
   // in a retained screen can keep drawing over the current Android surface.
-  if (!visible) return null;
 
   return (
     <Modal

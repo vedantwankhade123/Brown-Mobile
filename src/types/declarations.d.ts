@@ -28,7 +28,23 @@ declare namespace JSX {
 }
 
 declare module 'react-native' {
-  export const Linking: { openURL(url: string): Promise<any> };
+  export const Linking: {
+    openURL(url: string): Promise<any>;
+    getInitialURL(): Promise<string | null>;
+    addEventListener(type: 'url', listener: (event: { url: string }) => void): { remove(): void };
+  };
+  export const AccessibilityInfo: {
+    isReduceMotionEnabled(): Promise<boolean>;
+    addEventListener(type: 'reduceMotionChanged', listener: (enabled: boolean) => void): { remove(): void };
+  };
+  export interface ModalProps {
+    visible?: boolean;
+    children?: React.ReactNode;
+    animationType?: 'none' | 'slide' | 'fade';
+    transparent?: boolean;
+    onDismiss?: () => void;
+    [key: string]: any;
+  }
   export interface ViewProps {
     style?: StyleProp<ViewStyle>;
     children?: React.ReactNode;

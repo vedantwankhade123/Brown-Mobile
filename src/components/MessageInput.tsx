@@ -1,8 +1,8 @@
+import { AnimatedModal as Modal } from "./AnimatedModal";
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import {
   Platform,
   Alert,
   Animated,
-  Modal,
   Keyboard,
 } from 'react-native';
 import {
@@ -358,7 +357,6 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           },
         ]}
       >
-        <LinearGradient pointerEvents="none" colors={['rgba(18,35,76,0)', 'rgba(24,49,107,0.65)']} style={StyleSheet.absoluteFill} />
         <View style={styles.container}>
           <View style={styles.modelBar}>
             <ModelSelector models={models} activeModel={activeModel}
@@ -410,14 +408,13 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               <View style={styles.bottomControlsRow}>
                 <View style={styles.leftActionsGroup}>
                   <View style={styles.plusBtnAnchor}>
-                    {showAttachMenu && !isListening && (
-                      <Modal transparent visible animationType="fade" onRequestClose={() => setShowAttachMenu(false)}>
+                      <Modal transparent visible={showAttachMenu && !isListening} animationType="fade" onRequestClose={() => setShowAttachMenu(false)}>
                         <View style={{ flex: 1 }}>
                           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAttachMenu(false)} accessibilityLabel="Close attachment menu" />
                       <Animated.View
                         style={[
                           styles.attachContextMenu,
-                          { bottom: 110 + insets.bottom, left: 24 },
+                          { bottom: 146 + insets.bottom, left: 24 },
                           {
                             opacity: attachAnim,
                             transform: [
@@ -442,26 +439,24 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                           } as any) : {})}
                         >
                           <View style={styles.contextMenuIconBox}>
-                            <DocumentIcon size={16} color="#60a5fa" />
+                            <DocumentIcon size={18} color="#ffffff" />
                           </View>
                           <Text style={styles.contextMenuText}>Add files</Text>
-                          <ChevronRightIcon size={14} color="#71717a" />
                         </TouchableOpacity>
-                        <TouchableOpacity brownSurface
-                          style={styles.contextMenuItem}
+                        <TouchableOpacity
+                          style={[styles.contextMenuItem, styles.contextMenuCancel]}
                           onPress={() => setShowAttachMenu(false)}
                           accessibilityLabel="Cancel file upload"
                           activeOpacity={0.7}
                         >
                           <View style={styles.contextMenuIconBox}>
-                            <CloseIcon size={16} color="#a1a1aa" />
+                            <CloseIcon size={18} color="#ffffff" />
                           </View>
                           <Text style={styles.contextMenuText}>Cancel</Text>
                         </TouchableOpacity>
                       </Animated.View>
                         </View>
                       </Modal>
-                    )}
 
                     <TouchableOpacity brownSurface
                       style={styles.plusActionIconBtn}
@@ -538,7 +533,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity brownSurface
-                      style={[styles.sendCircleBtn, !hasText && styles.sendCircleBtnIdle]}
+                      style={styles.sendCircleBtn}
                       onPress={handleSend}
                       disabled={!hasText || disabled || isListening}
                       activeOpacity={0.7}
@@ -564,7 +559,7 @@ const styles = StyleSheet.create({
   },
   outerWrapper: {
     width: '100%',
-    backgroundColor: 'transparent',
+    backgroundColor: '#000000',
     paddingTop: 2,
     paddingBottom: Platform.OS === 'ios' ? 28 : (Platform.OS === 'web' ? 22 : 18),
     overflow: 'visible',
@@ -594,25 +589,26 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 48,
     left: -4,
-    backgroundColor: '#141416',
-    borderRadius: 18,
+    backgroundColor: '#202020',
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    padding: 6,
-    width: 232,
+    padding: 8,
+    width: 240,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.85,
-    shadowRadius: 24,
+    shadowOpacity: 0.3,
+    shadowRadius: 18,
     elevation: 32,
     zIndex: 999,
-    gap: 3,
+    gap: 8,
   },
   contextMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 9,
     paddingHorizontal: 10,
+    minHeight: 48,
     borderRadius: 12,
     backgroundColor: 'transparent',
     cursor: 'pointer' as any,
@@ -620,6 +616,7 @@ const styles = StyleSheet.create({
   contextMenuItemHovered: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
+  contextMenuCancel: { borderWidth: 1, borderColor: '#555555' },
   contextMenuItemDisabled: {
     opacity: 0.45,
   },
@@ -634,7 +631,7 @@ const styles = StyleSheet.create({
   },
   contextMenuText: {
     flex: 1,
-    color: '#e4e4e7',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: -0.2,
@@ -745,11 +742,8 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#295294',
+    backgroundColor: '#343434',
     flexShrink: 0,
-  },
-  sendCircleBtnIdle: {
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
   },
   voiceRecordingPill: {
     flexDirection: 'row',

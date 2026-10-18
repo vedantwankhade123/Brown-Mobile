@@ -26,6 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatBubble } from '../components/ChatBubble';
 import { MessageInput } from '../components/MessageInput';
+import { DownloadsModal } from '../components/DownloadsModal';
 import { Header } from '../components/Header';
 import { hasHeaderOverlap } from '../utils/headerOverlap';
 import { DrawerSidebar } from '../components/DrawerSidebar';
@@ -188,6 +189,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [models, setModels] = useState<ModelMetadata[]>([]);
   const [draftText, setDraftText] = useState<string | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<AppUpdateInfo | null>(null);
+  const [showDownloads, setShowDownloads] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [kokoroDownloading, setKokoroDownloading] = useState(false);
   const [keyboardUp, setKeyboardUp] = useState(false);
@@ -984,6 +986,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onNewChat={createNewChat}
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
+        onOpenDownloads={() => setShowDownloads(true)}
         onOpenSync={onOpenDesktopSync}
         onOpenSettings={() => {
           setIsSidebarOpen(false);
@@ -992,6 +995,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onClose={() => setIsSidebarOpen(false)}
       />
 
+      <DownloadsModal visible={showDownloads} onClose={() => setShowDownloads(false)} />
       <UpdatePromptModal
         visible={showUpdateModal && !!pendingUpdate}
         update={pendingUpdate}

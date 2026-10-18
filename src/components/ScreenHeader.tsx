@@ -9,8 +9,8 @@ import {
   ViewStyle,
   useWindowDimensions,
 } from 'react-native';
-import { HeaderFade } from './HeaderFade';
 import { BackArrowIcon } from './Icons';
+import { HeaderFade } from './HeaderFade';
 
 export const headerButtonStyle = {
   width: 44,

@@ -129,9 +129,36 @@ npm run typecheck
 # Run automated mobile test suite
 node tests/verify-mobile-suite.js
 
-# Start Expo development server
+# Start Pixel_9 (or another emulator) in Android Studio, then build and open Brown
 npm start
 ```
+
+Brown requires its native Android app: Expo Go cannot load the local speech,
+recorder, account, Llama and ONNX modules. `npm start` (also `npm run android`
+and `npm run start:offline`) builds and installs a debug app for the connected
+emulator's primary architecture, starts Metro with Expo network checks disabled, and
+opens Brown directly. Keep the terminal running for Fast Refresh. The first
+native build still needs internet for any uncached Gradle dependencies.
+The launcher also uses the bundled official SDK 51 configuration schema in
+`scripts/expo-offline` so manifest icons and splash images resolve locally;
+SDK 51 otherwise still requests that schema even with `EXPO_OFFLINE=1`.
+
+With multiple emulators/devices, select the target explicitly:
+`npm run android -- --device emulator-5554`. The launcher automatically selects
+the sole running emulator and does not select a USB phone by default.
+Selecting an emulator by its adb ID also excludes its translated ARM ABI from
+the build, avoiding unnecessary compilation of the phone inference variants.
+
+For an already installed debug build, `npm run start:metro` starts only the
+offline local server; open Brown from the emulator's app launcher. Do not use
+Expo Go or an `exp://127.0.0.1:8081` link. A release APK has no live reload
+connection. The `No apps connected` warning means no debug app has connected
+to Metro yet; reload becomes available once Brown has opened successfully.
+
+The launcher reads the SDK from `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or
+`android/local.properties`. Set `JAVA_HOME` to JDK 17 for this project's Gradle
+version. Native debug builds select the device ABI automatically; ARM64 release
+APKs are intended for phones and may crash under emulator ARM translation.
 
 ---
 

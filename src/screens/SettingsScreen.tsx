@@ -1,3 +1,4 @@
+import { AnimatedModal as Modal } from "../components/AnimatedModal";
 import { VoiceDownloadIcon } from '../components/VoiceDownloadIcon';
 import { BrownButton as TouchableOpacity } from '../components/ButtonSurface';
 import { PreferencesScreen } from './PreferencesScreen';
@@ -5,7 +6,7 @@ import { MAX_BACKUP_BYTES, validateBackup, restoreBackup } from '../services/sto
 import * as DocumentPicker from 'expo-document-picker';
 import { StorageLocationControl } from '../components/StorageLocationControl';
 import { AssistantMemory } from '../services/storage/AssistantMemory';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle } from 'react-native-svg';
 import {
@@ -20,18 +21,10 @@ import {
   Platform,
   Linking,
   Animated,
+  Easing,
   Image,
   ActivityIndicator,
-  Modal,
-} from 'react-native';
-
-const Easing = (Animated as any).Easing || {
-  inOut: (fn: any) => fn,
-  out: (fn: any) => fn,
-  in: (fn: any) => fn,
-  cubic: (t: any) => t,
-  ease: (t: any) => t,
-};
+  } from 'react-native';
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService, ConsentRecord } from '../services/storage/ConsentService';
 import { SoundService } from '../services/sound/SoundService';
@@ -53,8 +46,8 @@ import {
   testProviderConnection,
 } from '../services/inference/CloudProviders';
 import { LlamaEngine } from '../services/inference/LlamaEngine';
-import { HeaderFade } from '../components/HeaderFade';
 import { HeaderTitle, headerButtonStyle, GlassControl, GlassSurface, ScreenHeader, useStickyHeader } from '../components/ScreenHeader';
+import { HeaderFade } from '../components/HeaderFade';
 import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
 import {
   UpdatePromptModal,
@@ -65,7 +58,8 @@ import {
 } from '../components/UpdatePromptModal';
 import { UpdateHero } from '../components/UpdateHero';
 import { EmptyState } from '../components/EmptyState';
-import { animateOnce, revealValues } from '../utils/motion';
+import { animateOnce } from '../utils/motion';
+import { useReducedMotion } from '../utils/useReducedMotion';
 import { useBackLayer } from '../utils/backStack';
 import { saveSelectedModel } from '../services/modelManager/ModelSelection';
 import {
@@ -73,6 +67,8 @@ import {
   checkForAppUpdate,
   getAutoCheckEnabled,
   getCurrentAppVersion,
+  getDownloadedApkUpdate,
+  isNewerVersion,
   setAutoCheckEnabled,
 } from '../services/updater/GitHubUpdateService';
 import {
@@ -263,9 +259,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
 
-  // Smooth Screen Slide & Fade Animation
-  const screenSlideAnim = useRef(new Animated.Value(20)).current;
-  const screenFadeAnim = useRef(new Animated.Value(0)).current;
+  const screenSlideAnim = useRef(new Animated.Value(0)).current;
+  const reducedMotion = useReducedMotion();
 
   // One UI style sticky header: gains background once content scrolls under it
   const { onScroll: settingsScroll, scrolled: settingsScrolled } = useStickyHeader();
@@ -375,6 +370,18 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [showAllUpdateNotes, setShowAllUpdateNotes] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const currentAppVersion = getCurrentAppVersion();
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    if (currentView === 'updates') getDownloadedApkUpdate().then(saved => {
+      if (!active) return;
+      const ready = !!saved?.update && isNewerVersion(saved.update.latestVersion, getCurrentAppVersion());
+      setUpdateReady(ready);
+      if (ready && saved?.update) { setLatestUpdateInfo(saved.update); setUpdateStatus('available'); }
+    }).catch(() => { if (active) setUpdateError('The saved update is temporarily unavailable. Retry shortly.'); });
+    return () => { active = false; };
+  }, [currentView, showUpdateModal]);
+
   const [kokoroVoice, setKokoroVoice] = useState<KokoroVoiceId>('af_heart');
   const [kokoroInstalled, setKokoroInstalled] = useState(false);
   const [kokoroBusy, setKokoroBusy] = useState(false);
@@ -440,23 +447,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const chatRepo = new ChatRepository();
 
-  // Trigger smooth enter animation on screen change.
-  // JS driver on purpose: a native-driver fade whose end event is lost leaves the whole
-  // page pinned at opacity 0 (black screen) that no setValue can reclaim.
-  // isActive is part of the key because the page owns its own exit fade to 0 and stays
-  // mounted: without re-revealing on every visit, the second visit rendered transparent.
-  useEffect(() => {
-    if (!isActive) return;
-    revealValues(
-      [
-        { value: screenSlideAnim, from: 12, to: 0 },
-        { value: screenFadeAnim, from: 0, to: 1 },
-      ],
-      180,
-      undefined,
-      false
-    );
-  }, [isActive, currentView, screenSlideAnim, screenFadeAnim]);
+  useLayoutEffect(() => {
+    if (!isActive || reducedMotion) {
+      screenSlideAnim.setValue(0);
+      return;
+    }
+    let cancelled = false;
+    screenSlideAnim.setValue(8);
+    const animation = Animated.timing(screenSlideAnim, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animateOnce(animation, 160, () => {
+      if (!cancelled) screenSlideAnim.setValue(0);
+    });
+    return () => { cancelled = true; animation.stop(); };
+  }, [isActive, currentView, reducedMotion, screenSlideAnim]);
 
   useEffect(() => {
     loadConsentProfile();
@@ -728,73 +736,15 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const handleSmoothBack = () => {
     if (viewHistory.length > 1) {
-      animateOnce(
-        [
-          Animated.timing(screenSlideAnim, {
-            toValue: 12,
-            duration: 140,
-            easing: Easing.in(Easing.cubic),
-            useNativeDriver: false,
-          }),
-          Animated.timing(screenFadeAnim, {
-            toValue: 0,
-            duration: 140,
-            easing: Easing.in(Easing.cubic),
-            useNativeDriver: false,
-          }),
-        ],
-        140,
-        () => {
-          setViewHistory((prev) => (prev.length > 1 ? prev.slice(0, -1) : ['main']));
-        }
-      );
+      setViewHistory((prev) => (prev.length > 1 ? prev.slice(0, -1) : ['main']));
       return;
     }
-
-    animateOnce(
-      [
-        Animated.timing(screenSlideAnim, {
-          toValue: 16,
-          duration: 150,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: false,
-        }),
-        Animated.timing(screenFadeAnim, {
-          toValue: 0,
-          duration: 150,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: false,
-        }),
-      ],
-      150,
-      () => {
-        onBack();
-      }
-    );
+    onBack();
   };
 
   const navigateToView = (view: SettingsView) => {
     if (view === 'data_sync' && onOpenDesktopSync) { onOpenDesktopSync(); return; }
-    animateOnce(
-      [
-        Animated.timing(screenSlideAnim, {
-          toValue: -10,
-          duration: 130,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: false,
-        }),
-        Animated.timing(screenFadeAnim, {
-          toValue: 0,
-          duration: 130,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: false,
-        }),
-      ],
-      130,
-      () => {
-        setViewHistory((prev) => (prev[prev.length - 1] === view ? prev : [...prev, view]));
-      }
-    );
+    setViewHistory((prev) => (prev[prev.length - 1] === view ? prev : [...prev, view]));
   };
 
   const handleBirthdateInput = (val: string) => {
@@ -1270,7 +1220,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // ==========================================
   if (currentView === 'edit_profile') {
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Edit Profile', handleSmoothBack)}
 
@@ -1486,7 +1436,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   if (currentView === 'account') {
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('User Account')}
           <ScrollView
@@ -1517,7 +1467,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
             <View style={styles.accountDeleteFooter}>
               <TouchableOpacity style={styles.deleteAccountButton} onPress={confirmDeleteAccount} accessibilityLabel="Delete Account" activeOpacity={0.8}>
-                <TrashIcon size={18} color="#70232E" />
+                <TrashIcon size={18} color="#ffffff" />
                 <Text style={styles.deleteAccountText}>Delete Account</Text>
               </TouchableOpacity>
             </View>
@@ -1532,7 +1482,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // ==========================================
   if (currentView === 'models') {
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Models')}
           <ScrollView
@@ -1542,9 +1492,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             onScroll={settingsScroll}
             scrollEventThrottle={16}
           >
-            {/* Section 1: Connectors & Weights Header */}
-            <Text style={styles.desktopSectionHeading}>{'Connectors & Weights'}</Text>
-
             {/* Connector Card 1: Google Gemini */}
             <View style={styles.connectorCard}>
               <View style={styles.connectorHeaderRow}>
@@ -2186,9 +2133,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               {allAvailableModelsList.length === 0 ? (
                 <EmptyState
                   title="No models installed"
-                  description={
-                    'No data here yet. Add an API key\nin Connectors above, or download an\noffline GGUF from the Model Store.'
-                  }
                 />
               ) : filteredModels.length === 0 ? (
                 <Text style={styles.connectorDesc}>
@@ -2277,7 +2221,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // ==========================================
   if (currentView === 'sounds') {
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Sound')}
           <ScrollView
@@ -2288,24 +2232,24 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             scrollEventThrottle={16}
           >
             {/* 1. Voice Input Section */}
-            <View style={styles.pageCardGroup}>
+            <View style={styles.simpleSettingsCard}>
               <Text style={styles.sectionCardTitle}>Voice input</Text>
-              <Text style={styles.sectionCardSubtitle}>
+              <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>
                 {nativeSpeech
-                  ? 'The mic button dictates with this phone’s own speech recognition. Nothing is recorded to disk and no audio is uploaded.'
-                  : 'The mic button records on this phone and transcribes with Whisper on your paired Brown PC — audio stays on your Wi-Fi network.'}
+                  ? 'Dictate with your phone’s speech recognition. Brown does not save recordings or upload audio.'
+                  : 'Your paired PC transcribes microphone audio with Whisper over your local network.'}
               </Text>
 
               <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>On-device dictation</Text>
-                <Text style={styles.fullPageRowValue}>
+                <Text style={[styles.fullPageRowLabel, styles.simpleSettingsText]}>On-device dictation</Text>
+                <Text style={[styles.fullPageRowValue, styles.simpleSettingsText]}>
                   {nativeSpeech ? 'Active' : 'Not in use'}
                 </Text>
               </View>
 
               <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Whisper engine</Text>
-                <Text style={styles.fullPageRowValue}>
+                <Text style={[styles.fullPageRowLabel, styles.simpleSettingsText]}>Whisper engine</Text>
+                <Text style={[styles.fullPageRowValue, styles.simpleSettingsText]}>
                   {nativeSpeech
                     ? 'Not needed'
                     : !desktopSyncStatus.isConnected
@@ -2319,22 +2263,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </View>
 
               <View style={styles.fullPageDetailRow}>
-                <Text style={styles.fullPageRowLabel}>Voice sensitivity</Text>
-                <Text style={styles.fullPageRowValue}>{voiceSensitivity}</Text>
+                <Text style={[styles.fullPageRowLabel, styles.simpleSettingsText]}>Voice sensitivity</Text>
+                <Text style={[styles.fullPageRowValue, styles.simpleSettingsText]}>{voiceSensitivity}</Text>
               </View>
             </View>
 
             {/* 2. Notification Chimes Section */}
-            <View style={styles.pageCardGroup}>
-              <Text style={styles.sectionCardTitle}>Notification Chimes</Text>
-              <Text style={styles.sectionCardSubtitle}>
-                Acoustic and tactile feedback for autonomous agent events.
+            <View style={styles.simpleSettingsCard}>
+              <Text style={styles.sectionCardTitle}>Chimes</Text>
+              <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>
+                Choose when Brown plays a sound.
               </Text>
 
-              <View style={styles.toggleRow}>
+              <View style={styles.simpleSettingsRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fullPageRowLabel}>Task Completion Chime</Text>
-                  <Text style={styles.toggleDesc}>Play chime when response generation finishes</Text>
+                  <Text style={[styles.fullPageRowLabel, styles.simpleSettingsText]}>Answer ready</Text>
+                  <Text style={[styles.toggleDesc, styles.simpleSettingsText]}>When Brown finishes a response.</Text>
                 </View>
                 <ToggleSwitch
                   value={completionSound}
@@ -2346,10 +2290,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
               </View>
 
-              <View style={[styles.toggleRow, styles.chimeOptionSeparator]}>
+              <View style={[styles.simpleSettingsRow, styles.simpleSettingsDivider]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fullPageRowLabel}>Tool Permission Chime</Text>
-                  <Text style={styles.toggleDesc}>Play chime when confirmation is prompted</Text>
+                  <Text style={[styles.fullPageRowLabel, styles.simpleSettingsText]}>Approval needed</Text>
+                  <Text style={[styles.toggleDesc, styles.simpleSettingsText]}>When an action needs your permission.</Text>
                 </View>
                 <ToggleSwitch
                   value={permissionSound}
@@ -2361,10 +2305,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
               </View>
 
-              <View style={[styles.toggleRow, styles.chimeOptionSeparator]}>
+              <View style={[styles.simpleSettingsRow, styles.simpleSettingsDivider]}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fullPageRowLabel}>Question Prompt Chime</Text>
-                  <Text style={styles.toggleDesc}>Play tone when assistant asks a clarifying question</Text>
+                  <Text style={[styles.fullPageRowLabel, styles.simpleSettingsText]}>Follow-up question</Text>
+                  <Text style={[styles.toggleDesc, styles.simpleSettingsText]}>When Brown needs more information.</Text>
                 </View>
                 <ToggleSwitch
                   value={questionSound}
@@ -2376,14 +2320,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
               </View>
 
+            </View>
+            <View style={styles.simpleSettingsCard}>
+              <Text style={styles.sectionCardTitle}>Background notifications</Text>
+              <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>Get notified when an answer is ready while Brown runs in the background.</Text>
               {!notifGranted && (
                 <View style={styles.notifPermissionRow}>
-                  <Text style={styles.toggleDesc}>
-                    Chimes sound while Brown is open. Allow notifications so a finished answer
-                    still reaches you when the app is in the background.
-                  </Text>
                   <TouchableOpacity brownSurface="light"
-                    style={styles.notifPermissionBtn}
+                    style={[styles.notifPermissionBtn, styles.simpleSettingsButton]}
                     activeOpacity={0.8}
                     disabled={requestingNotif}
                     onPress={() => {
@@ -2402,12 +2346,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               )}
 
               <View style={styles.notifPermissionRow}>
-                <Text style={styles.toggleDesc}>
-                  A finished answer notifies you only while Brown is still running in the
-                  background. Check the whole path with a test notification.
-                </Text>
                 <TouchableOpacity brownSurface="light"
-                  style={styles.notifPermissionBtn}
+                  style={[styles.notifPermissionBtn, styles.simpleSettingsButton]}
                   activeOpacity={0.8}
                   disabled={testingNotif}
                   onPress={() => {
@@ -2419,39 +2359,39 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   }}
                 >
                   <Text style={styles.notifPermissionBtnText}>
-                    {testingNotif ? 'Sending…' : 'Send Test Notification'}
+                    {testingNotif ? 'Sending…' : 'Test notification'}
                   </Text>
                 </TouchableOpacity>
                 {!!testNotifResult && (
-                  <Text style={styles.toggleDesc}>{testNotifResult}</Text>
+                  <Text style={[styles.toggleDesc, styles.simpleSettingsText]}>{testNotifResult}</Text>
                 )}
               </View>
             </View>
 
-            {/* Test Play Buttons (Fully Rounded) */}
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+            <View style={styles.simpleSettingsCard}>
+            <Text style={styles.sectionCardTitle}>Preview chimes</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
               <TouchableOpacity brownSurface="light"
-                style={[styles.secondaryFullBtn, { flex: 1 }]}
+                style={[styles.secondaryFullBtn, { flexGrow: 1, flexBasis: 120 }]}
                 onPress={() => SoundService.playCompletion()}
                 activeOpacity={0.8}
               >
                 <VolumeIcon size={16} color="#ffffff" />
-                <Text style={styles.secondaryFullBtnText}>Play Completion</Text>
+                <Text style={[styles.secondaryFullBtnText, styles.simpleSettingsText]}>Answer ready</Text>
               </TouchableOpacity>
 
               <TouchableOpacity brownSurface="light"
-                style={[styles.secondaryFullBtn, { flex: 1 }]}
+                style={[styles.secondaryFullBtn, { flexGrow: 1, flexBasis: 120 }]}
                 onPress={() => SoundService.playPermission()}
                 activeOpacity={0.8}
               >
                 <VolumeIcon size={16} color="#ffffff" />
-                <Text style={styles.secondaryFullBtnText}>Play Permission</Text>
+                <Text style={[styles.secondaryFullBtnText, styles.simpleSettingsText]}>Approval needed</Text>
               </TouchableOpacity>
             </View>
+            </View>
 
-            <TouchableOpacity brownSurface="light" style={styles.primaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
-              <Text style={styles.primaryFullBtnText}>Save Preferences</Text>
-            </TouchableOpacity>
+            <Text style={styles.simpleSettingsFootnote}>Sound settings save automatically.</Text>
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
@@ -2528,7 +2468,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     };
 
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           <ScreenHeader overlay centered title="Voice" onBack={handleSmoothBack} scrolled={settingsScrolled} right={<TouchableOpacity brownSurface style={styles.voiceDownloadsButton} onPress={() => setShowVoiceDownloads(true)} accessibilityLabel="Show voice model downloads and progress" accessibilityState={{ busy: kokoroBusy }}><VoiceDownloadIcon busy={kokoroBusy} /></TouchableOpacity>} />
           <Modal visible={showVoiceDownloads} transparent animationType="fade" onRequestClose={() => setShowVoiceDownloads(false)}>
@@ -2574,14 +2514,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           >
             {/* 1. Neural persona cards */}
             <View style={styles.voiceSection}>
-              <View style={[styles.voiceIntroRow, { justifyContent: 'center' }]}>
-                <Text style={[styles.voiceIntroTitle, { textAlign: 'center' }]}>Neural personas</Text>
-
-              </View>
-              <Text style={[styles.voiceIntroDescription, { textAlign: 'center' }]} textBreakStrategy="balanced">
-                Install Kokoro once for offline speech. Then choose the voices you want to use.
-              </Text>
-
               {(!kokoroStatus?.engineInstalled || engineDownloadedBanner) && (
                 <TouchableOpacity brownSurface
                   style={[styles.primaryFullBtn, kokoroBusy && styles.voicePillDisabled]}
@@ -2741,7 +2673,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   if (currentView === 'storage') {
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Storage & Memory')}
           <ScrollView
@@ -2752,43 +2684,43 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             scrollEventThrottle={16}
           >
             {/* Storage Locations Header with Memory Toggle */}
-            <View style={styles.pageCardGroup}>
-              <View style={styles.toggleRow}>
+            <View style={styles.simpleSettingsCard}>
+              <View style={styles.simpleSettingsRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionCardTitle}>Storage Locations</Text>
-                  <Text style={styles.sectionCardSubtitle}>
-                    Downloads, chats, and model files are stored on this device.
+                  <Text style={styles.sectionCardTitle}>On this device</Text>
+                  <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>
+                    Choose where chats and downloaded models are stored.
                   </Text>
                 </View>
 
               </View>
 
-              <StorageLocationControl label="Agent Storage & Memory" address={customDataDir} hint="Conversation storage on this device. Saved preferences stay in private app storage."
+              <StorageLocationControl label="Chats & app data" address={customDataDir} hint="Conversation files. Preferences stay in private app storage."
                 onChoose={() => chooseStorageFolder('data')} onDefault={async () => {
                   await StoragePaths.resetDataDir(); const data = await StoragePaths.getDataDir(); setCustomDataDir(StoragePaths.displayPath(data));
                   Alert.alert('Storage Location', `Using ${StoragePaths.displayPath(data)}`);
                 }} />
-              <StorageLocationControl label="Connectors & Downloads" address={customConnectorsDir} hint="Downloaded model files."
+              <StorageLocationControl label="Downloaded models" address={customConnectorsDir} hint="AI models saved for offline use."
                 onChoose={() => chooseStorageFolder('models')} onDefault={async () => {
                   await StoragePaths.resetModelsDir(); const models = await StoragePaths.getModelsDir(); setCustomConnectorsDir(StoragePaths.displayPath(models));
                   Alert.alert('Download Location', `Using ${StoragePaths.displayPath(models)}`);
                 }} />
             </View>
 
-            <View style={styles.pageCardGroup}>
-              <Text style={styles.sectionCardTitle}>AI Memory</Text>
-              <Text style={styles.sectionCardSubtitle}>Say “Remember that I prefer brief answers” to save a preference across chats. Saved preferences are included when you chat, including with a cloud model. Turning memory off keeps them saved but stops using them.</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 }}>
-                <Text style={styles.inputFieldLabel}>Use saved preferences</Text>
+            <View style={styles.simpleSettingsCard}>
+              <Text style={styles.sectionCardTitle}>Memory</Text>
+              <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>Say “Remember…” to save a preference for future chats, including cloud chats. Turning this off keeps preferences saved but stops using them.</Text>
+              <View style={styles.simpleSettingsRow}>
+                <Text style={[styles.inputFieldLabel, styles.simpleSettingsText]}>Use saved preferences</Text>
                 <ToggleSwitch value={memoryPersistence} onValueChange={async value => { await AssistantMemory.setEnabled(value); setMemoryPersistence(value); }} />
               </View>
               <TouchableOpacity brownSurface="light" accessibilityLabel="View preferences" style={[styles.exportBackupBtn, { marginTop: 14 }]} onPress={() => navigateToView('preferences')}><SlidersIcon size={18} color="#ffffff" /><Text style={styles.exportBackupBtnText}>View preferences</Text></TouchableOpacity>
             </View>
 
             {/* Clear Data Section */}
-            <View style={styles.pageCardGroup}>
-              <Text style={styles.sectionCardTitle}>Backup & Data</Text>
-              <Text style={styles.sectionCardSubtitle}>
+            <View style={styles.simpleSettingsCard}>
+              <Text style={styles.sectionCardTitle}>Backups</Text>
+              <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>
                 Save or restore conversations and preferences. Erase history separately.
               </Text>
               <View style={styles.storageActionColumn}>
@@ -2801,15 +2733,21 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   <Text style={styles.exportBackupBtnText}>{importing ? 'Importing…' : 'Import Backup'}</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity brownSurface="light" style={styles.clearChatsBtn} onPress={handleClearHistory} activeOpacity={0.8}>
+              </View>
+            </View>
+            <View style={styles.simpleSettingsCard}>
+              <Text style={styles.sectionCardTitle}>Clear chat history</Text>
+              <Text style={[styles.sectionCardSubtitle, styles.simpleSettingsText]}>Erase conversations from this device. Export a backup first to keep a copy.</Text>
+              <View style={styles.storageActionColumn}>
+                <TouchableOpacity style={[styles.clearChatsBtn, { backgroundColor: '#70232E' }]} onPress={handleClearHistory} activeOpacity={0.8}>
                   <TrashIcon size={16} color="#ffffff" />
-                  <Text style={styles.clearChatsBtnText}>Erase All Chat History</Text>
+                  <Text style={[styles.clearChatsBtnText, styles.simpleSettingsText]}>Erase All Chat History</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             <TouchableOpacity brownSurface="light" style={styles.secondaryFullBtn} onPress={handleSmoothBack} activeOpacity={0.8}>
-              <Text style={styles.secondaryFullBtnText}>Back to Settings</Text>
+              <Text style={[styles.secondaryFullBtnText, styles.simpleSettingsText]}>Back to Settings</Text>
             </TouchableOpacity>
           </ScrollView>
         </SafeAreaView>
@@ -2845,7 +2783,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             : `v${stripV(currentAppVersion)} · Nothing left to download`;
 
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('Software update')}
           <ScrollView
@@ -2949,7 +2887,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 {updateStatus === 'checking'
                   ? 'Checking…'
                   : hasUpdate
-                    ? `Download update${latestUpdateInfo?.apkSizeBytes ? ` (${sizeLabel})` : ''}`
+                    ? updateReady ? 'Install Update' : `Download update${latestUpdateInfo?.apkSizeBytes ? ` (${sizeLabel})` : ''}`
                     : 'Check for updates'}
               </Text>
             </TouchableOpacity>
@@ -2964,7 +2902,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             onDismiss={() => setShowUpdateModal(false)}
             onUpdated={() => {
               setShowUpdateModal(false);
-              setUpdateStatus('up-to-date');
+
             }}
           />
         </SafeAreaView>
@@ -2977,7 +2915,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   // ==========================================
   if (currentView === 'about') {
     return (
-      <Animated.View style={[styles.container, { opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }]}>
+      <Animated.View style={[styles.container, { transform: [{ translateY: screenSlideAnim }] }]}>
         <SafeAreaView style={styles.container}>
           {renderFullPageHeader('About')}
           <ScrollView
@@ -2987,108 +2925,34 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             onScroll={settingsScroll}
             scrollEventThrottle={16}
           >
-            <View style={styles.aboutCard}>
-              <View style={styles.aboutBrandHeader}>
-                <Image
-                  source={require('../../Assets/browny_white.png')}
-                  style={styles.aboutAppLogo}
-                  resizeMode="contain"
-                />
-                <View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.aboutAppTitle}>Brown</Text>
-                    <View style={styles.aboutVersionBadge}>
-                      <Text style={styles.aboutVersionBadgeText}>v{currentAppVersion}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.aboutTagline}>{'Local & Offline Mobile AI Companion'}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.aboutSectionTitle}>About Brown</Text>
-              <Text style={styles.aboutParagraph}>
-                Brown is an advanced, sovereign conversational AI companion built to run directly on smartphone hardware. All SLM neural model inference, prompt executions, and chat histories operate locally inside a 100% private on-device sandbox. No personal data, chat context, or telemetry is ever transmitted to remote servers.
-              </Text>
-              <Text style={[styles.aboutParagraph, { marginTop: 8 }]}>
-                Powered by quantized GGUF neural models with optional fallback to Google Gemini cloud intelligence when requested, Brown delivers fast, autonomous capability while keeping you in complete sovereign control.
-              </Text>
-
-              {/* Specs Grid (Desktop Parity) */}
-              <View style={styles.aboutSpecsGrid}>
-                <View style={styles.aboutSpecItem}>
-                  <Text style={styles.aboutSpecLabel}>VERSION</Text>
-                  <Text style={styles.aboutSpecValue}>v{currentAppVersion} Mobile</Text>
-                </View>
-                <View style={styles.aboutSpecItem}>
-                  <Text style={styles.aboutSpecLabel}>PLATFORM</Text>
-                  <Text style={styles.aboutSpecValue}>{Platform.OS.toUpperCase()}</Text>
-                </View>
-                <View style={styles.aboutSpecItem}>
-                  <Text style={styles.aboutSpecLabel}>NEURAL ENGINE</Text>
-                  <Text style={styles.aboutSpecValue}>ANE / Vulkan / NPU</Text>
-                </View>
-              </View>
-
-              {/* Social Media Links (Only icons without bg, center-aligned in a single row) */}
-              <View style={styles.aboutSocialIconsRow}>
-
-                <TouchableOpacity brownSurface
-                  style={styles.aboutSocialIconBtn}
-                  onPress={() => {
-                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                      window.open('https://www.instagram.com/ultron_offline', '_blank');
-                    } else {
-                      Alert.alert('Instagram', 'https://www.instagram.com/ultron_offline');
-                    }
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Instagram"
-                >
-                  <InstagramIcon size={24} color="#ffffff" />
-                </TouchableOpacity>
-
-                <TouchableOpacity brownSurface
-                  style={styles.aboutSocialIconBtn}
-                  onPress={() => {
-                    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                      window.open('mailto:contact@usebrown.online', '_blank');
-                    } else {
-                      Alert.alert('Email Developer', 'contact@usebrown.online');
-                    }
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Email"
-                >
-                  <MailIcon size={24} color="#ffffff" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Also Available On */}
-              <View style={styles.alsoAvailableContainer}>
-                <Text style={styles.alsoAvailableTitle}>Also Available On</Text>
-                <View style={styles.platformButtonsGrid}>
-                  {otherPlatforms.map((platform) => (
-                    <TouchableOpacity brownSurface
-                      key={platform.id}
-                      style={[styles.platformButton, platform.disabled && { opacity: 0.45 }]}
-                      onPress={() => {
-                        if (platform.disabled) {
-                          Alert.alert('In Development', `${platform.label.replace('Download for ', '')} build is currently in development.`);
-                          return;
-                        }
-                        handleOpenDownloadLink(platform.url);
-                      }}
-                      disabled={platform.disabled}
-                      activeOpacity={platform.disabled ? 1 : 0.8}
-                    >
-                      {renderPlatformIcon(platform, 18)}
-                      <Text style={styles.platformButtonText}>{platform.label}</Text>
-                      <Text style={styles.platformButtonArrow}>{platform.disabled ? '🔒' : '↗'}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+            <View style={styles.aboutIntro}>
+              <Image source={require('../../Assets/browny_white.png')} style={styles.aboutLogo} resizeMode="contain" />
+              <Text style={styles.aboutName}>Brown</Text>
+              <Text style={styles.aboutSubtitle}>Your AI, on your device.</Text>
             </View>
+
+            <View style={styles.aboutDetails}>
+              <View style={styles.aboutDetailRow}><Text style={styles.aboutDetailLabel}>Version</Text><Text selectable style={styles.aboutDetailValue}>{currentAppVersion}</Text></View>
+              <View style={[styles.aboutDetailRow, styles.aboutDetailDivider]}><Text style={styles.aboutDetailLabel}>Platform</Text><Text style={styles.aboutDetailValue}>{Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web'}</Text></View>
+            </View>
+
+            <View style={styles.aboutContactRow}>
+              <TouchableOpacity brownSurface style={styles.aboutContactButton} onPress={() => handleOpenDownloadLink('mailto:contact@usebrown.online')} accessibilityRole="link" accessibilityLabel="Email Brown support">
+                <MailIcon size={20} color="#ffffff" /><Text style={styles.aboutContactText}>Contact</Text>
+              </TouchableOpacity>
+              <TouchableOpacity brownSurface style={styles.aboutContactButton} onPress={() => handleOpenDownloadLink('https://www.instagram.com/ultron_offline')} accessibilityRole="link" accessibilityLabel="Brown on Instagram">
+                <InstagramIcon size={20} color="#ffffff" /><Text style={styles.aboutContactText}>Instagram</Text>
+              </TouchableOpacity>
+            </View>
+
+            {otherPlatforms.length > 0 && <View style={styles.aboutDesktopSection}>
+              {otherPlatforms.map(platform => <TouchableOpacity brownSurface key={platform.id} style={styles.aboutDownloadButton}
+                disabled={platform.disabled} onPress={() => handleOpenDownloadLink(platform.url)}
+                accessibilityRole="link" accessibilityLabel={platform.label}>
+                {renderPlatformIcon(platform, 20)}<Text style={styles.aboutDownloadText}>{platform.label}</Text>{platform.id !== 'windows' && <Text style={styles.aboutDownloadArrow}>↗</Text>}
+              </TouchableOpacity>)}
+            </View>}
+
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
@@ -3102,10 +2966,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     <Animated.View
       style={[
         styles.container,
-        {
-          opacity: screenFadeAnim,
-          transform: [{ translateY: screenSlideAnim }],
-        },
+        { transform: [{ translateY: screenSlideAnim }] },
       ]}
     >
       <SafeAreaView style={styles.container}>
@@ -3333,9 +3194,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   accountScrollContent: { flexGrow: 1 },
-  accountDeleteFooter: { marginTop: 'auto', paddingTop: 24 },
-  deleteAccountButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#F5B6BD', borderRadius: 9999, paddingHorizontal: 18, paddingVertical: 14, minHeight: 48, marginTop: 18 },
-  deleteAccountText: { color: '#70232E', fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  accountDeleteFooter: { marginTop: 18 },
+  deleteAccountButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#70232E', borderRadius: 9999, paddingHorizontal: 18, paddingVertical: 14, minHeight: 48 },
+  deleteAccountText: { color: '#ffffff', fontSize: 15, fontWeight: '600', flexShrink: 1 },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -4151,6 +4012,12 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 8,
   },
+  simpleSettingsCard: { backgroundColor: '#1c1c1c', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#303030' },
+  simpleSettingsText: { color: '#ffffff', maxWidth: '100%', lineHeight: 19, flexShrink: 1 },
+  simpleSettingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 14 },
+  simpleSettingsDivider: { borderTopWidth: 1, borderTopColor: '#363636' },
+  simpleSettingsButton: { alignSelf: 'stretch', alignItems: 'center', minHeight: 44, justifyContent: 'center' },
+  simpleSettingsFootnote: { color: '#ffffff', fontSize: 12, lineHeight: 18, textAlign: 'center', paddingVertical: 4 },
   storageActionColumn: {
     gap: 10,
     marginTop: 12,
@@ -4810,102 +4677,25 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
 
-  /* About Screen Styles */
-  aboutCard: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  aboutBrandHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 12,
-    paddingBottom: 4,
-  },
-  aboutAppLogo: {
-    width: 46,
-    height: 46,
-  },
-  aboutAppTitle: {
-    color: '#ffffff',
-    fontSize: 19,
-    fontWeight: '700',
-  },
-  aboutVersionBadge: {
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 9999,
-  },
-  aboutVersionBadgeText: {
-    color: '#60a5fa',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  aboutTagline: {
-    color: '#a1a1aa',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  aboutSectionTitle: {
-    textAlign: 'left',
-    color: '#ffffff',
-    fontSize: 14.5,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  aboutParagraph: {
-    color: '#a1a1aa',
-    fontSize: 12.5,
-    lineHeight: 18,
-  },
-  aboutSpecsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 16,
-  },
-  aboutSpecItem: {
-    flex: 1,
-    minWidth: '45%',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 12,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  aboutSpecLabel: {
-    color: '#71717a',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  aboutSpecValue: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 3,
-  },
-  aboutSocialIconsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 32,
-    marginTop: 22,
-    marginBottom: 6,
-  },
-  aboutSocialIconBtn: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
+  /* About: a compact introduction, two details and direct actions. */
+  aboutIntro: { alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
+  aboutLogo: { width: 80, height: 80, marginBottom: 4 },
+  aboutName: { color: '#ffffff', fontSize: 28, fontWeight: '600', letterSpacing: -0.8 },
+  aboutSubtitle: { color: '#ffffff', fontSize: 15, marginTop: 6, textAlign: 'center' },
+  aboutDescription: { color: '#bdbdc4', fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 330, marginTop: 12 },
+  aboutDetails: { backgroundColor: '#1c1c1e', borderRadius: 20, paddingHorizontal: 16 },
+  aboutDetailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, minHeight: 52, paddingVertical: 14 },
+  aboutDetailDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#3a3a3c' },
+  aboutDetailLabel: { color: '#bdbdc4', fontSize: 14 },
+  aboutDetailValue: { color: '#ffffff', fontSize: 14, fontWeight: '500', flexShrink: 1, textAlign: 'right' },
+  aboutContactRow: { flexDirection: 'row', gap: 10 },
+  aboutContactButton: { flex: 1, minHeight: 48, borderRadius: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 12 },
+  aboutContactText: { color: '#ffffff', fontSize: 14, fontWeight: '500', flexShrink: 1 },
+  aboutDesktopSection: { marginTop: 10, gap: 12 },
+  aboutDesktopLabel: { color: '#bdbdc4', fontSize: 13, textAlign: 'center' },
+  aboutDownloadButton: { minHeight: 50, paddingHorizontal: 16, paddingVertical: 13, borderRadius: 25, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  aboutDownloadText: { color: '#ffffff', fontSize: 15, fontWeight: '500', flexShrink: 1 },
+  aboutDownloadArrow: { color: '#ffffff', fontSize: 17 },
   alsoAvailableContainer: {
     marginTop: 20,
   },

@@ -1,4 +1,5 @@
 import { appSurfaces } from './src/theme/appSurfaces';
+import { BrownButton as TouchableOpacity } from './src/components/ButtonSurface';
 import './src/utils/animatedPolyfill';
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import {
@@ -8,7 +9,7 @@ import {
   SafeAreaView,
   StatusBar,
   Platform,
-  TouchableOpacity,
+  Linking,
   BackHandler,
   Alert,
 } from 'react-native';
@@ -31,6 +32,7 @@ import {
 } from '@expo-google-fonts/outfit';
 
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
+import { resumeOnboardingVoiceSetup } from './src/services/onboarding/OnboardingSetup';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { ModelStoreScreen } from './src/screens/ModelStoreScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -166,14 +168,14 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             <Text style={styles.errorMessage}>
               {this.state.error?.message || 'Unknown error'}
             </Text>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.errorReloadBtn}
               onPress={this.handleReload}
               activeOpacity={0.85}
             >
               <Text style={styles.errorReloadBtnText}>Reload App</Text>
             </TouchableOpacity>
-            <TouchableOpacity
+            <TouchableOpacity brownSurface
               style={styles.errorDiagnosticsBtn}
               onPress={this.handleSendDiagnostics}
               activeOpacity={0.85}
@@ -205,6 +207,22 @@ export default function App() {
   });
 
   const [screenStack, setScreenStack] = useState<ScreenType[]>(['chat']);
+  const [onboardingRevision, setOnboardingRevision] = useState(0);
+  // Development-only preview entry point; never changes onboarding completion or profile data.
+  useEffect(() => {
+    if (!__DEV__) return;
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      if (url === 'com.brown.mobile://preview/onboarding') {
+        setOnboardingRevision(previous => previous + 1);
+        setScreenStack(['onboarding']);
+        setIsLoading(false);
+      } else if (url === 'com.brown.mobile://preview/desktop-sync') {
+        setScreenStack(['desktopSync']);
+        setIsLoading(false);
+      }
+    });
+    return () => subscription.remove();
+  }, []);
   const currentScreen = screenStack[screenStack.length - 1] || 'chat';
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [bootStalled, setBootStalled] = useState<boolean>(false);
@@ -231,9 +249,7 @@ export default function App() {
       .then(() => {
         NavigationBar.setButtonStyleAsync('light').catch(() => {});
         NavigationBar.setBorderColorAsync('transparent').catch(() => {});
-        // Match the composited bottom stop of the chat input's blue glow.
-        // Some Android gesture bars remain black even with a transparent surface.
-        setNavBarColor(currentScreen === 'chat' ? '#102046' : appSurfaces.top);
+        setNavBarColor(appSurfaces.top);
       })
       .catch(() => {});
   }, [currentScreen]);
@@ -253,7 +269,7 @@ export default function App() {
       try {
         SoundService.init().catch(() => {});
         await withTimeout(bootstrapApp(), 9000, 'Local storage took too long to open');
-        resumePendingKokoroDownloads().catch(() => {});
+        resumePendingKokoroDownloads().then(() => resumeOnboardingVoiceSetup()).catch(() => {});
         if (cancelled) return;
         await checkOnboardingStatus();
       } catch (err: any) {
@@ -320,6 +336,10 @@ export default function App() {
 
   const checkOnboardingStatus = async () => {
     try {
+      if (__DEV__ && await Linking.getInitialURL() === 'com.brown.mobile://preview/onboarding') {
+        resetToScreen('onboarding');
+        return;
+      }
       const completed = await AsyncStorage.getItem('@ultron_onboarding_completed');
       if (completed !== 'true') {
         resetToScreen('onboarding');
@@ -350,6 +370,7 @@ export default function App() {
   };
 
   const handleRerunOnboarding = () => {
+    setOnboardingRevision(previous => previous + 1);
     navigateTo('onboarding');
   };
 
@@ -368,7 +389,7 @@ export default function App() {
   const renderScreen = (route: string, active: boolean): ReactNode => {
     switch (route as ScreenType) {
       case 'onboarding':
-        return <OnboardingScreen onComplete={handleOnboardingComplete} />;
+        return <OnboardingScreen key={onboardingRevision} isActive={active} onComplete={handleOnboardingComplete} />;
       case 'modelStore':
         return (
           <ModelStoreScreen
@@ -425,7 +446,7 @@ export default function App() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <ScreenSafeArea
-          edges={['top', 'left', 'right']}
+          edges={currentScreen === 'onboarding' ? ['left', 'right'] : ['top', 'left', 'right']}
           style={[styles.container, { backgroundColor: currentScreen === 'chat' ? appSurfaces.top : colors.background }]}
         >
           <StatusBar barStyle="light-content" backgroundColor={currentScreen === 'chat' ? appSurfaces.top : colors.background} />
@@ -441,7 +462,7 @@ export default function App() {
                   <Text style={styles.splashStallText}>
                     Startup is taking longer than it should. Local storage may be busy.
                   </Text>
-                  <TouchableOpacity
+                  <TouchableOpacity brownSurface
                     style={styles.splashStallBtn}
                     onPress={() => setIsLoading(false)}
                     activeOpacity={0.85}

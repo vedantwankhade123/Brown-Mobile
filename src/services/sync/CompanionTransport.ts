@@ -7,7 +7,11 @@ function firstSuccessful<T>(tasks: Array<Promise<T>>): Promise<T> {
   return new Promise((resolve, reject) => {
     let remaining = tasks.length;
     if (!remaining) { reject(new Error('No routes')); return; }
-    tasks.forEach(task => task.then(resolve, error => { if (--remaining === 0) reject(error); }));
+    let pairingError: any;
+    tasks.forEach(task => task.then(resolve, error => {
+      if (error?.code === 'PAIRING_REVOKED') pairingError = error;
+      if (--remaining === 0) reject(pairingError || error);
+    }));
   });
 }
 let native: any;
@@ -55,7 +59,7 @@ export class CompanionTransport {
         }));
         this.route = winner.route;
         return winner.result.body;
-      } catch {}
+      } catch (error: any) { if (error?.code === 'PAIRING_REVOKED') throw error; }
     }
     throw new Error('Desktop is offline or unreachable. Keep Brown open; remote access also needs a configured direct address or running relay.');
   }
@@ -86,7 +90,12 @@ export class CompanionTransport {
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
         const response = await fetch(`${route.url}/companion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope), signal: controller.signal });
-        if (!response.ok) throw new Error(response.status === 401 ? 'Pairing revoked or expired' : 'Desktop unavailable');
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          const error = new Error(response.status === 401 ? 'Pairing revoked or expired' : 'Desktop unavailable') as Error & { code?: string };
+          if (!bootstrap && response.status === 401 && body.pairingRevoked) error.code = 'PAIRING_REVOKED';
+          throw error;
+        }
         received = await response.json();
       } finally { clearTimeout(timer); }
     }

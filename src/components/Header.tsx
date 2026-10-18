@@ -3,6 +3,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { GridMenuIcon, SettingsIcon } from './Icons';
 import { headerTitleSurface, headerButtonStyle, GlassControl } from './ScreenHeader';
+import { HeaderFade } from './HeaderFade';
 
 interface HeaderProps {
   onOpenSidebar: () => void;
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <View style={styles.outerWrapper} pointerEvents="box-none">
+      <HeaderFade />
       <View style={styles.container} onLayout={(event: { nativeEvent: { layout: { height: number } } }) => onHeightChange?.(event.nativeEvent.layout.height)} pointerEvents="box-none">
         <GlassControl radius={22} active style={styles.iconButton}
           onPress={onOpenSidebar} accessibilityLabel="Open History">

@@ -103,6 +103,10 @@ if (publish) {
     console.log(`[release] WARNING: app.json versionCode is ${appJsonCode}, build.gradle is ${currentCode}`);
   }
   console.log(`[release] build.gradle: versionCode ${currentCode}, versionName "${version}"`);
+} else if (arg('keep-version')) {
+  const declaredName = (gradle.match(/versionName\s+"([^"]*)"/) || [])[1];
+  const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'app.json'), 'utf8')).expo;
+  if (wantedVersion || wantedBuildCode || declaredName !== version || config.version !== version || config.android.versionCode !== currentCode) die('--keep-version requires matching precommitted versions and no version overrides');
 } else {
   const buildCode = wantedBuildCode ? Number(wantedBuildCode) : currentCode + 1;
   if (!Number.isFinite(buildCode) || buildCode <= currentCode) {
@@ -141,22 +145,7 @@ if (!publish) {
   const apk = fs.existsSync(APK_OUT) ? fs.readdirSync(APK_OUT).find((f) => f.endsWith('.apk')) : null;
   if (!apk) die(`no APK under ${path.relative(ROOT, APK_OUT)}`);
 
-  // The v2 signing block and its X.509 subject sit just before the central directory, so the
-  // tail of the file is enough to tell a release key from the debug key.
-  const fd = fs.openSync(path.join(APK_OUT, apk), 'r');
-  const size = fs.fstatSync(fd).size;
-  const tail = Buffer.alloc(Math.min(262144, size));
-  fs.readSync(fd, tail, 0, tail.length, Math.max(0, size - tail.length));
-  fs.closeSync(fd);
-  const tailText = tail.toString('latin1');
-  if (tailText.includes('Android Debug')) {
-    die('this APK is DEBUG-SIGNED — refusing to publish it. Check android/keystore.properties.');
-  }
-  console.log(
-    tailText.includes('Brown AI')
-      ? '[release] signer: release certificate present in the APK (CN=Brown AI)'
-      : '[release] WARNING: could not confirm the signer from the APK bytes; verify manually.'
-  );
+  console.log(JSON.stringify(require('./verify-apk-release.cjs').verifyApkRelease(path.join(APK_OUT, apk)), null, 2));
 
   fs.mkdirSync(DIST, { recursive: true });
   const versioned = path.join(DIST, `Brown-AI-Mobile-v${version}.apk`);
@@ -209,6 +198,8 @@ const staged = [
 ];
 for (const f of staged) if (!fs.existsSync(f)) die(`missing ${path.basename(f)} — run the prepare step first`);
 if (fs.statSync(staged[0]).size !== fs.statSync(staged[1]).size) die('the two APK copies differ');
+
+for (const file of staged) console.log(JSON.stringify(require('./verify-apk-release.cjs').verifyApkRelease(file), null, 2));
 
 sh(`gh api repos/${REPO} > NUL`);
 

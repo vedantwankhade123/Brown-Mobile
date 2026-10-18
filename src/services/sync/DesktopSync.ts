@@ -480,7 +480,8 @@ export class DesktopSyncService {
       try {
         let info: any;
         try { info = await this.transport.select(saved, token); }
-        catch {
+        catch (error: any) {
+          if (error?.code === 'PAIRING_REVOKED') throw error;
           const discovered = (await this.scanLocalNetwork()).find(d => (d.syncId || d.id) === (saved.syncId || saved.id));
           if (!discovered) throw new Error('Desktop unreachable');
           saved.ipAddress = discovered.ipAddress; saved.port = discovered.port;
@@ -496,6 +497,10 @@ export class DesktopSyncService {
         return 'connected';
       } catch (error: any) {
         if (generation !== this.connectionGeneration) return 'skipped';
+        if (error?.code === 'PAIRING_REVOKED') {
+          await this.clearPairingState();
+          return 'needs-code';
+        }
         this.status.isConnected = false;
         this.status.needsReauth = false;
         this.status.reauthReason = error?.message || 'Waiting for desktop to reconnect';
@@ -518,6 +523,8 @@ export class DesktopSyncService {
 
     const ipChanged = this.networkPrefix(match.ipAddress) !== this.networkPrefix(lastIp);
     const session = await this.validateSession(match, token);
+    if (generation !== this.connectionGeneration) return 'skipped';
+    if (session.revoked) { await this.clearPairingState(); return 'needs-code'; }
     if (session.ok) {
       if (generation !== this.connectionGeneration) return 'skipped';
       await this.markPaired(match, token);
@@ -539,7 +546,7 @@ export class DesktopSyncService {
   private async validateSession(
     desktop: DesktopInstance,
     token: string
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<{ ok: boolean; reason?: string; revoked?: boolean }> {
     try {
       if (desktop.companion?.v === 2) {
         const info = await this.transport.select(desktop, token);
@@ -549,6 +556,7 @@ export class DesktopSyncService {
         headers: { Authorization: `Bearer ${token}`, 'X-Brown-Session': connectionSessionId },
       });
       const data = await res.json().catch(() => ({}));
+      if (data?.pairingRevoked) return { ok: false, revoked: true };
       if (res.status === 401 || data?.needReauth) {
         return { ok: false, reason: data?.error || 'Session revoked' };
       }
@@ -563,7 +571,13 @@ export class DesktopSyncService {
     const token = this.status.authToken;
     if (!desktop || !token) throw new Error('Not connected to Brown Desktop');
     if (desktop.companion?.v === 2) {
-      const result = await this.transport.request(desktop, token, path, init);
+      let result;
+      try { result = await this.transport.request(desktop, token, path, init); }
+      catch (error: any) {
+        if (error?.code === 'PAIRING_REVOKED' && this.status.authToken === token) await this.clearPairingState();
+        throw error;
+      }
+      if (result.body?.pairingRevoked) { await this.clearPairingState(); throw new Error('Desktop unpaired'); }
       if (result.body?.disconnected) { this.status.isConnected = false; this.status.needsReauth = false; this.status.reauthReason = result.body.error; this.notify(); throw new Error(result.body.error); }
       if (result.status === 401) { this.status.isConnected = false; this.status.needsReauth = true; this.notify(); }
       if (result.status >= 400) throw new Error(result.body?.error || `Desktop returned ${result.status}`);
@@ -579,6 +593,7 @@ export class DesktopSyncService {
       },
     });
     const data = await res.json().catch(() => ({}));
+    if (data?.pairingRevoked) { await this.clearPairingState(); throw new Error('Desktop unpaired'); }
     if (data?.disconnected) { this.status.isConnected = false; this.status.needsReauth = false; this.status.reauthReason = data.error; this.notify(); throw new Error(data.error); }
     if (res.status === 401) {
       this.status.isConnected = false;
@@ -843,6 +858,14 @@ export class DesktopSyncService {
         }).catch(() => {});
       } catch {}
     }
+    await this.clearPairingState();
+  }
+
+  private async clearPairingState(): Promise<void> {
+    this.connectionGeneration++;
+    if (this.networkTimer) clearTimeout(this.networkTimer);
+    this.pairing = null;
+    this.pendingConflict = null;
     await SecureStore.deleteItem(TOKEN_KEY);
     await SecureStore.deleteItem(DESKTOP_KEY);
     this.stopHealthLoop();
@@ -854,7 +877,7 @@ export class DesktopSyncService {
     this.status.transferRequest = null;
     this.status.syncInProgress = false;
     this.status.needsReauth = false;
-    this.status.reauthReason = undefined;
+    this.status.reauthReason = 'Unpaired. Pair your desktop to connect again.';
     this.notify();
   }
 

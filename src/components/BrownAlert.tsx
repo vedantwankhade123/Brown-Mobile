@@ -1,7 +1,7 @@
+import { AnimatedModal as Modal } from "./AnimatedModal";
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Modal,
   View,
   Text,
   StyleSheet,
@@ -59,6 +59,9 @@ export function installBrownAlertPatch(): void {
 
 export const BrownAlertHost: React.FC = () => {
   const [payload, setPayload] = useState<BrownAlertPayload | null>(current);
+  const lastPayload = useRef(payload);
+  const pendingAction = useRef<(() => void) | null>(null);
+  if (payload) lastPayload.current = payload;
 
   useEffect(() => {
     const listener: Listener = (next) => setPayload(next);
@@ -72,20 +75,16 @@ export const BrownAlertHost: React.FC = () => {
 
   const onButton = useCallback(
     (btn: BrownAlertButton) => {
+      pendingAction.current = btn.onPress || null;
       close();
-      // Defer so modal unmounts before callback navigation/state updates
-      setTimeout(() => {
-        try {
-          btn.onPress?.();
-        } catch {}
-      }, 40);
     },
     [close]
   );
 
-  if (!payload) return null;
+  const shown = payload || lastPayload.current;
+  if (!shown) return null;
 
-  const buttons = payload.buttons || [{ text: 'OK', style: 'primary' as const }];
+  const buttons = shown.buttons || [{ text: 'OK', style: 'primary' as const }];
   const hasCancel = buttons.some((b) => b.style === 'cancel');
   const dismiss = () => {
     const cancel = buttons.find((b) => b.style === 'cancel');
@@ -94,11 +93,15 @@ export const BrownAlertHost: React.FC = () => {
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={dismiss} statusBarTranslucent>
+    <Modal visible={!!payload} transparent animationType="fade" onRequestClose={dismiss} statusBarTranslucent onDismiss={() => {
+      const action = pendingAction.current;
+      pendingAction.current = null;
+      try { action?.(); } catch {}
+    }}>
       <Pressable style={styles.backdrop} onPress={hasCancel ? dismiss : undefined}>
         <Pressable style={styles.card} onPress={(e: any) => e.stopPropagation?.()}>
-          <Text style={styles.title}>{payload.title}</Text>
-          {!!payload.message && <Text style={styles.message}>{payload.message}</Text>}
+          <Text style={styles.title}>{shown.title}</Text>
+          {!!shown.message && <Text style={styles.message}>{shown.message}</Text>}
 
           <View style={[styles.actions, buttons.length > 2 && styles.actionsStacked]}>
             {buttons.map((btn, idx) => {

@@ -7,7 +7,7 @@ const events = {}, state = { type: 'local', selections: 0, wait: null, paused: f
 class Transport {
   type = 'local';
   reset() {}
-  async select() { state.selections++; if (state.wait) await state.wait; this.type = state.type; return { ok: true, syncId: saved.id, companion: saved.companion, disconnected: state.paused, error: state.paused ? "Disconnected for this session" : undefined }; }
+  async select() { state.selections++; if (state.wait) await state.wait; if (state.revoked) throw Object.assign(Error('Pairing revoked'), { code: 'PAIRING_REVOKED' }); this.type = state.type; return { ok: true, syncId: saved.id, companion: saved.companion, disconnected: state.paused, error: state.paused ? "Disconnected for this session" : undefined }; }
   async request(_desktop, _secret, route) { if (route === '/sync/disconnect') state.paused = true; return { status: 200, body: { ok: true, success: true } }; }
 }
 const moduleObject = { exports: {} };
@@ -63,6 +63,19 @@ vm.runInNewContext(code, {
   finish(); await reconnect; await disconnect;
   assert.equal(service.getStatus().isConnected, false, 'late reconnect cannot resurrect disconnect');
   assert.equal(storage.has('ultron_desktop_sync_token'), false);
+  assert.equal(service.getStatus().activeDesktop, undefined, 'unpaired desktop must not expose Unpair controls');
+  assert.equal(presentation(service.getStatus()).label, 'Unpaired');
+  state.wait = null;
+  storage.set('ultron_desktop_sync_token', 'a'.repeat(48));
+  storage.set('ultron_desktop_sync_host', JSON.stringify(saved));
+  await service.tryAutoConnect();
+  assert.equal(service.getStatus().isConnected, true, 'pairing can connect again after unpair');
+  state.revoked = true;
+  await service.tryAutoConnect();
+  assert.equal(service.getStatus().activeDesktop, undefined, 'desktop revocation clears stale mobile pairing');
+  assert.equal(service.getStatus().needsReauth, false, 'revoked pairing is not merely awaiting reconnect');
+  assert.equal(storage.has('ultron_desktop_sync_token'), false, 'revoked credentials are removed');
+  assert.equal(presentation(service.getStatus()).label, 'Unpaired');
   service.stopForAccountDeletion();
   console.log('PASS: persistent pairing, coalesced reconnect, network switching, disconnect race');
 })().catch(error => { console.error(error); process.exitCode = 1; });

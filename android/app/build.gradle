@@ -120,8 +120,8 @@ android {
         applicationId 'com.brown.mobile'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 17
-        versionName "1.0.5"
+        versionCode 18
+        versionName "1.0.6"
     }
     signingConfigs {
         debug {
@@ -144,8 +144,8 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Production signing via android/keystore.properties + my-release-key.keystore
-            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            // Release builds must never silently switch to a different signing key.
+            signingConfig signingConfigs.release
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"

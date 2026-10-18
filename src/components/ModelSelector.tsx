@@ -1,3 +1,4 @@
+import { AnimatedModal as Modal } from "./AnimatedModal";
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -5,7 +6,6 @@ import {
   Text,
   StyleSheet,
   
-  Modal,
   ScrollView,
   Platform,
   Animated,

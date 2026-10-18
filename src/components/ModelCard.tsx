@@ -1,9 +1,9 @@
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { ModelMetadata, ModelDownloadState } from '../types/model';
-import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon, PlayIcon, AlertIcon } from './Icons';
+import { DownloadIcon, CheckIcon, TrashIcon, PauseIcon, PlayIcon, AlertIcon, ChevronDownIcon, ChevronUpIcon } from './Icons';
 
 interface ModelCardProps {
   model: ModelMetadata;
@@ -97,6 +97,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
   onResume,
   onCancel,
 }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const isDownloaded = downloadState.status === 'downloaded';
   const isDownloading = downloadState.status === 'downloading';
   const isPaused = downloadState.status === 'paused';
@@ -108,6 +109,10 @@ export const ModelCard: React.FC<ModelCardProps> = ({
     .join(' · ');
   const contextLabel = `${Math.max(1, Math.round((model.contextLength || 4096) / 1024))}K context`;
   const ramLabel = model.recommendedRamMb ? `${(model.recommendedRamMb / 1024).toFixed(model.recommendedRamMb % 1024 === 0 ? 0 : 1)} GB RAM` : null;
+  const displayName = model.name.replace(/\bQ\d+(?:[_ -][A-Z0-9]+)*\b/gi, '').replace(/\bGGUF\b/gi, '').replace(/\s+/g, ' ').trim() || model.name;
+  const description = /^GGUF from Hugging Face/i.test(model.description)
+    ? 'Chat offline on your phone. No API key needed.'
+    : model.description;
 
   const downloadedLabel = formatBytes(downloadState.downloadedBytes);
   // The card prints model.sizeFormatted (decimal MB), so the pre-download total has to use the
@@ -126,7 +131,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       <View style={styles.topRow}>
         <View style={styles.titleArea}>
           <Text style={styles.modelName} numberOfLines={2}>
-            {model.name}
+            {displayName}
           </Text>
           <View style={styles.modelOriginRow}>
             <Text style={styles.originText}>
@@ -135,20 +140,27 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                 : model.source === 'cloud' || model.id.includes('gemini')
                   ? 'Google Gemini'
                   : model.source === 'offline' || model.provider === 'device'
-                    ? 'On-device'
+                    ? 'Runs on your phone'
                     : 'Cloud'}
             </Text>
           </View>
         </View>
-        <Text style={styles.contextText}>{contextLabel}</Text>
       </View>
 
       <View style={styles.modelFactsRow}>
-        <Text style={styles.modelFact}>{model.parameters || '1B'} parameters</Text>
-        {ramLabel ? <Text style={styles.modelFact}>{ramLabel}</Text> : null}
-        {capabilitySummary ? <Text style={styles.modelFact}>{capabilitySummary}</Text> : null}
+        <View style={styles.factCell}><Text style={styles.factLabel}>Download size</Text><Text style={styles.modelFact}>{model.sizeFormatted || formatBytes(model.sizeBytes)}</Text></View>
+        {ramLabel ? <View style={styles.factCell}><Text style={styles.factLabel}>Memory needed</Text><Text style={styles.modelFact}>{ramLabel}</Text></View> : null}
       </View>
-      <Text style={styles.description} numberOfLines={2}>{model.description}</Text>
+      <Text style={styles.description} numberOfLines={2}>{description}</Text>
+      <TouchableOpacity style={styles.detailsToggle} onPress={() => setDetailsOpen(!detailsOpen)} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={`${detailsOpen ? 'Hide' : 'Show'} model details for ${displayName}`} accessibilityState={{ expanded: detailsOpen }}>
+        <Text style={styles.detailsToggleText}>{detailsOpen ? 'Less details' : 'More details'}</Text>
+        {detailsOpen ? <ChevronUpIcon size={16} color="#ffffff" /> : <ChevronDownIcon size={16} color="#ffffff" />}
+      </TouchableOpacity>
+      {detailsOpen && <View style={styles.detailsPanel}>
+        <Text selectable style={styles.detailText}>{model.name}</Text>
+        <Text style={styles.detailText}>{[model.parameters ? `${model.parameters} parameters` : null, contextLabel, model.quantization, capabilitySummary].filter(Boolean).join(' · ')}</Text>
+        {!!model.filename && <Text selectable style={styles.detailText}>{model.filename}</Text>}
+      </View>}
 
       {/* Download progress: circular ring around the action icon */}
       {(isDownloading || isPaused) && (
@@ -197,9 +209,6 @@ export const ModelCard: React.FC<ModelCardProps> = ({
 
       {/* Compact metadata and actions */}
       <View style={styles.bottomRow}>
-        <View style={styles.bottomSizeRow}>
-          <Text style={styles.bottomSizeText}>{model.quantization || 'Q4_K_M'} · {model.sizeFormatted}</Text>
-        </View>
 
         <View style={styles.actionsGroup}>
           {isDownloaded ? (
@@ -240,7 +249,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => (onResume ? onResume(model.id) : onDownload(model))}
               activeOpacity={0.8}
             >
-              <DownloadIcon size={14} color="#111113" />
+              <DownloadIcon size={16} color="#ffffff" />
               <Text style={styles.retryBtnText}>Retry download</Text>
             </TouchableOpacity>
           ) : (
@@ -249,8 +258,8 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               onPress={() => onDownload(model)}
               activeOpacity={0.8}
             >
-              <DownloadIcon size={14} color="#111113" />
-              <Text style={styles.downloadBtnText}>Download Model</Text>
+              <DownloadIcon size={16} color="#ffffff" />
+              <Text style={styles.downloadBtnText}>Download</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -262,9 +271,9 @@ export const ModelCard: React.FC<ModelCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#101113',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -285,7 +294,8 @@ const styles = StyleSheet.create({
   },
   modelName: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '600',
     letterSpacing: -0.2,
   },
@@ -293,12 +303,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 3,
+    marginTop: 5,
   },
   originText: {
-    color: '#9ca3af',
-    fontSize: 13,
-    fontWeight: '600',
+    color: '#ffffff',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '400',
   },
   contextText: {
     color: '#9ca3af',
@@ -308,22 +319,30 @@ const styles = StyleSheet.create({
   modelFactsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 20,
     flexWrap: 'wrap',
-    marginBottom: 5,
+    marginTop: 10,
+    marginBottom: 12,
   },
+  factCell: { flexGrow: 1, flexBasis: 120, gap: 3 },
+  factLabel: { color: '#ffffff', fontSize: 11, lineHeight: 16, fontWeight: '400' },
   modelFact: {
-    color: '#9ca3af',
-    fontSize: 13,
-    fontWeight: '600',
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   description: {
-    color: '#9ca3af',
+    color: '#ffffff',
     fontSize: 13,
-    fontWeight: '600',
-    lineHeight: 18,
-    marginBottom: 10,
+    fontWeight: '400',
+    lineHeight: 21,
+    marginBottom: 12,
   },
+  detailsToggle: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, alignSelf: 'stretch', paddingHorizontal: 14, borderWidth: 1, borderColor: '#535359', borderRadius: 9999, marginBottom: 4 },
+  detailsToggleText: { color: '#ffffff', fontSize: 13, lineHeight: 19, fontWeight: '500' },
+  detailsPanel: { gap: 10, padding: 14, borderRadius: 10, backgroundColor: '#1d1d20', marginTop: 8, marginBottom: 10 },
+  detailText: { color: '#ffffff', fontSize: 12, lineHeight: 20 },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -404,9 +423,9 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
   },
   downloadBtnText: {
-    color: '#111113',
-    fontSize: 12.5,
-    fontWeight: '700',
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   retryBtn: {
     flex: 1,

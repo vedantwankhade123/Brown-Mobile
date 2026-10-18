@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { nativeApplicationVersion } from 'expo-application';
 import { UPDATE_CONFIG, getLatestReleaseApiUrl } from './updateConfig';
 
 // RN/Expo typings in this project are incomplete for Linking / FileSystem APIs
@@ -70,6 +71,7 @@ export function isNewerVersion(latest: string, current: string): boolean {
 
 export function getCurrentAppVersion(): string {
   const fromExpo =
+    nativeApplicationVersion ||
     Constants.expoConfig?.version ||
     (Constants as any).manifest?.version ||
     (Constants as any).manifest2?.extra?.expoClient?.version;
@@ -141,6 +143,8 @@ export function extractMobileVersionFromApkName(assetName: string | undefined | 
 
 export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
   const currentVersion = getCurrentAppVersion();
+  const saved = await getDownloadedApkUpdate();
+  if (saved?.update && isNewerVersion(saved.update.latestVersion, currentVersion)) return { ...saved.update, currentVersion, available: true };
   const release = await fetchLatestGitHubRelease();
   const apk = pickApkAsset(release.assets);
   const fromApk = extractMobileVersionFromApkName(apk?.name);
@@ -223,58 +227,69 @@ async function downloadWithProgress(
   return result;
 }
 
-/**
- * Opens the APK download. On Android, prefers downloading to cache then launching
- * the system package installer; falls back to opening the download URL.
- * `onProgress` receives (writtenBytes, totalBytes) — totalBytes is 0 until the server answers.
- */
-export async function installOrOpenApkUpdate(
-  downloadUrl: string,
-  onProgress?: (writtenBytes: number, totalBytes: number) => void
-): Promise<'installer' | 'browser'> {
-  if (!downloadUrl) throw new Error('No APK download URL available for this release.');
+const APK_CACHE_KEY = '@brown/downloaded-update/v1';
+interface SavedApk { uri: string; url: string; size: number; md5: string; update?: AppUpdateInfo; }
+let apkDownload: Promise<SavedApk> | null = null;
 
-  if (Platform.OS !== 'android') {
-    const opened = await Linking.openURL(downloadUrl);
-    if (!opened) throw new Error('Unable to open the download link.');
-    return 'browser';
-  }
+export async function getDownloadedApkUpdate(url?: string, version?: string): Promise<SavedApk | null> {
+  const raw = await AsyncStorage.getItem(APK_CACHE_KEY);
+  if (!raw) return null;
+  let saved: SavedApk;
+  try { saved = JSON.parse(raw); } catch { return null; }
+  if (!saved || typeof saved !== 'object') return null;
+  const root = `${FileSystem.documentDirectory}updates/`;
+  if (!saved.uri?.startsWith(root) || saved.uri.slice(root.length).includes('/') || !saved.md5) return null;
+  if (url && saved.url !== url) return null;
+  if (version && saved.update?.latestVersion !== version) return null;
+  const info = await FileSystem.getInfoAsync(saved.uri, { md5: true });
+  if (!info.exists || info.isDirectory || info.size !== saved.size || info.md5 !== saved.md5) return null;
+  return saved;
+}
 
-  try {
-    const fileName = `brown-update-${Date.now()}.apk`;
-    const target = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}${fileName}`;
-    const result = await downloadWithProgress(downloadUrl, target, onProgress);
-    if (result.status !== 200) {
-      throw new Error(`APK download failed with HTTP ${result.status}`);
-    }
-
-    // Prefer content URI + VIEW intent when available (dev client / release builds)
+export async function downloadApkUpdate(update: AppUpdateInfo, onProgress?: (written: number, total: number) => void): Promise<SavedApk> {
+  const url = update.apkDownloadUrl;
+  if (!url) throw new Error('No APK is attached to this release.');
+  if (apkDownload) { await apkDownload; return downloadApkUpdate(update, onProgress); }
+  apkDownload = (async () => {
+    const saved = await getDownloadedApkUpdate(url);
+    if (saved && saved.update?.latestVersion === update.latestVersion && (!update.apkSizeBytes || saved.size === update.apkSizeBytes)) return saved;
+    if (!FileSystem.documentDirectory) throw new Error('Update storage is unavailable.');
+    const root = `${FileSystem.documentDirectory}updates/`;
+    await FileSystem.makeDirectoryAsync(root, { intermediates: true });
+    const uri = `${root}brown-${Date.now()}.apk`;
+    const partial = `${uri}.part`;
     try {
-      const IntentLauncher = require('expo-intent-launcher');
-      if (IntentLauncher?.startActivityAsync && FileSystem.getContentUriAsync) {
-        const contentUri = await FileSystem.getContentUriAsync(result.uri);
-        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-          data: contentUri,
-          flags: 1,
-          type: 'application/vnd.android.package-archive',
-        });
-        return 'installer';
-      }
-    } catch {
-      // Fall through to browser / download manager
-    }
+      const result = await downloadWithProgress(url, partial, onProgress);
+      if (result.status !== 200) throw new Error(`Update download failed (HTTP ${result.status}).`);
+      const info = await FileSystem.getInfoAsync(partial, { md5: true });
+      if (!info.exists || !info.size || !info.md5 || (update.apkSizeBytes && info.size !== update.apkSizeBytes)) throw new Error('The update download is incomplete. Please retry.');
+      await FileSystem.moveAsync({ from: partial, to: uri });
+      const entry: SavedApk = { uri, url, size: info.size, md5: info.md5, update };
+      await AsyncStorage.setItem(APK_CACHE_KEY, JSON.stringify(entry));
+      return entry;
+    } finally { await FileSystem.deleteAsync(partial, { idempotent: true }).catch(() => {}); }
+  })();
+  try { return await apkDownload; } finally { apkDownload = null; }
+}
 
-    await Linking.openURL(downloadUrl);
-    return 'browser';
-  } catch (err) {
-    // Last resort: open release asset URL so the system download manager handles it
-    const canOpen = await Linking.canOpenURL(downloadUrl);
-    if (canOpen) {
-      await Linking.openURL(downloadUrl);
-      return 'browser';
-    }
-    throw err;
-  }
+export async function installDownloadedApkUpdate(downloadUrl: string, version?: string): Promise<void> {
+  const saved = await getDownloadedApkUpdate(downloadUrl, version);
+  if (!saved) throw new Error('The saved update is missing or damaged. Download it again.');
+  try {
+    const IntentLauncher = require('expo-intent-launcher');
+    const contentUri = await FileSystem.getContentUriAsync(saved.uri);
+    await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+      data: contentUri, flags: 1, type: 'application/vnd.android.package-archive',
+    });
+  } catch { throw new Error('Installation could not open. Your update is saved. Return here and tap Update now to retry.'); }
+}
+
+export async function installOrOpenApkUpdate(downloadUrl: string, onProgress?: (written: number, total: number) => void): Promise<'installer' | 'browser'> {
+  if (Platform.OS !== 'android') { await Linking.openURL(downloadUrl); return 'browser'; }
+  const saved = await getDownloadedApkUpdate(downloadUrl);
+  if (!saved) throw new Error('Download the update before installing.');
+  await installDownloadedApkUpdate(downloadUrl);
+  return 'installer';
 }
 
 export const GitHubUpdateService = {

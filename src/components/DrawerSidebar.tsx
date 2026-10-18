@@ -1,6 +1,9 @@
+import { AnimatedSearchSwap } from './AnimatedSearchSwap';
+import { AnimatedModal as Modal } from "./AnimatedModal";
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import { AppBackground } from './AppBackground';
 import { pushNavBarColor } from '../theme/systemBars';
+import { useReducedMotion } from '../utils/useReducedMotion';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -11,7 +14,6 @@ import {
   ScrollView,
   SafeAreaView,
   Animated,
-  Modal,
   Alert,
   PanResponder,
   Dimensions,
@@ -25,8 +27,8 @@ import {
   TrashIcon,
   SettingsIcon,
   PencilIcon,
-  MoreVerticalIcon,
   QrCodeIcon,
+  DownloadIcon,
 } from './Icons';
 import { ChatRepository } from '../services/storage/ChatRepository';
 import { ConsentService } from '../services/storage/ConsentService';
@@ -46,6 +48,7 @@ interface DrawerSidebarProps {
   onRenameSession: (sessionId: string, title: string) => Promise<void>;
   onOpenSync: (options?: { scan?: boolean }) => void;
   onOpenSettings?: () => void;
+  onOpenDownloads?: () => void;
   onClose: () => void;
 }
 
@@ -71,16 +74,16 @@ function formatConversationTitle(rawTitle: string): string {
 const SWIPE_MAX = 132;
 const SWIPE_THRESHOLD = 62;
 
-/** History row: tap to open, ⋯ / long-press for rename+delete, swipe left to delete */
+/** History row: direct rename/delete actions; swiping also asks for confirmation. */
 const SwipeableHistoryRow: React.FC<{
   title: string;
   isActive: boolean;
   isFirst: boolean;
   isLast: boolean;
   onSelect: () => void;
-  onOpenActions: () => void;
+  onRename: () => void;
   onDelete: () => void;
-}> = ({ title, isActive, isFirst, isLast, onSelect, onOpenActions, onDelete }) => {
+}> = ({ title, isActive, isFirst, isLast, onSelect, onRename, onDelete }) => {
   const dragX = useRef(new Animated.Value(0)).current;
   const exitAnim = useRef(new Animated.Value(0)).current;
   const deleteRef = useRef(onDelete);
@@ -189,7 +192,7 @@ const SwipeableHistoryRow: React.FC<{
           <TouchableOpacity
             style={styles.historyTitleTouch}
             onPress={onSelect}
-            onLongPress={onOpenActions}
+            onLongPress={onRename}
             activeOpacity={0.7}
           >
             <Text style={styles.historyTitleText} numberOfLines={1}>
@@ -199,11 +202,19 @@ const SwipeableHistoryRow: React.FC<{
           <Animated.View style={[styles.historyMenuWrap, { opacity: contentOpacity }]}>
             <TouchableOpacity brownSurface
               style={styles.historyMenuBtn}
-              onPress={onOpenActions}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Chat options"
+              onPress={onRename}
+              accessibilityLabel={`Rename chat: ${title}`}
+              accessibilityRole="button"
             >
-              <MoreVerticalIcon size={18} color="#8e8e93" />
+              <PencilIcon size={17} color="#ffffff" />
+            </TouchableOpacity>
+            <TouchableOpacity brownSurface
+              style={styles.historyMenuBtn}
+              onPress={onDelete}
+              accessibilityLabel={`Delete chat: ${title}`}
+              accessibilityRole="button"
+            >
+              <TrashIcon size={17} color="#ef4444" />
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -229,6 +240,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   onRenameSession,
   onOpenSync,
   onOpenSettings,
+  onOpenDownloads,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
@@ -238,7 +250,6 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<{ id: string; title: string } | null>(null);
-  const [sessionActionTarget, setSessionActionTarget] = useState<{ id: string; title: string } | null>(null);
   const [sessionToRename, setSessionToRename] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [userName, setUserName] = useState('You');
@@ -247,6 +258,8 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const slideAnim = useRef(new Animated.Value(closedDrawerOffset)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const wasOpenRef = useRef(false);
+  const motionGeneration = useRef(0);
+  const reducedMotion = useReducedMotion();
   const searchInputRef = useRef<any>(null);
 
   // Load user profile name & initials
@@ -272,11 +285,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
   const [isClosing, setIsClosing] = useState(false);
 
   const runClose = (done?: () => void) => {
+    const token = ++motionGeneration.current;
     animateOnce(
       [
         Animated.timing(slideAnim, {
           toValue: closedDrawerOffset,
-          duration: 230,
+          duration: reducedMotion ? 0 : 230,
           easing: Easing.in(Easing.cubic),
           // JS driver on purpose: native-driver transforms desync hit-testing from
           // the visual position mid-slide, so a close tap during the animation is lost.
@@ -284,13 +298,14 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         }),
         Animated.timing(fadeAnim, {
           toValue: 0,
-          duration: 200,
+          duration: reducedMotion ? 0 : 200,
           easing: Easing.in(Easing.quad),
           useNativeDriver: false,
         }),
       ],
-      230,
+      reducedMotion ? 0 : 230,
       () => {
+        if (token !== motionGeneration.current) return;
         slideAnim.setValue(closedDrawerOffset);
         fadeAnim.setValue(0);
         done?.();
@@ -300,25 +315,27 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      const token = ++motionGeneration.current;
       wasOpenRef.current = true;
       setIsClosing(false);
       animateOnce(
         [
           Animated.timing(slideAnim, {
             toValue: 0,
-            duration: 290,
+            duration: reducedMotion ? 0 : 260,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: false,
           }),
           Animated.timing(fadeAnim, {
             toValue: 1,
-            duration: 240,
+            duration: reducedMotion ? 0 : 200,
             easing: Easing.out(Easing.quad),
             useNativeDriver: false,
           }),
         ],
-        290,
+        reducedMotion ? 0 : 260,
         () => {
+          if (token !== motionGeneration.current) return;
           slideAnim.setValue(0);
           fadeAnim.setValue(1);
         }
@@ -331,7 +348,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       runClose(() => setIsClosing(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+    return () => {
+      ++motionGeneration.current;
+      slideAnim.stopAnimation();
+      fadeAnim.stopAnimation();
+    };
+  }, [isOpen, reducedMotion]);
 
   if (!isOpen && !isClosing) return null;
 
@@ -375,8 +397,11 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
           onSelectSession(item.id);
           handleClose();
         }}
-        onOpenActions={() => setSessionActionTarget({ id: item.id, title: formattedTitle })}
-        onDelete={() => onDeleteSession(item.id)}
+        onRename={() => {
+          setRenameValue(formattedTitle);
+          setSessionToRename({ id: item.id, title: formattedTitle });
+        }}
+        onDelete={() => setSessionToDelete({ id: item.id, title: formattedTitle })}
       />
     );
   };
@@ -393,9 +418,48 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         {/* Background: same desktop session-column gradient as the chat screen */}
         <AppBackground variant="sidebar" />
         <SafeAreaView style={styles.drawerInner}>
-            <View style={styles.topBar}>
-                      {inSearchMode ? (
-                <View style={styles.searchPill}>
+            <AnimatedSearchSwap style={{ zIndex: 20 }} active={inSearchMode} collapsed={(
+              <View style={styles.topBar}>
+<GlassControl
+                    radius={22}
+                    style={styles.avatarBtn}
+                    onPress={() => {
+                      if (onOpenSettings) {
+                        onOpenSettings();
+                        handleClose();
+                      }
+                    }}
+                    accessibilityLabel={userName}
+                  >
+                    <Text style={styles.avatarText}>{userInitials}</Text>
+                  </GlassControl>
+                  <View pointerEvents="none" style={styles.historyTitleSlot}>
+                    <View style={[headerTitleSurface, styles.historyTitlePill]}><Text style={styles.historyTopTitleText}>History</Text></View>
+                  </View>
+<View style={styles.topBarRight}>
+
+                  <GlassControl
+                    radius={22}
+                    style={styles.closeDrawerBtn}
+                    onPress={() => setIsSearchActive(true)}
+                    accessibilityLabel="Search chats"
+                  >
+                    <SearchIcon size={22} color="#ffffff" />
+                  </GlassControl>
+                <GlassControl
+                  radius={22}
+                  style={styles.closeDrawerBtn}
+                  onPress={handleClose}
+                  activeOpacity={0.75}
+                  accessibilityLabel="Close menu"
+                >
+                  <CloseIcon size={22} color="#ffffff" />
+                </GlassControl>
+              </View>
+              </View>
+            )} expanded={(
+              <View style={styles.topBar}>
+<View style={styles.searchPill}>
                   <SearchIcon size={18} color="#8e8e93" />
                   <TextInput
                     ref={searchInputRef}
@@ -420,48 +484,11 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
                     </TouchableOpacity>
                   )}
                 </View>
-              ) : (
-                <>
-                  <GlassControl
-                    radius={22}
-                    style={styles.avatarBtn}
-                    onPress={() => {
-                      if (onOpenSettings) {
-                        onOpenSettings();
-                        handleClose();
-                      }
-                    }}
-                    accessibilityLabel={userName}
-                  >
-                    <Text style={styles.avatarText}>{userInitials}</Text>
-                  </GlassControl>
-                  <View pointerEvents="none" style={styles.historyTitleSlot}>
-                    <View style={[headerTitleSurface, styles.historyTitlePill]}><Text style={styles.historyTopTitleText}>History</Text></View>
-                  </View>
-                </>
-              )}
-              <View style={styles.topBarRight}>
-                {!inSearchMode && (
-                  <GlassControl
-                    radius={22}
-                    style={styles.closeDrawerBtn}
-                    onPress={() => setIsSearchActive(true)}
-                    accessibilityLabel="Search chats"
-                  >
-                    <SearchIcon size={22} color="#ffffff" />
-                  </GlassControl>
-                )}
-                <GlassControl
-                  radius={22}
-                  style={styles.closeDrawerBtn}
-                  onPress={inSearchMode ? closeSearch : handleClose}
-                  activeOpacity={0.75}
-                  accessibilityLabel={inSearchMode ? 'Close search' : 'Close menu'}
-                >
+                <GlassControl radius={22} style={styles.closeDrawerBtn} onPress={closeSearch} accessibilityLabel="Close search">
                   <CloseIcon size={22} color="#ffffff" />
                 </GlassControl>
               </View>
-            </View>
+            )} />
 
           <ScrollView
             style={styles.sessionsList}
@@ -526,8 +553,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
             )}
           </ScrollView>
 
-          {/* QR scan and Settings — persistent bottom-right controls */}
+          {/* Downloads, QR scan and Settings — persistent bottom-right controls */}
           <View style={[styles.connectRow, { marginBottom: 14 + insets.bottom }]}>
+            {onOpenDownloads && <TouchableOpacity brownSurface style={styles.footerQrButton}
+              onPress={() => { handleClose(); onOpenDownloads(); }} activeOpacity={0.7} accessibilityLabel="Downloads">
+              <DownloadIcon size={24} color="#ffffff" />
+            </TouchableOpacity>}
             <TouchableOpacity brownSurface
               style={styles.footerQrButton}
               onPress={() => {
@@ -555,50 +586,13 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
       </Animated.View>
 
       <Modal
-        visible={!!sessionActionTarget}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSessionActionTarget(null)}
-      >
-        <TouchableOpacity brownSurface style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionActionTarget(null)}>
-          <TouchableOpacity brownSurface activeOpacity={1} style={styles.sessionActionsCard} onPress={() => {}}>
-            <Text style={styles.sessionActionsTitle} numberOfLines={1}>{sessionActionTarget?.title}</Text>
-            <TouchableOpacity brownSurface
-              style={styles.sessionActionRow}
-              onPress={() => {
-                if (!sessionActionTarget) return;
-                setRenameValue(sessionActionTarget.title);
-                setSessionToRename(sessionActionTarget);
-                setSessionActionTarget(null);
-              }}
-              activeOpacity={0.7}
-            >
-              <PencilIcon size={18} color="#ffffff" />
-              <Text style={styles.sessionActionText}>Rename chat</Text>
-            </TouchableOpacity>
-            <TouchableOpacity brownSurface
-              style={styles.sessionActionRow}
-              onPress={() => {
-                if (sessionActionTarget) setSessionToDelete(sessionActionTarget);
-                setSessionActionTarget(null);
-              }}
-              activeOpacity={0.7}
-            >
-              <TrashIcon size={18} color="#ef4444" />
-              <Text style={styles.sessionActionDeleteText}>Delete chat</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      <Modal
         visible={!!sessionToRename}
         transparent
         animationType="fade"
         onRequestClose={() => setSessionToRename(null)}
       >
-        <TouchableOpacity brownSurface style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionToRename(null)}>
-          <TouchableOpacity brownSurface activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
+        <TouchableOpacity style={styles.confirmModalOverlay} activeOpacity={1} onPress={() => setSessionToRename(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
             <Text style={styles.confirmModalTitle}>Rename chat</Text>
             <TextInput
               style={styles.renameInput}
@@ -639,12 +633,12 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
         animationType="fade"
         onRequestClose={() => setSessionToDelete(null)}
       >
-        <TouchableOpacity brownSurface
+        <TouchableOpacity
           style={styles.confirmModalOverlay}
           activeOpacity={1}
           onPress={() => setSessionToDelete(null)}
         >
-          <TouchableOpacity brownSurface activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
+          <TouchableOpacity activeOpacity={1} style={styles.confirmModalCard} onPress={() => {}}>
             <View style={styles.confirmModalHeader}>
               <View style={styles.confirmModalIconBox}>
                 <TrashIcon size={18} color="#ef4444" />
@@ -834,7 +828,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 118,
     right: 118,
-    top: 6,
+    top: 4,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
@@ -876,11 +870,14 @@ const styles = StyleSheet.create({
   },
   historyMenuWrap: {
     flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   historyMenuBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -959,40 +956,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 20,
     elevation: 20,
-  },
-  sessionActionsCard: {
-    width: '100%',
-    maxWidth: 300,
-    backgroundColor: '#121212',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    padding: 8,
-  },
-  sessionActionsTitle: {
-    color: '#a1a1aa',
-    fontSize: 13,
-    fontWeight: '600',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  sessionActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  sessionActionText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  sessionActionDeleteText: {
-    color: '#ef4444',
-    fontSize: 15,
-    fontWeight: '600',
   },
   renameInput: {
     color: '#ffffff',

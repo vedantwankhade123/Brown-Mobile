@@ -1,19 +1,18 @@
+import { AnimatedModal as Modal } from "./AnimatedModal";
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   StyleSheet,
   
   ScrollView,
   Platform,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeftIcon, RightArrowIcon } from './Icons';
 import { UpdateHero } from './UpdateHero';
-import { AppUpdateInfo, installOrOpenApkUpdate } from '../services/updater/GitHubUpdateService';
+import { AppUpdateInfo, downloadApkUpdate, getDownloadedApkUpdate, installDownloadedApkUpdate } from '../services/updater/GitHubUpdateService';
 import { pushNavBarColor } from '../theme/systemBars';
 
 interface UpdatePromptModalProps {
@@ -23,14 +22,6 @@ interface UpdatePromptModalProps {
   onUpdated?: () => void;
   /** When true, begin APK download as soon as the modal opens */
   autoStartDownload?: boolean;
-}
-
-function promptRestartAfterUpdate() {
-  Alert.alert(
-    'Restart to finish update',
-    'The update is ready. Close and reopen Brown to apply it. Your chats, models, and settings stay on this device — only the app binary is replaced.',
-    [{ text: 'OK' }]
-  );
 }
 
 /** GitHub release bodies arrive as markdown with a trailing changelog link — flatten to bullet lines */
@@ -81,7 +72,6 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
   visible,
   update,
   onDismiss,
-  onUpdated,
   autoStartDownload = true,
 }) => {
   const insets = useSafeAreaInsets();
@@ -100,7 +90,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
     return pushNavBarColor('#000000');
   }, [visible]);
 
-  const handleUpdateNow = async () => {
+  const handleUpdateNow = async (downloadOnly = false) => {
     if (!update?.apkDownloadUrl) {
       setError('No Android APK was attached to this release.');
       return;
@@ -108,18 +98,22 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
     if (installing) return;
     setInstalling(true);
     setError(null);
-    setDone(false);
     setWritten(0);
     setTotal(update.apkSizeBytes || 0);
     try {
-      await installOrOpenApkUpdate(update.apkDownloadUrl, (bytes, expected) => {
-        setWritten(bytes);
-        if (expected > 0) setTotal(expected);
-      });
-      setWritten(update.apkSizeBytes || 0);
-      setDone(true);
-      onUpdated?.();
-      promptRestartAfterUpdate();
+      if (!downloadOnly && await getDownloadedApkUpdate(update.apkDownloadUrl, update.latestVersion)) {
+        await installDownloadedApkUpdate(update.apkDownloadUrl, update.latestVersion);
+        setDone(true);
+        setError('The update is saved. If installation was cancelled or blocked, return here and retry installation without downloading again.');
+      } else {
+        setDone(false);
+        await downloadApkUpdate(update, (bytes, expected) => {
+          setWritten(bytes);
+          if (expected > 0) setTotal(expected);
+        });
+        setWritten(update.apkSizeBytes || 0);
+        setDone(true);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to start the update download.');
     } finally {
@@ -128,12 +122,18 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
   };
 
   useEffect(() => {
-    if (!visible || !update || !autoStartDownload) return;
-    if (!update.apkDownloadUrl) return;
-    if (startedForVersion.current === update.latestVersion) return;
-    startedForVersion.current = update.latestVersion;
-    handleUpdateNow();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!visible || !update?.apkDownloadUrl) return;
+    let active = true;
+    getDownloadedApkUpdate(update.apkDownloadUrl, update.latestVersion).then(saved => {
+      if (!active) return;
+      setDone(!!saved);
+      if (saved) { setWritten(saved.size); setTotal(saved.size); }
+      else if (autoStartDownload && startedForVersion.current !== update.latestVersion) {
+        startedForVersion.current = update.latestVersion;
+        handleUpdateNow(true);
+      }
+    }).catch(() => { if (active) setError('The saved update cannot be read right now. Please retry shortly; it has not been deleted.'); });
+    return () => { active = false; };
   }, [visible, update?.latestVersion, autoStartDownload]);
 
   useEffect(() => {
@@ -267,17 +267,17 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
           <TouchableOpacity brownSurface
             style={[styles.primaryBtn, noApk && styles.primaryBtnDisabled]}
-            onPress={handleUpdateNow}
+            onPress={() => handleUpdateNow()}
             disabled={noApk || installing}
             activeOpacity={0.85}
           >
             <Text style={styles.primaryBtnText}>
               {installing
-                ? expectedBytes > 0
+                ? done ? 'Opening installer…' : expectedBytes > 0
                   ? `Downloading… ${percent}%`
                   : 'Downloading…'
                 : done
-                ? 'Download again'
+                ? 'Install saved update'
                 : Platform.OS === 'android'
                 ? 'Download update'
                 : 'Open download'}
@@ -285,7 +285,7 @@ export const UpdatePromptModal: React.FC<UpdatePromptModalProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity brownSurface style={styles.secondaryBtn} onPress={onDismiss} activeOpacity={0.7}>
-            <Text style={styles.secondaryBtnText}>Not now</Text>
+            <Text style={styles.secondaryBtnText}>Update later</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -299,6 +299,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
   },
   topBar: {
+    zIndex: 20,
+    overflow: 'visible',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
