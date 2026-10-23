@@ -1,6 +1,6 @@
 {
   "name": "brown-mobile",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Brown Mobile - Privacy-First On-Device AI Assistant",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
@@ -14,8 +14,8 @@
     "android": "node scripts/start-android.cjs",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "test:ui": "node tests/verify-screen-transitions.js && node tests/modal-lifecycle.test.cjs && node tests/history-actions.test.cjs && node tests/onboarding-setup.test.cjs && node tests/desktop-sync-layout.test.cjs && node tests/update-cache.test.cjs",
-    "test": "node tests/companion-reconnect.test.cjs && node tests/microphone-lifecycle.test.cjs && node tests/background-download.test.cjs && node tests/kokoro-download.test.cjs && node tests/verify-mobile-suite.js && node tests/chat-behavior.test.cjs",
+    "test:ui": "node tests/verify-screen-transitions.js && node tests/modal-lifecycle.test.cjs && node tests/history-actions.test.cjs && node tests/onboarding-setup.test.cjs && node tests/desktop-sync-layout.test.cjs && node tests/update-discovery.test.cjs && node tests/update-cache.test.cjs && node tests/model-activation.test.cjs",
+    "test": "node tests/companion-reconnect.test.cjs && node tests/microphone-lifecycle.test.cjs && node tests/background-download.test.cjs && node tests/download-integrity.test.cjs && node tests/kokoro-download.test.cjs && node tests/verify-mobile-suite.js && node tests/chat-behavior.test.cjs",
     "build:apk": "cd android && gradlew.bat assembleRelease",
     "release:apk": "node scripts/release-apk.js",
     "publish:apk": "node scripts/release-apk.js --publish"

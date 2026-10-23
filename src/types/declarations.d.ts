@@ -28,6 +28,10 @@ declare namespace JSX {
 }
 
 declare module 'react-native' {
+  export type LayoutChangeEvent = { nativeEvent: { layout: { x: number; y: number; width: number; height: number } } };
+  export const InteractionManager: {
+    runAfterInteractions(callback: () => void): { cancel(): void };
+  };
   export const Linking: {
     openURL(url: string): Promise<any>;
     getInitialURL(): Promise<string | null>;

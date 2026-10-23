@@ -9,6 +9,12 @@ interface IconProps {
   strokeWidth?: number;
 }
 
+export const FilterIcon: React.FC<IconProps> = ({ size = 20, color = '#ffffff' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M3 4h18l-7 8v7l-4 2v-9L3 4z" />
+  </Svg>
+);
+
 export const UltronLogoIcon: React.FC<IconProps> = ({ size = 20, color = colors.accentWhite }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Polygon points="12 2 22 21 2 21 12 2" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />

@@ -222,31 +222,31 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
         {showActions && (
           <View style={styles.actionsRow}>
             {onCopy && (
-              <TouchableOpacity brownSurface
+              <TouchableOpacity
                 style={styles.actionIconBtn}
                 onPress={handleCopyPress}
                 activeOpacity={0.7}
                 accessibilityLabel={copied ? 'Copied' : 'Copy text'}
               >
                 <Animated.View style={[styles.iconLayer, copyIconStyle]}>
-                  <CopyIcon size={20} color="#9ca3af" />
+                  <CopyIcon size={20} color="#ffffff" />
                 </Animated.View>
                 <Animated.View style={[styles.iconLayer, styles.iconOverlay, checkIconStyle]}>
-                  <CheckIcon size={20} color="#22c55e" />
+                  <CheckIcon size={20} color="#ffffff" />
                 </Animated.View>
               </TouchableOpacity>
             )}
             {onSpeak && (
-              <TouchableOpacity brownSurface
+              <TouchableOpacity
                 style={styles.actionIconBtn}
                 onPress={() => onSpeak(message.id, message.content)}
                 activeOpacity={0.6}
                 accessibilityLabel={isSpeaking ? 'Stop speaking' : isPaused ? 'Resume speaking' : 'Listen'}
               >
                 {isSpeaking ? (
-                  <PauseIcon size={18} color="#3b82f6" />
+                  <PauseIcon size={18} color="#ffffff" />
                 ) : (
-                  <SpeakerIcon size={20} color="#9ca3af" />
+                  <SpeakerIcon size={20} color="#ffffff" />
                 )}
               </TouchableOpacity>
             )}

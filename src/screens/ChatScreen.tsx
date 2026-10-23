@@ -19,6 +19,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  InteractionManager,
 } from 'react-native';
 import { BrownLogo } from '../components/BrownLogo';
 import { RightArrowIcon } from '../components/Icons';
@@ -273,6 +274,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const cancelStreamUpdate = () => { if (streamUpdateTimer.current) clearTimeout(streamUpdateTimer.current); streamUpdateTimer.current = null; };
   useEffect(() => () => { cancelStreamUpdate(); }, []);
   const requestedModelRef = useRef<ModelMetadata | null>(requestedModel ?? null);
+  const modelActivation = useRef<{ id: string; promise: Promise<void> } | null>(null);
+  const loadedModelId = useRef<string | null>(null);
+  const [isModelLoading, setIsModelLoading] = useState(false);
 
   /** Single place that swaps the active model: persists the pick and loads the engine. */
   const activateModel = useCallback(
@@ -281,28 +285,52 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         setActiveModel(null);
         return;
       }
+      if (modelActivation.current?.id === model.id) return modelActivation.current.promise;
+      if (!modelActivation.current && loadedModelId.current === model.id && engine.getActiveModel()?.id === model.id) {
+        setActiveModel(model);
+        return;
+      }
+      const previous = modelActivation.current?.promise;
+      const activation = { id: model.id, promise: Promise.resolve() };
       setActiveModel(model);
       saveSelectedModel(model).catch(() => {});
-      try {
-        const ok = await engine.loadModel(model, {
-          contextSize: model.contextLength || 2048,
-          threads: 4,
-          useHardwareAcceleration: true,
-        });
-        const isDeviceModel =
-          model.provider === 'device' ||
-          model.source === 'offline' ||
-          (!model.provider && model.source !== 'cloud' && model.source !== 'online');
-        if (!ok && isDeviceModel && !opts?.silent) {
-          Alert.alert(
-            'Model Load Failed',
-            engine.getLastNativeError?.() ||
-              'On-device GGUF could not be loaded. Rebuild with llama.rn, or use a Cloud model.'
-          );
+      setIsModelLoading(true);
+      const promise = (async () => {
+        // Serialize switches so native contexts cannot be initialized/released concurrently.
+        await previous;
+        try {
+          const ok = await engine.loadModel(model, {
+            contextSize: model.contextLength || 2048,
+            threads: 4,
+            useHardwareAcceleration: true,
+          });
+          const isDeviceModel =
+            model.provider === 'device' ||
+            model.source === 'offline' ||
+            (!model.provider && model.source !== 'cloud' && model.source !== 'online');
+          loadedModelId.current = ok ? model.id : null;
+          if (!ok && modelActivation.current === activation) setActiveModel(null);
+          if (!ok && isDeviceModel && !opts?.silent && modelActivation.current === activation) {
+            Alert.alert(
+              'Model Load Failed',
+              engine.getLastNativeError?.() ||
+                'On-device GGUF could not be loaded. Rebuild with llama.rn, or use a Cloud model.'
+            );
+          }
+        } catch (err) {
+          loadedModelId.current = null;
+          if (modelActivation.current === activation) setActiveModel(null);
+          console.warn('[ChatScreen] Error switching model:', err);
+        } finally {
+          if (modelActivation.current === activation) {
+            modelActivation.current = null;
+            setIsModelLoading(false);
+          }
         }
-      } catch (err) {
-        console.warn('[ChatScreen] Error switching model:', err);
-      }
+      })();
+      activation.promise = promise;
+      modelActivation.current = activation;
+      return promise;
     },
     [engine]
   );
@@ -376,7 +404,8 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   useEffect(() => {
     if (!requestedModel) return;
     requestedModelRef.current = requestedModel;
-    activateModel(requestedModel, { silent: true });
+    const task = InteractionManager.runAfterInteractions(() => { activateModel(requestedModel); });
+    return () => task.cancel();
   }, [requestedModel, activateModel]);
 
   const checkUpdatesOnLaunch = async () => {
@@ -480,7 +509,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const handleSendMessage = async (text: string) => {
-    if (!currentSessionId || isGenerating) return;
+    if (!currentSessionId || isGenerating || modelActivation.current) return;
     if (!activeModel) {
       Alert.alert('No model selected', 'Download a GGUF from Model Store, or add a Gemini API key in Settings.');
       return;
@@ -956,6 +985,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       </View>
 
       {/* Input Field & Voice Controls */}
+      {isModelLoading && <Text accessibilityLiveRegion="polite" style={{ color: '#ffffff', fontSize: 12, textAlign: 'center', paddingVertical: 6 }}>Loading model…</Text>}
       <MessageInput
         onSendMessage={handleSendMessage}
         onStopGeneration={handleStopGeneration}
@@ -974,6 +1004,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onMenuOpen={refreshModels}
         isGenerating={isGenerating}
         isListening={isListening}
+        disabled={isModelLoading}
         onFocus={() => setKeyboardUp(true)}
       />
 

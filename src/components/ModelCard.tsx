@@ -194,7 +194,17 @@ export const ModelCard: React.FC<ModelCardProps> = ({
               {downloadedLabel} of {totalLabel}
               {speedLabel ? ` · ${speedLabel}` : ''}
             </Text>
+            {!!downloadState.waitingMessage && <Text style={styles.progressDetail}>{downloadState.waitingMessage}</Text>}
+            {isPaused && !!downloadState.error && <Text style={styles.progressDetail}>{downloadState.error}</Text>}
           </View>
+          <TouchableOpacity brownSurface
+            style={styles.cancelLink}
+            onPress={() => (onCancel ? onCancel(model.id) : onDelete(model.id))}
+            activeOpacity={0.7}
+            accessibilityLabel={`Cancel download of ${displayName}`}
+          >
+            <Text style={styles.cancelLinkText}>Cancel</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -208,14 +218,14 @@ export const ModelCard: React.FC<ModelCardProps> = ({
       )}
 
       {/* Compact metadata and actions */}
-      <View style={styles.bottomRow}>
+      {!(isDownloading || isPaused) && <View style={styles.bottomRow}>
 
         <View style={styles.actionsGroup}>
           {isDownloaded ? (
             <>
               {isActive ? (
                 <View style={styles.activePill}>
-                  <CheckIcon size={12} color="#22c55e" />
+                  <CheckIcon size={12} color="#ffffff" />
                   <Text style={styles.activePillText}>ACTIVE</Text>
                 </View>
               ) : (
@@ -235,14 +245,6 @@ export const ModelCard: React.FC<ModelCardProps> = ({
                 <TrashIcon size={15} color="#ef4444" />
               </TouchableOpacity>
             </>
-          ) : isDownloading || isPaused ? (
-            <TouchableOpacity brownSurface
-              style={styles.cancelLink}
-              onPress={() => (onCancel ? onCancel(model.id) : onDelete(model.id))}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.cancelLinkText}>Cancel</Text>
-            </TouchableOpacity>
           ) : isError ? (
             <TouchableOpacity brownSurface="light"
               style={styles.retryBtn}
@@ -263,7 +265,7 @@ export const ModelCard: React.FC<ModelCardProps> = ({
             </TouchableOpacity>
           )}
         </View>
-      </View>
+      </View>}
     </View>
   );
 };
@@ -359,6 +361,7 @@ const styles = StyleSheet.create({
   },
   progressTextCol: {
     flex: 1,
+    minWidth: 0,
   },
   progressTitle: {
     color: '#60a5fa',
@@ -445,11 +448,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   cancelLink: {
+    borderRadius: 9999,
+    minHeight: 44,
+    flexShrink: 0,
+    justifyContent: 'center',
     paddingHorizontal: 8,
     paddingVertical: 6,
   },
   cancelLinkText: {
-    color: '#a1a1aa',
+    color: '#ffffff',
     fontSize: 12,
     fontWeight: '600',
   },
@@ -475,15 +482,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    backgroundColor: '#15803d',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 9999,
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.3)',
+    borderColor: '#15803d',
   },
   activePillText: {
-    color: '#22c55e',
+    color: '#ffffff',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,

@@ -49,6 +49,7 @@ export interface ModelDownloadState {
   speedBytesPerSec: number;
   localPath?: string;
   error?: string;
+  waitingMessage?: string;
 }
 
 export interface InferenceSettings {

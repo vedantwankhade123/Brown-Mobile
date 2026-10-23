@@ -109,7 +109,7 @@ if (publish) {
   if (wantedVersion || wantedBuildCode || declaredName !== version || config.version !== version || config.android.versionCode !== currentCode) die('--keep-version requires matching precommitted versions and no version overrides');
 } else {
   const buildCode = wantedBuildCode ? Number(wantedBuildCode) : currentCode + 1;
-  if (!Number.isFinite(buildCode) || buildCode <= currentCode) {
+  if (!Number.isSafeInteger(buildCode) || buildCode <= currentCode || buildCode > 2100000000) {
     die(`--build-code must be an integer above the current ${currentCode}`);
   }
   gradle = gradle
@@ -151,6 +151,18 @@ if (!publish) {
   const versioned = path.join(DIST, `Brown-AI-Mobile-v${version}.apk`);
   fs.copyFileSync(path.join(APK_OUT, apk), versioned);
   fs.copyFileSync(path.join(APK_OUT, apk), path.join(DIST, 'Brown-AI-Mobile.apk'));
+  const verified = require('./verify-apk-release.cjs').verifyApkRelease(versioned);
+  fs.writeFileSync(path.join(DIST, 'SHA256SUMS.txt'), [
+    `${verified.sha256}  Brown-AI-Mobile-v${version}.apk`,
+    `${verified.sha256}  Brown-AI-Mobile.apk`,
+    '',
+  ].join('\n'));
+  fs.writeFileSync(path.join(DIST, 'release-manifest.json'), JSON.stringify({
+    version, versionCode: verified.versionCode, applicationId: verified.applicationId,
+    certSha256: verified.certSha256, size: verified.size, sha256: verified.sha256,
+    assets: [`Brown-AI-Mobile-v${version}.apk`, 'Brown-AI-Mobile.apk'],
+    updateFeed: `https://api.github.com/repos/${REPO}/releases/latest`,
+  }, null, 2) + '\n');
   console.log(`\n[release] staged ${(fs.statSync(versioned).size / 1048576).toFixed(1)} MB as:`);
   console.log(`  dist/Brown-AI-Mobile-v${version}.apk`);
   console.log('  dist/Brown-AI-Mobile.apk   <- the link the website uses');
@@ -184,7 +196,7 @@ if (source) {
 }
 
 // ----------------------------------------------------------------------------- publish
-for (const f of ['package.json', 'android/app/build.gradle']) {
+for (const f of ['package.json', 'app.json', 'android/app/build.gradle']) {
   if (sh(`git status --porcelain -- ${f}`, { pipe: true }).trim()) {
     die(`${f} has uncommitted changes — commit the version bump before publishing`);
   }
@@ -197,14 +209,29 @@ const staged = [
   path.join(DIST, 'Brown-AI-Mobile.apk'),
 ];
 for (const f of staged) if (!fs.existsSync(f)) die(`missing ${path.basename(f)} — run the prepare step first`);
-if (fs.statSync(staged[0]).size !== fs.statSync(staged[1]).size) die('the two APK copies differ');
+const hash = file => require('crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+if (hash(staged[0]) !== hash(staged[1])) die('the two APK copies differ');
 
 for (const file of staged) console.log(JSON.stringify(require('./verify-apk-release.cjs').verifyApkRelease(file), null, 2));
+for (const name of ['SHA256SUMS.txt', 'release-manifest.json']) {
+  const file = path.join(DIST, name);
+  if (!fs.existsSync(file)) die(`missing ${name} — run the prepare step first`);
+  staged.push(file);
+}
+const manifest = JSON.parse(fs.readFileSync(path.join(DIST, 'release-manifest.json'), 'utf8'));
+if (manifest.version !== version || manifest.versionCode !== currentCode || manifest.sha256 !== hash(staged[0])) die('Release manifest does not match the staged APK. Prepare the release again.');
 
 sh(`gh api repos/${REPO} > NUL`);
+const latestRelease = JSON.parse(sh(`gh api repos/${REPO}/releases/latest`, { pipe: true }));
+const latestParts = latestRelease.tag_name.replace(/^v/, '').split('.').map(Number);
+const nextParts = version.split('.').map(Number);
+const firstDifference = nextParts.findIndex((part, index) => part !== latestParts[index]);
+if (firstDifference < 0 || nextParts[firstDifference] < latestParts[firstDifference]) die('Use a version newer than the public release; never replace a live APK.');
 
 const tags = sh('git tag -l', { pipe: true }).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-if (!tags.includes(tag)) sh(`git tag -a ${tag} -m "Brown AI Mobile ${tag}"`);
+if (tags.includes(tag)) {
+  if (sh(`git rev-parse "${tag}^{commit}"`, { pipe: true }).trim() !== sh('git rev-parse HEAD', { pipe: true }).trim()) die('Existing tag points at another commit. Use a new version.');
+} else sh(`git tag -a ${tag} -m "Brown AI Mobile ${tag}"`);
 sh(`git push origin ${tag}`);
 
 // A single gh call carrying both ~156 MB assets times out on this uplink (HTTP 408) and gh then
@@ -212,6 +239,8 @@ sh(`git push origin ${tag}`);
 const exists = sh(`gh release view ${tag} > NUL 2>NUL && echo yes || echo no`, { pipe: true }).trim() === 'yes';
 if (!exists) {
   sh(`gh release create ${tag} --draft --title "Brown AI Mobile ${tag}" --notes-file .release-notes.md`);
+} else if (!JSON.parse(sh(`gh release view ${tag} --json isDraft`, { pipe: true })).isDraft) {
+  die('This release is already public. Prepare a new version instead of replacing live APKs.');
 }
 for (const f of staged) {
   let lastError;
@@ -230,10 +259,10 @@ for (const f of staged) {
 if (exists) sh(`gh release edit ${tag} --title "Brown AI Mobile ${tag}" --notes-file .release-notes.md`);
 
 const uploaded = JSON.parse(sh(`gh release view ${tag} --json assets,isDraft`, { pipe: true })).assets;
-for (const asset of uploaded) {
-  const local = staged.find((f) => path.basename(f) === asset.name);
-  if (local && fs.statSync(local).size !== asset.size) {
-    die(`${asset.name} uploaded as ${asset.size} bytes but the local file is ${fs.statSync(local).size}`);
+for (const local of staged) {
+  const asset = uploaded.find(asset => asset.name === path.basename(local));
+  if (!asset || asset.state !== 'uploaded' || asset.size !== fs.statSync(local).size || asset.digest !== `sha256:${hash(local)}`) {
+    die(`${path.basename(local)} failed upload verification. The release remains a draft.`);
   }
 }
 sh(`gh release edit ${tag} --draft=false --latest`);

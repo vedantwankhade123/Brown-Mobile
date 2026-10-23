@@ -229,7 +229,10 @@ export class ModelDownloader {
       if (state.status === 'idle') continue;
       add(state.localPath);
     }
-    for (const model of this.pausedModels.values()) add(model.filename);
+    for (const model of this.pausedModels.values()) {
+      add(model.filename);
+      add(`${model.filename}.direct-part`);
+    }
     return Array.from(names);
   }
 
@@ -327,6 +330,7 @@ export class ModelDownloader {
           state.totalBytes = total;
           state.progress = Math.min(Math.round((downloaded / total) * 100), 99);
           state.speedBytesPerSec = Math.round(downloaded / elapsed);
+          state.waitingMessage = undefined;
           this.downloadStates.set(model.id, { ...state });
           this.notifyListeners();
         };
@@ -343,7 +347,13 @@ export class ModelDownloader {
           const key = `gguf:${model.id}`;
           if (!this.abortControllers.get(model.id)) await enqueueBackgroundDownload(key, downloadUrl, model.name);
           const result = await receiveBackgroundDownload(key, dest, 1024 * 1024,
-            () => !!this.abortControllers.get(model.id), callback);
+            () => !!this.abortControllers.get(model.id), callback, message => {
+              if (this.abortControllers.get(model.id)) return;
+              state.waitingMessage = message || undefined;
+              if (message) state.speedBytesPerSec = 0;
+              this.downloadStates.set(model.id, { ...state });
+              this.notifyListeners();
+            });
           if (this.abortControllers.get(model.id)) return;
           const info = await FileSystem.getInfoAsync(result.uri);
           state.status = 'downloaded';
@@ -524,10 +534,13 @@ export class ModelDownloader {
         const headerTotal = Number(
           result?.headers?.['Content-Length'] || result?.headers?.['content-length'] || 0
         );
-        const expectedBytes = headerTotal > 0 ? headerTotal : model.sizeBytes || 0;
+        // Catalog sizes are estimates, not an integrity check. A resumed 206
+        // Content-Length describes only the remaining range.
+        const rangeTotal = Number((result?.headers?.['Content-Range'] || result?.headers?.['content-range'] || '').split('/')[1] || 0);
+        const expectedBytes = rangeTotal || (result?.status === 206 ? 0 : headerTotal);
         const fileInfo = await FileSystem.getInfoAsync(dest);
         const actualBytes = Number(fileInfo?.size || 0);
-        if (!fileInfo?.exists || actualBytes <= 0) {
+        if (!fileInfo?.exists || actualBytes < 1024 * 1024) {
           throw new Error('The download finished without writing a file. Check storage space and retry.');
         }
         if (expectedBytes > 0 && actualBytes < expectedBytes) {
@@ -547,6 +560,8 @@ export class ModelDownloader {
           return;
         }
 
+        const magic = await FileSystem.readAsStringAsync(dest, { encoding: FileSystem.EncodingType.Base64, position: 0, length: 4 });
+        if (magic !== 'R0dVRg==') throw new Error('The downloaded file is not a GGUF model. Check the model link and try again.');
         state.status = 'downloaded';
         state.progress = 100;
         state.downloadedBytes = actualBytes;
@@ -556,6 +571,7 @@ export class ModelDownloader {
         state.error = undefined;
         this.downloadStates.set(model.id, { ...state });
         this.resumables.delete(model.id);
+        this.pausedModels.delete(model.id);
         await this.clearResumable(model.id);
         this.notifyListeners();
         await this.persistStates();
@@ -695,7 +711,7 @@ export class ModelDownloader {
     }
     for (const path of targets) {
       const FileSystem = require('expo-file-system');
-      for (const target of [path, `${path}.part`, `${path}.background-part`]) {
+      for (const target of [path, `${path}.part`, `${path}.background-part`, `${path}.direct-part`]) {
         await FileSystem.deleteAsync(target, { idempotent: true });
       }
     }

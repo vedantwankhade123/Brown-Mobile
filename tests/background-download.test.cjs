@@ -60,6 +60,84 @@ async function testSystemObservation() {
   assert.equal(files.has('file:///models/invalid.gguf'), false);
 }
 
+async function testSchedulerWaits() {
+  for (const [waitingReason, reason, message] of [['thermal', 0, /warm/], ['queued', 0, /Queued/], ['network', 195, /network/], ['retry', 194, /retrying/], ['wifi', 196, /Wi-Fi/]]) {
+    let now = 0, queries = 0, cancelled = false;
+    const messages = [];
+    const service = load('modelManager/BackgroundDownload.ts', {
+      'react-native': { Platform: { OS: 'android' } },
+      'expo-modules-core': { requireOptionalNativeModule: () => ({
+        status: async () => { queries++; now += 500; return { status: 'waiting', waitingReason, reason, bytes: 0, total: -1 }; },
+      }) },
+      'expo-file-system': { deleteAsync: async () => {} },
+    }, { Date: { now: () => now }, setTimeout: fn => setImmediate(fn) });
+    await assert.rejects(service.receiveBackgroundDownload('test', 'file:///test', 1,
+      () => cancelled, () => {}, value => { messages.push(value); if (queries > 500) cancelled = true; }), /cancelled/);
+    assert.ok(now > 120000, 'Android scheduling can exceed the old two-minute timeout');
+    assert.match(messages[0], message);
+  }
+  let now = 0, polls = 0;
+  const service = load('modelManager/BackgroundDownload.ts', {
+    'react-native': { Platform: { OS: 'android' } },
+    'expo-modules-core': { requireOptionalNativeModule: () => ({
+      status: async () => { now += 500; polls++; return { status: 'downloading', bytes: 0, total: 100 }; },
+    }) },
+    'expo-file-system': { deleteAsync: async () => {} },
+  }, { Date: { now: () => now }, setTimeout: fn => setImmediate(fn) });
+  await assert.rejects(service.receiveBackgroundDownload('test', 'file:///test', 1, () => false, () => {}, undefined, 1000), /stalled/);
+  assert.ok(polls < 10, 'a genuinely stalled running transfer still times out');
+}
+
+async function testDirectFallback(mode = 'ok') {
+  let now = 0, started = 0, ended = 0, cancelled = false, attempts = 0;
+  const files = new Map();
+  if (mode === 'ignored-range') files.set('file:///models/test.gguf.direct-part', 40);
+  const native = {
+    status: async () => { now += 500; return { status: mode === 'http-fallback' ? 'error' : 'waiting', reason: mode === 'http-fallback' ? 403 : 0, waitingReason: 'thermal', thermalStatus: 2, bytes: 0, total: -1, url: 'https://huggingface.co/test/resolve/main/model.gguf' }; },
+    cancel: async () => {}, beginDirectTransfer: async () => { started++; }, endDirectTransfer: async () => { ended++; },
+  };
+  const service = load('modelManager/BackgroundDownload.ts', {
+    'react-native': { Platform: { OS: 'android' }, AppState: { currentState: 'active' } },
+    'expo-modules-core': { requireOptionalNativeModule: () => native },
+    'expo-file-system': {
+      EncodingType: { Base64: 'base64' },
+      getInfoAsync: async uri => ({ exists: files.has(uri), size: files.get(uri) || 0 }),
+      deleteAsync: async uri => files.delete(uri),
+      readAsStringAsync: async () => mode === 'html' ? 'PGh0bWw+' : 'R0dVRg==',
+      copyAsync: async ({ from, to }) => files.set(to, files.get(from)),
+      moveAsync: async ({ from, to }) => { files.set(to, files.get(from)); files.delete(from); },
+      createDownloadResumable: (url, dest, options, callback, resumeData) => ({
+        downloadAsync: async () => {
+          attempts++;
+          assert.match(url, /brown_direct=/, 'fresh HF redirect on every attempt');
+          if (mode === 'retry' && attempts === 1) { files.set(dest, 40); throw Error('Network interrupted'); }
+          if (mode === 'retry') assert.equal(resumeData, '40', 'retry resumes existing bytes');
+          files.set(dest, 100);
+          callback({ totalBytesWritten: 100, totalBytesExpectedToWrite: 100 });
+          if (mode === 'cancel') cancelled = true;
+          if (mode === 'ignored-range' && attempts === 1) { files.set(dest, 140); return { status: 200, headers: { 'content-length': '100' } }; }
+          return { status: mode === '404' ? 404 : resumeData ? 206 : 200, headers: resumeData ? { 'content-range': 'bytes 40-99/100' } : { 'content-length': '100' } };
+        },
+        pauseAsync: async () => {}, cancelAsync: async () => {},
+      }),
+    },
+  }, { Date: { now: () => now }, setTimeout: fn => setImmediate(fn) });
+  const transfer = service.receiveBackgroundDownload('gguf:test', 'file:///models/test.gguf', 50, () => cancelled, () => {});
+  if (mode === 'cancel') await assert.rejects(transfer, /cancelled/);
+  else if (mode === 'html') await assert.rejects(transfer, /not a GGUF/);
+  else if (mode === '404') await assert.rejects(transfer, /no longer available/);
+  else {
+    await transfer;
+    assert.equal(files.get('file:///models/test.gguf'), 100);
+    assert.equal(files.has('file:///models/test.gguf.direct-part'), false);
+  }
+  assert.equal(started, 1);
+  assert.equal(ended, 1, 'foreground service released on success, cancellation and failure');
+  if (mode === 'cancel') assert.equal(files.size, 0, 'cancel removes direct partials');
+  if (mode === '404') assert.equal(attempts, 1, 'permanent missing files do not retry');
+  if (mode === 'ignored-range') assert.equal(attempts, 2, 'ignored range responses restart safely instead of appending a duplicate model');
+}
+
 async function testCancellationRace(stagedBytes = 0) {
   const files = new Map(), storage = new Map();
   let downloads = 0, stopped = false, finishTransfer, progress;
@@ -114,6 +192,8 @@ async function testCancellationRace(stagedBytes = 0) {
 
 (async () => {
   await testSystemObservation();
+  await testSchedulerWaits();
+  for (const mode of ['ok', 'retry', 'html', '404', 'cancel', 'ignored-range', 'http-fallback']) await testDirectFallback(mode);
   await testCancellationRace();
   await testCancellationRace(1024 * 1024);
   console.log('PASS: system downloads while backgrounded, waiting recovery, file validation, atomic publication, duplicate taps and cancellation races');

@@ -19,9 +19,20 @@ function verifyApkRelease(file) {
   if (/CN=Android Debug/i.test(output)) throw new Error('Debug-signed APK: refusing release.');
   const certSha256 = output.match(/Signer #1 certificate SHA-256 digest:\s*([a-f0-9]+)/i)?.[1];
   if (!certSha256) throw new Error('APK signing certificate fingerprint not found.');
-  const expected = process.env.ANDROID_RELEASE_CERT_SHA256?.replace(/:/g, '').toLowerCase();
+  // Fingerprint of the production key used by public v1.0.6. A different key
+  // cannot upgrade existing installations, even if Android accepts its signature.
+  const expected = (process.env.ANDROID_RELEASE_CERT_SHA256 || '746b84b34953ea44b46083f151e25a0e1366a92bc2ee81b4159bf3563acc91a6').replace(/:/g, '').toLowerCase();
   if (expected && certSha256.toLowerCase() !== expected) throw new Error('APK certificate differs from ANDROID_RELEASE_CERT_SHA256. Existing users cannot update with a different key.');
-  return { file: target, size: fs.statSync(target).size, sha256: crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex'), certSha256, signature: 'Verified release APK' };
+  const aapt = path.join(path.dirname(signer), process.platform === 'win32' ? 'aapt.exe' : 'aapt');
+  const badging = execFileSync(aapt, ['dump', 'badging', target], { encoding: 'utf8', windowsHide: true });
+  const metadata = badging.match(/package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'/);
+  if (!metadata || metadata[1] !== 'com.brown.mobile') throw new Error('Unexpected Android application ID.');
+  const versionName = metadata[3], versionCode = Number(metadata[2]);
+  const pkgVersion = require('../package.json').version;
+  const config = JSON.parse(fs.readFileSync(path.join(__dirname, '../app.json'), 'utf8')).expo;
+  if (versionName !== pkgVersion || versionName !== config.version || versionCode !== config.android.versionCode) throw new Error('APK version differs from package.json/app.json. Rebuild before releasing.');
+  if (!/^native-code:.*'arm64-v8a'/m.test(badging)) throw new Error('APK is missing the supported ARM64 architecture.');
+  return { file: target, size: fs.statSync(target).size, sha256: crypto.createHash('sha256').update(fs.readFileSync(target)).digest('hex'), certSha256, applicationId: metadata[1], versionName, versionCode, signature: 'Verified release APK' };
 }
 module.exports = { verifyApkRelease };
 if (require.main === module) {

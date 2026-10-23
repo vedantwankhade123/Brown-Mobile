@@ -458,7 +458,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
     ? syncStatus.reauthReason || 'Network changed — enter the code on your PC.'
     : syncStatus.isConnected
       ? `${syncStatus.connectionType === 'relay' ? 'Encrypted relay' : syncStatus.connectionType === 'direct' ? 'Direct connection' : 'Local connection'} · Pairing saved`
-      : syncStatus.activeDesktop ? (syncStatus.reauthReason || 'Waiting for your desktop to reconnect…') : 'Choose Scan QR code or Connect to PC above.';
+      : syncStatus.activeDesktop ? (syncStatus.reauthReason || 'Waiting for your desktop to reconnect…') : 'Scan QR or enter PC ID';
 
   const savedPCs = (() => {
             const previousList = pairedHistory.filter(
@@ -519,7 +519,7 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
 
   return (
     <SafeAreaView style={styles.container}>
-        <ScreenHeader title="Desktop Sync" onBack={onBack} scrolled={syncScrolled} right={
+        <ScreenHeader title="Connect" onBack={onBack} scrolled={syncScrolled} right={
           <View ref={menuButtonRef} collapsable={false}>
           <TouchableOpacity brownSurface="light" style={styles.menuButton} onPress={openMenu} accessibilityLabel="Desktop sync options" accessibilityRole="button" accessibilityState={{ expanded: menuOpen }}>
             <MoreVerticalIcon size={22} color="#ffffff" />
@@ -620,7 +620,9 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
             </View>
           )}
 
-          <View style={styles.statusCard}>
+          <View style={[styles.quickAction, styles.statusCard]}>
+            <ButtonSurface radius={9999} />
+            <View style={[styles.quickActionIcon, { zIndex: 1 }]}>
             <Animated.View style={{ transform: [{ scale: syncStatus.isConnected ? 1 : wifiPulse }] }}>
               {syncStatus.isConnected ? (
                 <CheckIcon size={22} color="#3b82f6" />
@@ -628,9 +630,10 @@ export const DesktopSyncScreen: React.FC<DesktopSyncScreenProps> = ({ onBack, in
                 <WifiIcon size={22} color={syncStatus.needsReauth ? '#F59E0B' : '#71717a'} />
               )}
             </Animated.View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.statusTitle}>{statusLabel}</Text>
-              <Text style={styles.statusDetail}>{statusDetail}</Text>
+            </View>
+            <View style={[styles.quickActionCopy, { zIndex: 1 }]}>
+              <Text style={styles.quickActionTitle}>{statusLabel}</Text>
+              <Text style={styles.quickActionHint} numberOfLines={!syncStatus.activeDesktop ? 1 : undefined}>{statusDetail}</Text>
             </View>
             <TouchableOpacity
               brownSurface="light"
@@ -1001,15 +1004,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   statusCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#202020',
-    borderRadius: 9999,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#343434',
   },
   statusTitle: {
     color: '#ffffff',
@@ -1023,6 +1018,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   statusRefreshBtn: {
+    zIndex: 1,
     width: 34,
     height: 34,
     borderRadius: 9999,
@@ -1245,7 +1241,9 @@ const styles = StyleSheet.create({
   },
   scanCard: {
     backgroundColor: '#202020',
-    borderRadius: 9999,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
     padding: 28,
     alignItems: 'center',
     gap: 12,
@@ -1258,7 +1256,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#202020',
-    borderRadius: 9999,
+    borderRadius: 12,
     padding: 14,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',

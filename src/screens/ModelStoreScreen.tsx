@@ -45,7 +45,7 @@ import { HuggingFaceLogo } from '../components/HuggingFaceLogo';
 import { HeaderFade } from '../components/HeaderFade';
 import { AnimatedSearchSwap } from '../components/AnimatedSearchSwap';
 import { HeaderTitle, headerButtonStyle, GlassControl, GlassSurface, useStickyHeader } from '../components/ScreenHeader';
-import { SearchIcon, BackArrowIcon, ChevronRightIcon, CloseIcon, DatabaseIcon } from '../components/Icons';
+import { SearchIcon, BackArrowIcon, ChevronRightIcon, CloseIcon, DatabaseIcon, FilterIcon, CheckIcon } from '../components/Icons';
 
 interface ModelStoreScreenProps {
   onBack: () => void;
@@ -107,6 +107,7 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
   const [defaultDir, setDefaultDir] = useState('/BrownAI/models/');
   const [useCustomDir, setUseCustomDir] = useState(false);
   const [sizeFilter, setSizeFilter] = useState<'all' | ModelSizeBucket>('all');
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const downloader = ModelDownloader.getInstance();
   const engine = LlamaEngine.getInstance();
@@ -219,23 +220,10 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
     return () => unsubscribe();
   }, []);
 
-  const handleSelectModel = async (model: ModelMetadata) => {
-    try {
-      const ok = await engine.loadModel(model);
-      if (!ok) {
-        Alert.alert(
-          'Load Failed',
-          engine.getLastNativeError?.() ||
-            'Could not load this GGUF. Rebuild the app with llama.rn linked, or pick a Cloud model.'
-        );
-        return;
-      }
-      setActiveModel(model);
-      onModelActivated(model);
-      Alert.alert('Model Activated', `${model.name} is ready to chat.`);
-    } catch (err: any) {
-      Alert.alert('Load Failed', err?.message || 'Unable to load model.');
-    }
+  const handleSelectModel = (model: ModelMetadata) => {
+    setFilterOpen(false);
+    // Chat owns activation. Navigating first avoids loading the GGUF twice.
+    onModelActivated(model);
   };
 
   const handleDownload = (model: ModelMetadata) => {
@@ -325,12 +313,21 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
             <BackArrowIcon size={24} color="#ffffff" strokeWidth={2.2} />
           </GlassControl>
 
-          <HeaderTitle title="Model Store" style={{ position: 'absolute', left: 64, right: 64 }} />
+          <HeaderTitle title="Models" style={{ position: 'absolute', left: 104, right: 104 }} />
 
           <View style={{ flex: 1 }} />
 
           <GlassControl radius={22} active={true}
-            onPress={() => setIsSearchOpen(true)}
+            onPress={() => setFilterOpen(open => !open)}
+            style={styles.headerFilterIconBtn}
+            accessibilityLabel={`Filter models by size, ${sizeFilter === 'all' ? 'All sizes' : SIZE_BUCKET_COPY[sizeFilter].label}`}
+          >
+            <FilterIcon size={20} color="#ffffff" />
+            {sizeFilter !== 'all' && <View style={styles.filterIndicator} />}
+          </GlassControl>
+
+          <GlassControl radius={22} active={true}
+            onPress={() => { setFilterOpen(false); setIsSearchOpen(true); }}
             style={styles.headerSearchIconBtn}
             activeOpacity={0.7}
             accessibilityLabel="Search Hugging Face models"
@@ -400,40 +397,6 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
           </View>
           <ChevronRightIcon size={16} color="#8e8e93" />
         </TouchableOpacity>
-
-        {/* Filter by GGUF download size */}
-        <View style={styles.filterBlock}>
-          <View style={styles.filterRow}>
-            <TouchableOpacity brownSurface
-              style={[styles.filterPill, sizeFilter === 'all' && styles.filterPillOn]}
-              onPress={() => setSizeFilter('all')}
-              activeOpacity={0.8}
-              accessibilityRole="button"
-              accessibilityState={{ selected: sizeFilter === 'all' }}
-            >
-              <Text style={[styles.filterPillText, sizeFilter === 'all' && styles.filterPillTextOn]}>
-                All sizes
-              </Text>
-            </TouchableOpacity>
-            {SIZE_BUCKET_ORDER.map((bucket) => (
-              <TouchableOpacity brownSurface
-                key={bucket}
-                style={[styles.filterPill, sizeFilter === bucket && styles.filterPillOn]}
-                onPress={() => setSizeFilter(bucket)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityState={{ selected: sizeFilter === bucket }}
-              >
-                <Text style={[styles.filterPillText, sizeFilter === bucket && styles.filterPillTextOn]}>
-                  {SIZE_BUCKET_COPY[bucket].label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {sizeFilter !== 'all' ? (
-            <Text style={styles.filterHint}>{SIZE_BUCKET_COPY[sizeFilter].range} on disk</Text>
-          ) : null}
-        </View>
 
         {hfVisible.length > 0 || hfLoading ? (
           <View style={styles.sectionBlock}>
@@ -519,6 +482,34 @@ export const ModelStoreScreen: React.FC<ModelStoreScreenProps> = ({
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <Modal visible={filterOpen} transparent statusBarTranslucent animationType="fade" onRequestClose={() => setFilterOpen(false)}>
+        <View style={styles.filterOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setFilterOpen(false)} accessibilityLabel="Close size filters" />
+        <View style={styles.filterMenu} accessibilityViewIsModal>
+          <View style={styles.filterMenuHeader}>
+            <Text style={styles.filterMenuTitle}>Download size</Text>
+            <TouchableOpacity style={styles.filterClose} onPress={() => setFilterOpen(false)} accessibilityLabel="Close filters">
+              <CloseIcon size={20} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+          {(['all', ...SIZE_BUCKET_ORDER] as const).map(option => <TouchableOpacity
+            key={option}
+            style={[styles.filterOption, sizeFilter === option && styles.filterOptionSelected]}
+            onPress={() => { setSizeFilter(option); setFilterOpen(false); }}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: sizeFilter === option }}
+            accessibilityLabel={option === 'all' ? 'All sizes' : SIZE_BUCKET_COPY[option].label}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.filterOptionText}>{option === 'all' ? 'All sizes' : SIZE_BUCKET_COPY[option].label}</Text>
+              {option !== 'all' && <Text style={styles.filterOptionRange}>{SIZE_BUCKET_COPY[option].range}</Text>}
+            </View>
+            {sizeFilter === option && <CheckIcon size={18} color="#ffffff" />}
+          </TouchableOpacity>)}
+        </View>
+        </View>
+      </Modal>
 
       {/* Download Location Sheet Modal */}
       <Modal visible={locationSheetOpen} transparent animationType="slide" onRequestClose={closeLocationSheet}>
@@ -642,7 +633,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headerSearchCloseBtn: { ...headerButtonStyle },
-  headerBackBtn: { ...headerButtonStyle },
+  headerBackBtn: { ...headerButtonStyle, width: 40, height: 40 },
   headerTitle: {
     color: '#ffffff',
     fontSize: 19,
@@ -653,7 +644,18 @@ const styles = StyleSheet.create({
     right: 60,
     textAlign: 'center',
   },
-  headerSearchIconBtn: { ...headerButtonStyle },
+  headerSearchIconBtn: { ...headerButtonStyle, width: 40, height: 40 },
+  headerFilterIconBtn: { ...headerButtonStyle, width: 40, height: 40, marginRight: 8 },
+  filterIndicator: { position: 'absolute', top: -4, right: -4, width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' },
+  filterOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: 'rgba(0,0,0,0.55)' },
+  filterMenu: { width: '100%', maxWidth: 340, borderRadius: 22, padding: 12, backgroundColor: '#242424', borderWidth: 1, borderColor: '#444444', elevation: 12, shadowColor: '#000000', shadowOpacity: 0.25, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } },
+  filterMenuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 12, marginBottom: 8 },
+  filterMenuTitle: { color: '#ffffff', fontSize: 18, fontWeight: '600' },
+  filterClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  filterOption: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, gap: 12 },
+  filterOptionSelected: { backgroundColor: '#3a3a3a' },
+  filterOptionText: { color: '#ffffff', fontSize: 14, fontWeight: '500' },
+  filterOptionRange: { color: '#b7b7bf', fontSize: 12, marginTop: 3 },
   scrollArea: {
     flex: 1,
     backgroundColor: '#000000',

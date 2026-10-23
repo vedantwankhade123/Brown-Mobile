@@ -22,8 +22,8 @@ export class StorageBudgetService {
       if (FileSystem?.getFreeDiskStorageAsync && FileSystem?.getTotalDiskCapacityAsync) {
         const free = await FileSystem.getFreeDiskStorageAsync();
         const total = await FileSystem.getTotalDiskCapacityAsync();
-        if (total) totalStorageBytes = total;
-        if (free) freeStorageBytes = free;
+        if (Number.isFinite(total) && total > 0) totalStorageBytes = total;
+        if (Number.isFinite(free) && free >= 0) freeStorageBytes = free;
       }
     } catch {}
 

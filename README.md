@@ -1,197 +1,130 @@
-# Brown AI Mobile — Sovereign On-Device AI Companion (Android)
+# Brown AI Mobile
 
-[![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.3-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
-[![Platform](https://img.shields.io/badge/Platform-Android%2010%2B-3DDC84?logo=android&logoColor=white)](https://github.com/vedantwankhade123/Brown-Mobile/releases)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
-
-<p align="center">
-  <a href="https://usebrown.online/">
-    <img src="Assets/Brown-white.png" alt="Brown AI Logo" width="150" />
-  </a>
-</p>
+[![Release](https://img.shields.io/badge/Release-v1.0.7-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest)
+[![Android](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)](https://usebrown.online/download)
+[![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA)](https://usebrown.online/)
+[![License](https://img.shields.io/badge/License-Proprietary-red)](LICENSE)
 
 <p align="center">
-  <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with documentation and direct downloads.
+  <img src="Assets/Brown-white.png" alt="Brown AI" width="150" />
 </p>
 
-**Brown AI Mobile** is an autonomous, privacy-first, on-device AI conversational assistant engineered exclusively for **Android** (Android 10+). It runs quantized Small Language Models (SLMs) completely offline on your smartphone's silicon, delivering high-speed conversational reasoning, dynamic thinking statuses, encrypted local memories, and seamless local Wi-Fi pairing with the Brown Windows Desktop application.
+Brown is an Android AI assistant that runs downloaded GGUF language models on your device. Chat locally, manage models and downloads, use supported voice features, and connect to Brown Desktop. Optional cloud providers and model downloads require an internet connection.
 
-> **Note on Platform Support**: Brown AI Mobile is built **strictly for Android devices**. iOS or other mobile operating systems are not supported.
+**Current release: v1.0.7 · Android build 19 · ARM64 (`arm64-v8a`)**
 
----
+[Download the APK](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest/download/Brown-AI-Mobile.apk) · [Release notes](https://github.com/vedantwankhade123/Brown-Mobile/releases/tag/v1.0.7) · [Documentation](https://usebrown.online/docs) · [Windows app](https://github.com/vedantwankhade123/Brown)
 
-## 📱 Core Features
+## Install or update
 
-- **⚡ 100% Offline On-Device Inference**: Direct local execution of quantized `.gguf` neural models (`Llama 3.2 1B/3B`, `Gemma 2 2B`, `Qwen 2.5 1.5B/3B`) without internet access.
-- **🔄 Dynamic Thinking & Reasoning States**: Contextual, live status progression indicators ("Thinking...", "Searching knowledge...", "Analyzing prompt...") so you always know what the model is processing.
-- **🛡️ Air-Gapped Zero-Telemetry**: Your prompts, conversation histories, and voice notes never leave your device.
-- **📦 In-App GGUF Model Manager**: One-tap model browser with RAM tier recommendations, device storage metering, and background chunked downloading.
-- **🔐 Encrypted SQLite & SecureStore**: Conversation threads and sensitive API keys are encrypted on-device via Android Keystore and AES-256 local vaults.
-- **🎙️ Sovereign Voice Mode**: Offline voice recording, Whisper speech recognition, and neural TTS synthesis.
-- **🖥️ Desktop Wi-Fi Sync**: Zero-config local network pairing using secure PIN codes to synchronize chats and memory with your Brown Windows Desktop workstation.
-- **☁️ Hybrid Cloud Parity (Optional)**: Optional connectors for OpenAI, Claude, DeepSeek, Groq, and custom endpoints when external models are needed.
+Use an Android 10+ phone or tablet with an ARM64 processor. Available RAM and storage determine which models can run well; start with a small model and follow the in-app recommendations. This repository ships Android builds; no iOS release is provided.
 
----
+1. Download **Brown-AI-Mobile.apk** from the official release or [website](https://usebrown.online/download).
+2. Open the APK and allow installation from the source you used if Android asks.
+3. Open Brown, finish setup, and download a compatible model in Models.
+4. For later releases, open **Settings → Software Updates → Check for updates**. Download the update, then approve Android's installation prompt. If asked, allow Brown to install unknown apps.
 
-## 💾 Download APK
+Install updates over the existing app to retain its data. Do not uninstall first. A blocked or cancelled installation can be retried using the saved APK without downloading it again. Existing installs must use the same application ID and signing certificate as the update.
 
-![Brown AI mobile app on Android](Assets/Mobile_Download_Mockup.png)
+| Release asset | Purpose |
+| --- | --- |
+| `Brown-AI-Mobile.apk` | Stable download name used by the website |
+| `Brown-AI-Mobile-v1.0.7.apk` | Version-specific copy of the same signed APK |
+| `SHA256SUMS.txt` | SHA-256 checksums for both APK copies |
+| `release-manifest.json` | Package version, build number, size, checksum and signing fingerprint |
 
-Download the official Android release directly from **[Brown-Mobile Releases](https://github.com/vedantwankhade123/Brown-Mobile/releases)**. The link below is a stable `latest` alias, so it always resolves to the newest build:
+The app checks this repository's latest public GitHub Release. Android updates use its APK assets and release metadata; `latest.yml` belongs to the Windows updater and is not needed here.
 
-| Platform | Package | ABI | Description |
-| :--- | :--- | :--- | :--- |
-| **Android 10+** | [`Brown-AI-Mobile.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest/download/Brown-AI-Mobile.apk) | arm64-v8a | Direct installation package, production-signed. |
+## What's new in v1.0.7
 
-> **First install**: the APK is not published on Google Play, so Android warns that the app comes from an unknown source. Allow this one installer in **Settings → Apps → Special app access → Install unknown apps**.
+- Model-download recovery with clearer Android waiting states, bounded direct-transfer fallback, background transfer support, safe retry, and completed-file validation.
+- Refined model cards, download progress, model activation, and chat presentation.
+- History search, long-press chat options, improved rename/delete dialogs, and a relocated Downloads control.
+- Refined Connect layout and pairing controls.
+- Android versionCode increased from 18 to 19, retaining the existing production signing certificate.
 
----
+## Features
 
-## 🔄 Release Pipeline
+- **Local AI chat:** GGUF inference through `llama.rn`, streaming responses, conversation history, and rich answer rendering.
+- **Model management:** download compatible models, track progress, recover interrupted transfers, and switch between installed models.
+- **History and memory:** search conversations, rename or delete chats, and manage saved preferences.
+- **Voice:** supported local speech and voice components, with downloads and availability shown in the app.
+- **Desktop companion:** discover and pair with [Brown Desktop](https://github.com/vedantwankhade123/Brown), reconnect, and share supported conversation data.
+- **Optional cloud models:** configure supported providers with your own credentials.
 
-The release APK is built on this machine, installed on a phone and tested before it is published —
-there is no CI.
+### Data and connectivity
 
-- **`npm run release:apk -- --version 1.0.3`** — [`scripts/release-apk.js`](scripts/release-apk.js)
-  bumps `versionName`/`versionCode` in `android/app/build.gradle` and `app.json`, runs `tsc --noEmit`
-  and the test suite, runs `gradlew assembleRelease` for `arm64-v8a`, checks the APK's signing block
-  and stages `dist/Brown-AI-Mobile-vX.Y.Z.apk` plus the stable `dist/Brown-AI-Mobile.apk`.
-- **Test it**: install the staged APK over the previous one and use it. This is the gate CI used to
-  provide, so do not skip it.
-- **Commit the bumps**, then **`npm run publish:apk`** — tags `vX.Y.Z`, pushes the tag, and creates
-  or updates the GitHub Release with both asset names.
-- **`versionCode` must increase on every upload**, otherwise Android refuses the update. The script
-  refuses to publish if it would not, and refuses to publish a **debug-signed** APK: keep
-  `android/keystore.properties` + `android/app/my-release-key.keystore` in place (both gitignored).
-- **Release notes**: put a `.release-notes-vX.Y.Z.md` (or `RELEASE_NOTES.md`) in the repo; without it
-  the script drafts them from `git log` for you to edit.
+Downloaded local models can answer without an internet connection. Model downloads, GitHub update checks, optional cloud providers, and companion connections communicate with their respective services. Chats and settings are stored in the app's local storage; credentials use secure storage where implemented. The local SQLite database should not be described as an independently encrypted database. Review the [privacy policy](https://usebrown.online/privacy) before using optional online features.
 
-`Brown-AI-Mobile.apk` is a live link on usebrown.online, so the alias must always be uploaded.
+## Develop locally
 
----
+Requirements: Node.js and npm compatible with Expo SDK 51, **JDK 17**, an Android SDK with build-tools, and an Android emulator or USB-debugging device. Native dependencies include Llama and ONNX; **Expo Go cannot run this app**.
 
-## 🏗️ Project Architecture
-
-```
-mobile/
-├── App.tsx                     # Main navigation shell & app lifecycle
-├── index.js                    # React Native app entrypoint
-├── app.json                    # Expo application manifest
-├── tsconfig.json               # Strict TypeScript configuration
-├── package.json                # Project dependencies and build scripts
-└── src/
-    ├── components/             # Reusable UI components
-    │   ├── AudioWaveform.tsx   # Real-time voice visualizer
-    │   ├── ChatBubble.tsx      # Markdown bubble with tok/s telemetry
-    │   ├── DrawerSidebar.tsx   # Conversation session switcher & history
-    │   ├── Header.tsx          # Top bar, active model pill, offline badge
-    │   ├── MessageInput.tsx    # Streaming-aware text & speech input
-    │   ├── ModelCard.tsx       # Model specifications, RAM tiers & download meter
-    │   ├── ThinkingIndicator.tsx# Dynamic thinking & execution status pill
-    │   └── UpdatePromptModal.tsx# In-app new release update notification modal
-    ├── screens/                # Core application screens
-    │   ├── ChatScreen.tsx      # Conversational streaming & dynamic reasoning
-    │   ├── ModelStoreScreen.tsx# Visual GGUF model manager
-    │   ├── SettingsScreen.tsx  # Diagnostics, system prompt, temperature & cloud keys
-    │   └── DesktopSyncScreen.tsx# Local Wi-Fi pairing & PIN sync
-    ├── services/               # Engine & background services
-    │   ├── inference/          # LlamaEngine, CloudProviders & prompt formatters
-    │   ├── modelManager/       # Curated GGUF catalog & chunk downloader
-    │   ├── storage/            # Local SQLite database & SecureStore key vault
-    │   ├── sync/               # Local LAN discovery & Desktop sync client
-    │   ├── updater/            # GitHub release update detector
-    │   └── voice/              # Whisper STT & neural voice playback
-    ├── theme/                  # Theme tokens (Obsidian, Cyan & high contrast)
-    └── types/                  # Strict TypeScript contracts (chat, models, sync)
-```
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- **Node.js**: v18 or v20 LTS
-- **npm** or **yarn**
-- **Android Studio & Android SDK (API 30+)** (for local Android emulator and native builds)
-
-### Installation & Development
-```bash
-# Navigate to mobile directory
-cd mobile
-
-# Install dependencies
-npm install
-
-# Run TypeScript typecheck
+```powershell
+npm ci
 npm run typecheck
-
-# Run automated mobile test suite
-node tests/verify-mobile-suite.js
-
-# Start Pixel_9 (or another emulator) in Android Studio, then build and open Brown
+npm test
+npm run test:ui
 npm start
 ```
 
-Brown requires its native Android app: Expo Go cannot load the local speech,
-recorder, account, Llama and ONNX modules. `npm start` (also `npm run android`
-and `npm run start:offline`) builds and installs a debug app for the connected
-emulator's primary architecture, starts Metro with Expo network checks disabled, and
-opens Brown directly. Keep the terminal running for Fast Refresh. The first
-native build still needs internet for any uncached Gradle dependencies.
-The launcher also uses the bundled official SDK 51 configuration schema in
-`scripts/expo-offline` so manifest icons and splash images resolve locally;
-SDK 51 otherwise still requests that schema even with `EXPO_OFFLINE=1`.
+`npm start` builds and installs the debug app, starts Metro with Expo network checks disabled, and opens Brown. The first native build still needs any uncached Gradle dependencies. The launcher selects a single running emulator automatically; choose a phone or another target explicitly when needed:
 
-With multiple emulators/devices, select the target explicitly:
-`npm run android -- --device emulator-5554`. The launcher automatically selects
-the sole running emulator and does not select a USB phone by default.
-Selecting an emulator by its adb ID also excludes its translated ARM ABI from
-the build, avoiding unnecessary compilation of the phone inference variants.
-
-For an already installed debug build, `npm run start:metro` starts only the
-offline local server; open Brown from the emulator's app launcher. Do not use
-Expo Go or an `exp://127.0.0.1:8081` link. A release APK has no live reload
-connection. The `No apps connected` warning means no debug app has connected
-to Metro yet; reload becomes available once Brown has opened successfully.
-
-The launcher reads the SDK from `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or
-`android/local.properties`. Set `JAVA_HOME` to JDK 17 for this project's Gradle
-version. Native debug builds select the device ABI automatically; ARM64 release
-APKs are intended for phones and may crash under emulator ARM translation.
-
----
-
-## 🧪 Testing & Validation
-
-```bash
-# Run unit and integration verification suite (Catalog, Templates, SQLite, Sync, Providers)
-node tests/verify-mobile-suite.js
-
-# Verify strict TypeScript compliance
-npm run typecheck
+```powershell
+npm run android -- --device emulator-5554
+npm run start:metro
 ```
 
----
+The launcher reads `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or `android/local.properties`. Set `JAVA_HOME` to JDK 17. Debug emulator builds select its native ABI; release APKs target ARM64 phones. A release APK contains its JavaScript bundle and does not need Metro.
 
-## 👨‍💻 Developer & Ownership
+## Build and publish a release
 
-- **Lead Architect & Developer**: **Vedant Wankhade** (Full Stack Developer)
-- **Portfolio**: [https://vedantwankhade.netlify.app/](https://vedantwankhade.netlify.app/)
-- **LinkedIn**: [https://www.linkedin.com/in/vedant-wankhade123](https://www.linkedin.com/in/vedant-wankhade123)
-- **GitHub Profile**: [https://github.com/vedantwankhade123](https://github.com/vedantwankhade123)
-- **Email**: `vedantwankhade47@gmail.com`
+Release signing requires the existing production keystore and `android/keystore.properties`. These files are private and must never be committed. The verifier checks the production certificate fingerprint, package ID, version, build number, and ARM64 support.
 
----
+```powershell
+# Prepare the next release: synchronize versions, increment versionCode,
+# run type checking/tests, build, verify signing, and stage dist/ assets.
+npm run release:apk -- --version 1.0.8
 
-## 📄 License & Intellectual Property
+# Also run UI and updater regression checks.
+npm run test:ui
 
-Brown AI Mobile is **Proprietary & Confidential Software**. All Rights Reserved.
+# Rebuild an already prepared version without incrementing its build number.
+npm run release:apk -- --keep-version
+```
 
-- Copyright (c) 2026 Vedant Wankhade.
-- Website: [https://usebrown.online](https://usebrown.online)
-- Official Support & Inquiries: `contact@usebrown.online`
+Before publishing, install the staged APK over the previous release on a real phone. Check launch, retained data, local chat, model/download behavior, and the update screen. Commit the intended source, native modules, version files, tests and `.release-notes-vX.Y.Z.md` together, then push the branch.
 
-## Latest source improvements (5 October 2026)
+```powershell
+npm run publish:apk
+```
 
-Onboarding no longer asks for email or date of birth. Rich answers share desktop cognitive skill guidance, with native chart/diagram rendering and improved table handling. Automated tests and TypeScript checks pass. These source improvements do not imply a newly published APK; use the published release version shown on GitHub for binary downloads.
+The publisher checks matching APK copies and metadata, creates/verifies the version tag, uploads assets to a draft release, validates their uploaded digests, and marks the release as latest only after those checks pass. It refuses to replace an existing public release. Keep both APK names attached; the stable name is used by live website downloads. After publishing, verify the public download and an in-app upgrade from the previous version.
+
+## Project layout
+
+```text
+App.tsx                 App navigation and lifecycle
+android/                Native Android application and signing configuration
+modules/                Local account, download, recorder and speech modules
+src/components/         Chat, history, model, download and update UI
+src/screens/            Chat, Models, Settings and Connect screens
+src/services/inference/ Local inference and optional cloud providers
+src/services/modelManager/ Model catalog, storage and download handling
+src/services/storage/   Database, settings and account lifecycle
+src/services/sync/      Desktop discovery, pairing and synchronization
+src/services/updater/   GitHub update discovery, download cache and installer handoff
+src/services/voice/     Voice components
+scripts/                Development launcher, release and APK verification tools
+tests/                  Behavior, UI, download and updater regressions
+```
+
+## Validation for v1.0.7
+
+TypeScript, mobile behavior tests, UI tests, update discovery/cache regressions, and the signed ARM64 build passed. The staged APK was installed over v1.0.6 on a Samsung Galaxy A35 with the profile and downloaded model retained. The local model completed a chat response; Settings and Software Updates reported v1.0.7. These checks cover the tested device and flows, not every Android device or model.
+
+## Support and ownership
+
+[Website](https://usebrown.online/) · [Documentation](https://usebrown.online/docs) · [Issues](https://github.com/vedantwankhade123/Brown-Mobile/issues) · [Contact](https://usebrown.online/contact)
+
+Created by **Vedant Wankhade**. Copyright © 2026. Proprietary software; see [LICENSE](LICENSE) and [NOTICE](NOTICE).

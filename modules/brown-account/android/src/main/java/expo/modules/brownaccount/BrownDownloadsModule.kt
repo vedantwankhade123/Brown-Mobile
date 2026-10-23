@@ -2,7 +2,10 @@ package expo.modules.brownaccount
 
 import android.app.DownloadManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
@@ -19,6 +22,17 @@ class BrownDownloadsModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("BrownDownloads")
+    AsyncFunction("beginDirectTransfer") { key: String ->
+      val ctx = context()
+      val intent = Intent(ctx, BrownTransferService::class.java).putExtra("key", key)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(intent) else ctx.startService(intent)
+      Unit
+    }
+    AsyncFunction("endDirectTransfer") { key: String ->
+      val ctx = context()
+      ctx.startService(Intent(ctx, BrownTransferService::class.java).setAction("release").putExtra("key", key))
+      Unit
+    }
     AsyncFunction("start") { key: String, url: String, label: String ->
       synchronized(lock) {
         val ctx = context()
@@ -86,14 +100,28 @@ class BrownDownloadsModule : Module() {
       val bytes = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
       val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
       val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+      val waiting = status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_PAUSED
+      val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        (ctx.getSystemService(Context.POWER_SERVICE) as PowerManager).currentThermalStatus else 0
       return mapOf(
         "status" to when (status) {
           DownloadManager.STATUS_SUCCESSFUL -> "complete"
           DownloadManager.STATUS_FAILED -> "error"
           DownloadManager.STATUS_PAUSED -> "waiting"
+          DownloadManager.STATUS_PENDING -> "waiting"
           else -> "downloading"
         },
         "bytes" to bytes, "total" to total, "reason" to reason,
+        "url" to cursor.getString(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)),
+        "thermalStatus" to thermalStatus,
+        "waitingReason" to when {
+          waiting && thermalStatus >= 2 -> "thermal"
+          status == DownloadManager.STATUS_PENDING -> "queued"
+          reason == DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "network"
+          reason == DownloadManager.PAUSED_WAITING_TO_RETRY -> "retry"
+          reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "wifi"
+          else -> "system"
+        },
         "uri" to Uri.fromFile(File(ctx.getExternalFilesDir("BrownDownloads"), filename(key))).toString()
       )
     }
