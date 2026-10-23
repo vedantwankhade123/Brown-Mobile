@@ -54,7 +54,7 @@ The app checks this repository's latest public GitHub Release. Android updates u
 
 ### Data and connectivity
 
-Downloaded local models can answer without an internet connection. Model downloads, GitHub update checks, optional cloud providers, and companion connections communicate with their respective services. Chats and settings are stored in the app's local storage; credentials use secure storage where implemented. The local SQLite database should not be described as an independently encrypted database. Review the [privacy policy](https://usebrown.online/privacy) before using optional online features.
+Downloaded local models can answer without an internet connection. Model downloads, GitHub update checks, optional cloud providers, and companion connections communicate with their respective services. Chats and settings use local SQLite and app storage; credentials use platform secure storage where implemented. Review the [privacy policy](https://usebrown.online/privacy) before using optional online features.
 
 ## Develop locally
 
