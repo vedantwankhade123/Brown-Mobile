@@ -408,7 +408,7 @@ export class LlamaEngine implements ILlamaService {
         const ollamaName =
           this.activeModel.apiModel || this.activeModel.filename.replace('.gguf', '');
         const messages = [{ role: 'system', content: settings.systemPrompt }, ...history.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content }))];
-        const full = await DesktopSyncService.getInstance().chatOllama(ollamaName, messages);
+        const full = await DesktopSyncService.getInstance().chatOllama(ollamaName, messages, requestAbort.signal);
         if (remoteEpoch !== this.generationEpoch) return;
         const words = full.split(/(\s+)/);
         for (const word of words) {
@@ -449,11 +449,13 @@ export class LlamaEngine implements ILlamaService {
       throw new Error('A reply is still being generated. Tap stop, then send again.');
     }
 
+    if(remoteEpoch!==this.generationEpoch||requestAbort.signal.aborted)return;
     const contextTokens = this.contextTokens > 0 ? this.contextTokens : 2048;
-    const replyTokens = Math.max(
+    const defaultReplyTokens = Math.max(
       MIN_REPLY_TOKENS,
       Math.min(MAX_REPLY_TOKENS, Math.floor(contextTokens * REPLY_TOKEN_RATIO))
     );
+    const replyTokens = settings.maxTokens == null ? defaultReplyTokens : Math.max(16, Math.min(defaultReplyTokens, Math.floor(settings.maxTokens)));
     const preparingEpoch = this.generationEpoch;
     const messages = await fitNativeContext(this.llamaContext, buildChatMessages(
       history,

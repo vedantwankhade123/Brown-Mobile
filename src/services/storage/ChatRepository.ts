@@ -46,10 +46,10 @@ export class ChatRepository {
     return row;
   }
 
-  async addMessage(message: Omit<ChatMessage, 'id'>): Promise<ChatMessage> {
+  async addMessage(message: Omit<ChatMessage, 'id'> & {id?: string}): Promise<ChatMessage> {
     const fullMessage: ChatMessage = {
       ...message,
-      id: 'msg_' + Math.random().toString(36).substring(2, 11),
+      id: message.id || 'msg_' + Math.random().toString(36).substring(2, 11),
     };
 
     await this.db.exec(
@@ -96,6 +96,11 @@ export class ChatRepository {
     );
   }
 
+  /** Update only the title, preserving previews/counts and never recreating a deleted chat. */
+  async updateGeneratedTitle(sessionId: string, expectedTitle: string, title: string): Promise<void> {
+    await this.db.exec('UPDATE sessions SET title = ? WHERE id = ? AND title = ?', [title, sessionId, expectedTitle]);
+  }
+
   async upsertMessage(message: ChatMessage): Promise<void> {
     await this.db.exec(
       `INSERT OR REPLACE INTO messages (id, session_id, role, content, timestamp, tokens_per_second, total_tokens, model_id)
@@ -111,6 +116,16 @@ export class ChatRepository {
         message.modelId || '',
       ]
     );
+  }
+
+  /** Stable IDs make checkpoint recovery and retry replace the same response. */
+  async saveReply(message: ChatMessage): Promise<void> {
+    if (!(await this.getSessionById(message.sessionId))) return;
+    await this.upsertMessage(message);
+    const rows = await this.getMessagesForSession(message.sessionId);
+    const latest=rows[rows.length-1];
+    await this.db.exec('UPDATE sessions SET updated_at = ?, last_message_preview = ?, message_count = ? WHERE id = ?',
+      [latest?.timestamp || message.timestamp,(latest?.content || '').slice(0,80).replace(/\n/g,' '),rows.length,message.sessionId]);
   }
 
   async exportAll(): Promise<{ sessions: ChatSession[]; messages: ChatMessage[] }> {

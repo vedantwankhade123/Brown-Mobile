@@ -32,7 +32,10 @@ import { Header } from '../components/Header';
 import { hasHeaderOverlap } from '../utils/headerOverlap';
 import { DrawerSidebar } from '../components/DrawerSidebar';
 import { LlamaEngine } from '../services/inference/LlamaEngine';
+import { SessionTitleService } from '../services/inference/SessionTitleService';
 import { ChatRepository } from '../services/storage/ChatRepository';
+import { PendingReplyStore } from '../services/storage/PendingReplyStore';
+import { chatExecutionStatus } from '../services/inference/ChatExecutionStatus';
 import { ConsentService } from '../services/storage/ConsentService';
 import { ModelDownloader } from '../services/modelManager/Downloader';
 import { fetchAvailableChatModels } from '../services/modelManager/AvailableChatModels';
@@ -156,6 +159,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<ModelMetadata | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const sendLock = useRef(false);
+  const pendingReply = useRef(new PendingReplyStore()).current;
+  const [replyFailure,setReplyFailure]=useState<{sessionId:string;prompt:string;replyId?:string;message:string}|null>(null);
+  const [desktopConnected,setDesktopConnected]=useState(()=>DesktopSyncService.getInstance().getStatus().isConnected);
+  useEffect(()=>DesktopSyncService.getInstance().subscribe(status=>setDesktopConnected(status.isConnected)),[]);
+  const executionStatus=chatExecutionStatus(activeModel,desktopConnected);
   const previewSnapshot = useRef<any>(null);
   const previewActive = useRef(isActive);
   previewActive.current = isActive;
@@ -179,6 +188,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [ttsPaused, setTtsPaused] = useState(false);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const speechRequest = useRef(0);
+  useEffect(() => () => { speechRequest.current++; TextToSpeechService.stop(); }, []);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   useEffect(() => {
     if (isSidebarOpen) chatRepo.getAllSessions().then(setSessions).catch(() => {});
@@ -263,6 +275,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const scrollToEndTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const engine = LlamaEngine.getInstance();
   const chatRepo = useRef(new ChatRepository()).current;
+  const titleService = useMemo(() => new SessionTitleService(engine, chatRepo), [engine, chatRepo]);
+  const replyEpoch = useRef(0);
+  useEffect(() => () => { replyEpoch.current++; titleService.cancel(); engine.stopGeneration(); void pendingReply.flush().catch(()=>{}); }, [titleService]);
+  useEffect(() => {
+    if (!isActive) { titleService.cancel(); }
+  }, [isActive, titleService]);
   const downloader = ModelDownloader.getInstance();
   // The active chat object + whether it has been written to disk yet.
   // Empty chats are kept in memory only and persisted on the first message,
@@ -270,9 +288,19 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const currentSessionRef = useRef<ChatSession | null>(null);
   const sessionSavedRef = useRef<boolean>(false);
   const activeReplyRef = useRef<ChatMessage | null>(null);
+  const activeCheckpointId=useRef<string|null>(null);
+  const requestPrompt=useRef('');
+  const replySaves=useRef<Promise<void>>(Promise.resolve());
+  const persistReply=(message:ChatMessage,checkpointId:string)=>{
+    const saved=replySaves.current.catch(()=>{}).then(async()=>{await chatRepo.saveReply(message);await pendingReply.finish(checkpointId);});
+    replySaves.current=saved;return saved;
+  };
   const streamUpdateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const replyDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearReplyDeadline=()=>{if(replyDeadline.current)clearTimeout(replyDeadline.current);replyDeadline.current=null;};
   const cancelStreamUpdate = () => { if (streamUpdateTimer.current) clearTimeout(streamUpdateTimer.current); streamUpdateTimer.current = null; };
-  useEffect(() => () => { cancelStreamUpdate(); }, []);
+  useEffect(() => () => { cancelStreamUpdate();clearReplyDeadline(); }, []);
+  useEffect(()=>{const listener=AppState.addEventListener('change',state=>{if(state!=='active')void pendingReply.flush().catch(()=>{});});return ()=>listener.remove();},[pendingReply]);
   const requestedModelRef = useRef<ModelMetadata | null>(requestedModel ?? null);
   const modelActivation = useRef<{ id: string; promise: Promise<void> } | null>(null);
   const loadedModelId = useRef<string | null>(null);
@@ -281,6 +309,9 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   /** Single place that swaps the active model: persists the pick and loads the engine. */
   const activateModel = useCallback(
     async (model: ModelMetadata | null, opts?: { silent?: boolean }) => {
+      if(sendLock.current || activeReplyRef.current)handleStopGeneration();
+      replyEpoch.current++;
+      titleService.cancel();
       if (!model) {
         setActiveModel(null);
         return;
@@ -366,7 +397,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const listContentStyle = useMemo(() => styles.listContent, []);
 
   useEffect(() => {
-    initApp();
+    initApp().catch(error=>Alert.alert('Chat storage unavailable',error?.message||'Restart Brown and check device storage.'));
     checkUpdatesOnLaunch();
     return () => {
       if (scrollToEndTimer.current) clearTimeout(scrollToEndTimer.current);
@@ -450,12 +481,22 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
     if (nextModel) await activateModel(nextModel, { silent: true });
 
-    setSessions(await chatRepo.getAllSessions());
-    createNewChat();
+    const interrupted=await pendingReply.read();
+    if(interrupted&&await chatRepo.getSessionById(interrupted.sessionId)){
+      const existing=await chatRepo.getMessagesForSession(interrupted.sessionId);
+      const completed=existing.find(message=>message.id===interrupted.id&&message.timestamp>=interrupted.timestamp);
+      if(!completed&&interrupted.content.trim())await chatRepo.saveReply({...interrupted,role:'assistant',isStreaming:false});
+      await pendingReply.finish(interrupted.requestId||interrupted.id);
+      setSessions(await chatRepo.getAllSessions());await loadSession(interrupted.sessionId);
+      if(!completed)setReplyFailure({sessionId:interrupted.sessionId,prompt:interrupted.prompt,replyId:interrupted.id,message:interrupted.content.trim()?'Reply interrupted. Your partial response was recovered.':'Reply interrupted before any output. Your message is saved.'});
+    }else{if(interrupted)await pendingReply.finish(interrupted.id);setSessions(await chatRepo.getAllSessions());createNewChat();}
   };
 
   const createNewChat = async () => {
-    if (activeReplyRef.current) handleStopGeneration();
+    replyEpoch.current++;
+    titleService.cancel();
+    if (activeReplyRef.current || sendLock.current) handleStopGeneration();
+    setReplyFailure(null);
     const now = Date.now();
     const session: ChatSession = {
       id: 'session_' + Math.random().toString(36).substring(2, 11),
@@ -477,17 +518,25 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   };
 
   const loadSession = async (sessionId: string) => {
-    if (activeReplyRef.current) handleStopGeneration();
+    replyEpoch.current++;
+    titleService.cancel();
+    if (activeReplyRef.current || sendLock.current) handleStopGeneration();
+    setReplyFailure(null);
+    const navigation=replyEpoch.current;
     setCurrentSessionId(sessionId);
     const session =
       sessions.find((s) => s.id === sessionId) || (await chatRepo.getSessionById(sessionId));
+    if(navigation!==replyEpoch.current)return;
     currentSessionRef.current = session || null;
     sessionSavedRef.current = true;
+    await replySaves.current.catch(()=>{});
     const msgs = await chatRepo.getMessagesForSession(sessionId);
-    setMessages(msgs);
+    if(navigation===replyEpoch.current)setMessages(msgs);
   };
 
   const handleDeleteSession = async (sessionId: string) => {
+    replyEpoch.current++;
+    titleService.cancel();
     await chatRepo.deleteSession(sessionId);
     const updated = await chatRepo.getAllSessions();
     setSessions(updated);
@@ -504,21 +553,35 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   const handleRenameSession = async (sessionId: string, title: string) => {
     const session = sessions.find((item) => item.id === sessionId);
     if (!session) return;
-    await chatRepo.upsertSession({ ...session, title, updatedAt: Date.now() });
+    await titleService.lockManualTitle(sessionId);
+    const renamed = { ...session, title, updatedAt: Date.now() };
+    await chatRepo.upsertSession(renamed);
+    if (currentSessionRef.current?.id === sessionId) currentSessionRef.current = renamed;
     setSessions(await chatRepo.getAllSessions());
   };
 
-  const handleSendMessage = async (text: string) => {
-    if (!currentSessionId || isGenerating || modelActivation.current) return;
+  const handleSendMessage = async (text: string, retryId?: string) => {
+    text=text.trim();
+    if (!text || !currentSessionId || sendLock.current || isGenerating || modelActivation.current) return;
     if (!activeModel) {
-      Alert.alert('No model selected', 'Download a GGUF from Model Store, or add a Gemini API key in Settings.');
+      setDraftText(text);
+      Alert.alert('No model selected', 'Choose a downloaded phone model, connect to your desktop, or configure a cloud provider.');
       return;
     }
+    if(chatExecutionStatus(activeModel,desktopConnected).desktop&&!desktopConnected){setDraftText(text);setReplyFailure({sessionId:currentSessionId,prompt:text,message:'Your desktop is unavailable. Reconnect or select a downloaded phone model.'});return;}
+
+    titleService.cancel();
+    const reply = ++replyEpoch.current;
+    sendLock.current=true;setIsGenerating(true);setReplyFailure(null);
+    requestPrompt.current=text;
+    const current=()=>reply===replyEpoch.current;
+    try{
 
     // Persist the chat to history only now that it actually has content,
     // so a fresh empty "New chat" never leaves a stub in History.
     if (!sessionSavedRef.current && currentSessionRef.current) {
       await chatRepo.upsertSession(currentSessionRef.current);
+      if(!current())return;
       sessionSavedRef.current = true;
     }
 
@@ -531,9 +594,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       timestamp: Date.now(),
     };
 
-    const newHistory = [...messages, userMsg];
+    const retryUserIndex=retryId?messages.map(message=>message.role).lastIndexOf('user'):-1;
+    const replay=retryUserIndex>=0&&messages[retryUserIndex].content===text;
+    const newHistory = replay?messages.slice(0,retryUserIndex+1):[...messages, userMsg];
     setMessages(newHistory);
-    await chatRepo.addMessage(userMsg);
+    if(!replay)await chatRepo.addMessage(userMsg);
+    if(!current())return;
 
     // Auto-title the chat from the first meaningful user prompt
     const currentSession = currentSessionRef.current;
@@ -542,12 +608,15 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       if (autoTitle && !isDefaultSessionTitle(autoTitle)) {
         const titled = { ...currentSession, title: autoTitle, updatedAt: Date.now() };
         await chatRepo.upsertSession(titled);
+        if(!current())return;
         currentSessionRef.current = titled;
       }
     }
     setSessions(await chatRepo.getAllSessions());
+    if(!current())return;
 
-    const memoryReply = await AssistantMemory.directive(text).catch(() => 'Could not update saved memory. Please try again.');
+    const memoryReply = replay?null:await AssistantMemory.directive(text).catch(() => 'Could not update saved memory. Please try again.');
+    if(!current())return;
     if (memoryReply) {
       const reply: ChatMessage = { id: 'memory_' + Date.now(), sessionId: currentSessionId, role: 'assistant', content: memoryReply, timestamp: Date.now() };
       setMessages([...newHistory, reply]);
@@ -557,7 +626,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }
 
     // Prepare assistant streaming placeholder — dynamic contextual status (Thinking/Searching/Analyzing → Answering)
-    const assistantMsgId = 'msg_ast_' + Date.now();
+    const assistantMsgId = replay&&retryId?retryId:'msg_ast_' + Date.now();
     const initialStatus = getContextualThinkingLabel(text);
     const streamingPlaceholder: ChatMessage = {
       id: assistantMsgId,
@@ -571,8 +640,12 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     };
 
     activeReplyRef.current = streamingPlaceholder;
+    const checkpointId=assistantMsgId+':'+reply;activeCheckpointId.current=checkpointId;
+    await pendingReply.begin({id:assistantMsgId,requestId:checkpointId,sessionId:currentSessionId,prompt:text,content:'',modelId:activeModel.id,timestamp:streamingPlaceholder.timestamp});
+    if(!current())return;
     setMessages([...newHistory, streamingPlaceholder]);
     setIsGenerating(true);
+    replyDeadline.current=setTimeout(()=>{if(!current())return;handleStopGeneration();setReplyFailure({sessionId:currentSessionId,prompt:text,replyId:assistantMsgId,message:'This reply reached its time limit. Your message and any partial response are saved. Retry or choose a smaller model.'});},360000);
 
     setTimeout(() => {
       scheduleScrollToEnd(true);
@@ -580,6 +653,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
     // Promote to Formulating response / Answering if still waiting for the first token
     const promoteTimer = setTimeout(() => {
+      if(!current())return;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMsgId && m.isStreaming && !String(m.content || '').trim()
@@ -591,6 +665,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 
     // Secondary progress indication if model load or context warm-up is taking longer
     const secondPromoteTimer = setTimeout(() => {
+      if(!current())return;
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantMsgId && m.isStreaming && !String(m.content || '').trim()
@@ -601,6 +676,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     }, GENERATING_PROMOTE_MS);
 
     try {
+      let savedReply: Promise<void> | undefined;
       let streamedContent = '';
       let receivedFirstToken = false;
 
@@ -616,6 +692,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           useHardwareAcceleration: true,
         },
         (token) => {
+          if(!current()||activeReplyRef.current?.id!==assistantMsgId)return;
           if (!receivedFirstToken) {
             receivedFirstToken = true;
             clearTimeout(promoteTimer);
@@ -623,19 +700,22 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           }
           streamedContent += token;
           activeReplyRef.current = { ...streamingPlaceholder, content: streamedContent };
+          pendingReply.update(checkpointId,streamedContent);
           // Native tokens may arrive faster than a phone can redraw Markdown.
           if (!streamUpdateTimer.current) streamUpdateTimer.current = setTimeout(() => {
             streamUpdateTimer.current = null;
             const reply = activeReplyRef.current;
-            if (reply?.id === assistantMsgId) setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: reply.content, statusLabel: undefined } : m));
+            if (current()&&reply?.id === assistantMsgId) setMessages(prev => prev.map(m => m.id === assistantMsgId ? { ...m, content: reply.content, statusLabel: undefined } : m));
           }, 50);
         },
-        async (fullText, stats) => {
+        (fullText, stats) => {
+          if(!current()||activeReplyRef.current?.id!==assistantMsgId)return;
+          clearReplyDeadline();
           cancelStreamUpdate();
           activeReplyRef.current = null;
+          activeCheckpointId.current=null;
           clearTimeout(promoteTimer);
           clearTimeout(secondPromoteTimer);
-          setIsGenerating(false);
           alertReplyReady(text);
           const finalMsg: ChatMessage = {
             id: assistantMsgId,
@@ -652,39 +732,41 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantMsgId ? finalMsg : m))
           );
-          await chatRepo.addMessage(finalMsg);
-
-          // Refresh sessions list to update preview
-          const updatedSessions = await chatRepo.getAllSessions();
-          setSessions(updatedSessions);
+          savedReply = (async () => {
+            await persistReply(finalMsg,checkpointId);
+            setSessions(await chatRepo.getAllSessions());
+          })();
         }
       );
+      if (savedReply) {
+        await savedReply;
+        if (reply === replyEpoch.current) {
+          void titleService.regenerate(currentSessionId).then(async titled => {
+            if (!titled) return;
+            if (currentSessionRef.current?.id === titled.id) currentSessionRef.current = titled;
+            setSessions(await chatRepo.getAllSessions());
+          }).catch(() => {});
+        }
+      }
     } catch (err: any) {
+      if(!current())return;
+      clearReplyDeadline();
+      const partial=activeReplyRef.current;
       cancelStreamUpdate();
       activeReplyRef.current = null;
+      activeCheckpointId.current=null;
       clearTimeout(promoteTimer);
       clearTimeout(secondPromoteTimer);
-      setIsGenerating(false);
       const friendlyMsg = err?.message || 'Failed to complete generation';
       const isLoadFailure =
         /could not be loaded|not found on device|llama\.rn|native module|rebuild/i.test(
           friendlyMsg
         );
-      // Don't leave engine errors as fake assistant chat content
-      setMessages((prev) =>
-        isLoadFailure
-          ? prev.filter((m) => m.id !== assistantMsgId)
-          : prev.map((m) =>
-              m.id === assistantMsgId
-                ? {
-                    ...m,
-                    content: `Couldn’t finish that reply. ${friendlyMsg}`,
-                    isStreaming: false,
-                    statusLabel: undefined,
-                  }
-                : m
-            )
-      );
+      if(partial?.content.trim())await persistReply({...partial,isStreaming:false,statusLabel:undefined},checkpointId);
+      else await pendingReply.finish(checkpointId);
+      if(!current())return;
+      setMessages(prev=>prev.flatMap(message=>message.id!==assistantMsgId?[message]:partial?.content.trim()?[{...partial,isStreaming:false,statusLabel:undefined}]:[]));
+      setReplyFailure({sessionId:currentSessionId,prompt:text,replyId:assistantMsgId,message:friendlyMsg});
       if (isLoadFailure) {
         Alert.alert(
           'On-Device Model Notice',
@@ -697,35 +779,43 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
             },
           ]
         );
-      } else {
-        Alert.alert('Inference Notice', friendlyMsg);
       }
     }
+    }catch(error:any){if(current()){cancelStreamUpdate();activeReplyRef.current=null;setDraftText(text);setReplyFailure({sessionId:currentSessionId,prompt:text,message:error?.message||'Could not save your message. Please try again.'});}}
+    finally{if(current()){sendLock.current=false;setIsGenerating(false);}}
   };
 
   const handleStopGeneration = () => {
+    replyEpoch.current++;
+    titleService.cancel();
     cancelStreamUpdate();
     engine.stopGeneration();
+    clearReplyDeadline();
+    sendLock.current=false;
     const stoppedReply = activeReplyRef.current;
+    const checkpointId=activeCheckpointId.current;
     activeReplyRef.current = null;
+    activeCheckpointId.current=null;
     if (stoppedReply?.content.trim()) {
-      chatRepo.addMessage({ ...stoppedReply, isStreaming: false, statusLabel: undefined })
+      persistReply({ ...stoppedReply, isStreaming: false, statusLabel: undefined },checkpointId||stoppedReply.id)
         .then(() => chatRepo.getAllSessions()).then(setSessions)
         .catch((error) => console.warn('[Chat] Could not save stopped reply', error));
     }
+    else if(stoppedReply)void pendingReply.finish(checkpointId||stoppedReply.id).catch(()=>{});
     setIsGenerating(false);
     setMessages((prev) =>
-      prev.map((m) =>
+      prev.flatMap((m) =>
         m.isStreaming
-          ? {
+          ? (stoppedReply?.id===m.id?stoppedReply.content:m.content)?.trim()?[{
               ...m,
               isStreaming: false,
               statusLabel: undefined,
-              content: (stoppedReply?.id === m.id ? stoppedReply.content : m.content)?.trim() || 'Generation stopped.',
-            }
-          : m
+              content: (stoppedReply?.id === m.id ? stoppedReply.content : m.content),
+            }]:[]
+          : [m]
       )
     );
+    if(stoppedReply)setReplyFailure({sessionId:stoppedReply.sessionId,prompt:requestPrompt.current,replyId:stoppedReply.id,message:stoppedReply.content.trim()?'Stopped. Your partial response is kept.':'Stopped before any output. You can retry this message.'});
   };
 
   const [voiceInsertText, setVoiceInsertText] = useState<string | null>(null);
@@ -803,8 +893,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
     return true;
   });
   useBackLayer(Boolean(speakingMessageId), () => {
+    speechRequest.current++;
     TextToSpeechService.stop();
     setSpeakingMessageId(null);
+    setTtsLoading(false);
     setTtsPaused(false);
     return true;
   });
@@ -818,34 +910,30 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
   });
 
   const handleSpeakText = useCallback(async (messageId: string, text: string) => {
-    const isThisMessage = speakingMessageId === messageId;
-
-    // While speaking: pause button must STOP audio immediately (Android expo-speech
-    // pause is unreliable; treat pause as hard stop).
-    if (isThisMessage && !ttsPaused) {
-      TextToSpeechService.stop();
-      setSpeakingMessageId(null);
-      setTtsPaused(false);
-      return;
-    }
-
-    if (isThisMessage && ttsPaused) {
-      TextToSpeechService.stop();
-      setSpeakingMessageId(null);
-      setTtsPaused(false);
-      return;
-    }
-
+    const request = ++speechRequest.current;
     TextToSpeechService.stop();
+    if (speakingMessageId === messageId) {
+      setSpeakingMessageId(null);
+      setTtsLoading(false);
+      setTtsPaused(false);
+      return;
+    }
     setSpeakingMessageId(messageId);
+    setTtsLoading(true);
     setTtsPaused(false);
     try {
       await TextToSpeechService.speak(text, () => {
+        if (request !== speechRequest.current) return;
         setSpeakingMessageId(null);
+        setTtsLoading(false);
         setTtsPaused(false);
+      }, status => {
+        if (request === speechRequest.current) setTtsLoading(status === 'loading');
       });
     } catch (err) {
+      if (request !== speechRequest.current) return;
       setSpeakingMessageId(null);
+      setTtsLoading(false);
       setTtsPaused(false);
       if (err instanceof KokoroNotInstalledError) {
         promptKokoroDownload(messageId, text);
@@ -853,7 +941,7 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         Alert.alert('Speech Error', (err as any)?.message || 'Unable to speak this message.');
       }
     }
-  }, [speakingMessageId, ttsPaused]);
+  }, [speakingMessageId]);
 
   const handleCopy = useCallback(async (text: string) => {
     const copied = await copyTextToClipboard(text);
@@ -869,9 +957,10 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
         onSpeak={handleSpeakText}
         isSpeaking={speakingMessageId === item.id && isSpeaking}
         isPaused={speakingMessageId === item.id && ttsPaused}
+        isLoadingSpeech={speakingMessageId === item.id && ttsLoading}
       />
     ),
-    [handleCopy, handleSpeakText, speakingMessageId, isSpeaking, ttsPaused]
+    [handleCopy, handleSpeakText, speakingMessageId, isSpeaking, ttsPaused, ttsLoading]
   );
 
   return (
@@ -985,6 +1074,18 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
       </View>
 
       {/* Input Field & Voice Controls */}
+      <Pressable accessibilityRole="button" accessibilityLabel={executionStatus.label+'. '+executionStatus.detail}
+        onPress={()=>executionStatus.desktop?onOpenDesktopSync():Alert.alert(executionStatus.label,executionStatus.detail)}
+        style={styles.executionStatus}>
+        <View style={[styles.executionDot,{backgroundColor:executionStatus.desktop&&!desktopConnected?'#f5b75c':'#78b4ff'}]}/>
+        <Text style={styles.executionLabel}>{executionStatus.label}</Text>
+      </Pressable>
+      {replyFailure?.sessionId===currentSessionId&&<View style={styles.replyNotice} accessibilityLiveRegion="polite">
+        <Text style={styles.replyNoticeText} numberOfLines={3}>{replyFailure.message}</Text>
+        {replyFailure.replyId&&<Pressable accessibilityRole="button" accessibilityLabel="Retry interrupted reply" disabled={isGenerating||isModelLoading}
+          onPress={()=>handleSendMessage(replyFailure.prompt,replyFailure.replyId)} style={styles.replyRetry}><Text style={styles.replyRetryText}>Retry</Text></Pressable>}
+        <Pressable accessibilityRole="button" accessibilityLabel="Dismiss reply notice" onPress={()=>setReplyFailure(null)} hitSlop={8} style={styles.replyDismiss}><Text style={{color:'#fff',fontSize:22}}>×</Text></Pressable>
+      </View>}
       {isModelLoading && <Text accessibilityLiveRegion="polite" style={{ color: '#ffffff', fontSize: 12, textAlign: 'center', paddingVertical: 6 }}>Loading model…</Text>}
       <MessageInput
         onSendMessage={handleSendMessage}
@@ -1046,6 +1147,14 @@ export const ChatScreen: React.FC<ChatScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
+  executionStatus:{flexDirection:'row',alignItems:'center',alignSelf:'center',gap:6,paddingHorizontal:12,paddingVertical:7,minHeight:32},
+  executionDot:{width:6,height:6,borderRadius:3},
+  executionLabel:{color:'#c5c7ce',fontSize:11,fontFamily:'Outfit_400Regular'},
+  replyNotice:{flexDirection:'row',alignItems:'center',gap:10,marginHorizontal:16,marginBottom:6,paddingHorizontal:12,paddingVertical:10,backgroundColor:'#242528',borderRadius:14},
+  replyNoticeText:{flex:1,color:'#fff',fontSize:13,fontFamily:'Outfit_400Regular'},
+  replyRetry:{paddingHorizontal:13,paddingVertical:10,borderRadius:18,backgroundColor:'#287cff',minHeight:40,justifyContent:'center'},
+  replyRetryText:{color:'#fff',fontSize:13,fontFamily:'Outfit_500Medium'},
+  replyDismiss:{minWidth:36,minHeight:40,alignItems:'center',justifyContent:'center'},
   container: {
     flex: 1,
     backgroundColor: '#000000',

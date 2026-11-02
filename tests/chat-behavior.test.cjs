@@ -142,6 +142,18 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   assert(engineModule.buildChatMessages(priorPlan, 'Be concise', 1100)[0].content.includes('stage Aster first'));
   console.log('PASS: Older relevant context survives trimming and real-token fitting reserves output space.');
   const markdown = load('../src/components/MarkdownRenderer.tsx', {'react':React,'react-native':rn,'../theme/colors':{colors:{}},'../theme/typography':{typography:{fontFamily:{mono:'mono'}}},'./Icons':{},'./AnswerVisual':visuals});
+  const email = 'Subject: Project update\n\nDear team,\n' + 'Here is the latest project update. '.repeat(30);
+  function hasHorizontalScroll(node) {
+    if (Array.isArray(node)) return node.some(hasHorizontalScroll);
+    return !!node && typeof node === 'object' && ((node.type === 'Scroll' && node.props.horizontal) || hasHorizontalScroll(node.children));
+  }
+  for (const language of ['', 'text', 'plaintext', 'email', 'markdown']) {
+    for (const closing of ['', '\n```']) {
+      assert(!hasHorizontalScroll(markdown.MarkdownRenderer({content:'```'+language+'\n'+email+closing})), language);
+    }
+  }
+  assert(hasHorizontalScroll(markdown.MarkdownRenderer({content:'```js\nconst x = 1;\n```'})));
+  console.log('PASS: Long email fences wrap during streaming and after completion; programming code retains horizontal scrolling.');
   assert.deepStrictEqual(markdown.splitTableRow('| A \\| B | `x|y` | C |'), ['A | B', '`x|y`', 'C']);
   const fencedTable = '```markdown\n| Name | Value |\n| --- | --- |\n| A | B |\n```';
   assert(!markdown.unwrapFencedTables(fencedTable).includes('```'));
@@ -191,6 +203,18 @@ const engineModule = load('../src/services/inference/LlamaEngine.ts', {
   assert.strictEqual((await syncRepo.getMessagesForSession(imported.id)).length,1);
   await syncRepo.importBundle({sessions:[{...imported,syncOrigin:'both'}]});
   assert.strictEqual((await syncRepo.getSessionById(imported.id)).syncOrigin,'both');
+  const beforeTitle = await syncRepo.getSessionById(imported.id);
+  await syncRepo.updateGeneratedTitle(imported.id, 'stale title', 'Should not apply');
+  assert.strictEqual((await syncRepo.getSessionById(imported.id)).title, beforeTitle.title);
+  await syncRepo.updateGeneratedTitle(imported.id, beforeTitle.title, 'AI Generated Title');
+  const afterTitle = await syncRepo.getSessionById(imported.id);
+  assert.strictEqual(afterTitle.title, 'AI Generated Title');
+  assert.strictEqual(afterTitle.messageCount, beforeTitle.messageCount);
+  assert.strictEqual(afterTitle.updatedAt, beforeTitle.updatedAt);
+  await syncRepo.deleteSession(imported.id);
+  await syncRepo.updateGeneratedTitle(imported.id, 'AI Generated Title', 'Must not resurrect');
+  assert.strictEqual(await syncRepo.getSessionById(imported.id), null);
+  console.log('PASS: Generated titles preserve metadata, reject stale titles, and never recreate deleted chats.');
   console.log('PASS: Chat imports preserve origin labels and repeated merges do not duplicate messages.');
   console.log('PASS: Backup roundtrip deduplicates, preserves memory toggle, and rejects malformed/oversized files before mutation.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

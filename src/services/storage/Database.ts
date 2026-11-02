@@ -11,6 +11,7 @@ export class AppDatabase implements IDatabaseService {
   private static instance: AppDatabase;
   private db: any = null;
   private isInitialized = false;
+  private allowMemoryFallback = true;
   private memoryStore: { [table: string]: any[] } = {
     sessions: [],
     messages: [],
@@ -33,17 +34,20 @@ export class AppDatabase implements IDatabaseService {
 
     try {
       const { Platform } = require('react-native');
+      this.allowMemoryFallback=Platform.OS!=='android'&&Platform.OS!=='ios';
       if (Platform.OS !== 'web') {
         const SQLite = require('expo-sqlite');
         if (SQLite && (SQLite.openDatabaseSync || SQLite.openDatabaseAsync)) {
           this.db = SQLite.openDatabaseSync ? SQLite.openDatabaseSync('ultron.db') : await SQLite.openDatabaseAsync('ultron.db');
         }
       }
-    } catch {
+    } catch (error) {
+      if(!this.allowMemoryFallback)throw new Error('Local chat storage could not be opened. Restart Brown and check available device storage.');
       // In-memory mock driver
       this.db = null;
     }
 
+    if(!this.db&&!this.allowMemoryFallback)throw new Error('Local chat storage is unavailable. Restart Brown before sending messages.');
     await this.runMigrations();
     this.isInitialized = true;
   }
@@ -118,6 +122,7 @@ export class AppDatabase implements IDatabaseService {
         }
       } catch (err) {
         console.warn('SQLite migration error:', err);
+        if(!this.allowMemoryFallback)throw err;
       }
     }
   }
@@ -135,6 +140,7 @@ export class AppDatabase implements IDatabaseService {
         }
       } catch (err) {
         console.warn('DB Exec error:', err);
+        if(!this.allowMemoryFallback)throw err;
       }
     }
 
@@ -155,6 +161,7 @@ export class AppDatabase implements IDatabaseService {
         }
       } catch (err) {
         console.warn('DB getAll error:', err);
+        if(!this.allowMemoryFallback)throw err;
       }
     }
 
@@ -214,6 +221,13 @@ export class AppDatabase implements IDatabaseService {
         device_platform: params[9],
         payload_json: params[10],
       });
+    } else if (lower.includes('update sessions set updated_at =')) {
+      const session=this.memoryStore.sessions.find(s=>s.id===params[3]);
+      if(session){session.updated_at=params[0];session.last_message_preview=params[1];session.message_count=params[2];}
+    } else if (lower.includes('update sessions set title =')) {
+      const session = this.memoryStore.sessions.find(s => s.id === params[1] && s.title === params[2]);
+      if (!session) return { changes: 0 };
+      session.title = params[0];
     } else if (lower.includes('delete from messages where session_id =')) {
       this.memoryStore.messages = this.memoryStore.messages.filter((m) => m.session_id !== params[0]);
     } else if (lower.includes('delete from sessions where id =')) {

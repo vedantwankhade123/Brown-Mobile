@@ -22,8 +22,11 @@ const engine = {
   getLastNativeError: () => 'Invalid GGUF',
 };
 const moduleValue = { exports: {} };
-new Function('module', 'modelActivation', 'loadedModelId', 'setActiveModel', 'saveSelectedModel', 'setIsModelLoading', 'engine', 'Alert', code)(
+let titleCancellations = 0;
+new Function('module', 'modelActivation', 'loadedModelId', 'setActiveModel', 'saveSelectedModel', 'setIsModelLoading', 'engine', 'Alert', 'replyEpoch', 'titleService','sendLock','activeReplyRef','handleStopGeneration', code)(
   moduleValue, modelActivation, loadedModelId, model => { selected = model; }, async () => {}, value => { loading = value; }, engine, { alert: (...args) => alerts.push(args) },
+  { current: 0 }, { cancel: () => titleCancellations++ },
+  {current:false},{current:null},()=>{},
 );
 const activate = moduleValue.exports;
 const tick = () => new Promise(setImmediate);
@@ -56,5 +59,6 @@ const tick = () => new Promise(setImmediate);
   assert.equal(selected, null);
   assert.equal(loading, false);
   assert.equal(alerts.length, 1, 'explicit loading failures remain visible');
+  assert(titleCancellations > 0, 'model switches cancel background title generation');
   console.log('PASS: duplicate model loads coalesce, loaded contexts are reused, switches serialize, and stale failures do not disrupt chat');
 })().catch(error => { console.error(error); process.exitCode = 1; });

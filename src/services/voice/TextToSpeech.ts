@@ -5,9 +5,9 @@ import {
   KokoroVoiceId,
   isKokoroVoiceInstalled,
 } from './KokoroTtsService';
-import { synthesizeKokoroOnnx, isKokoroOnnxRuntimeReady } from './KokoroOnnxEngine';
+import { streamKokoroOnnx, isKokoroOnnxRuntimeReady } from './KokoroOnnxEngine';
 
-export type TtsStatus = 'idle' | 'speaking' | 'paused';
+export type TtsStatus = 'idle' | 'loading' | 'speaking' | 'paused';
 
 export class KokoroNotInstalledError extends Error {
   constructor() {
@@ -21,7 +21,7 @@ function stripForSpeech(text: string): string {
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]+`/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[[^\]]*\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[#>*_~]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -39,6 +39,17 @@ export class TextToSpeechService {
   private static rate = 1.0;
   private static activeSound: any = null;
   private static speakGeneration = 0;
+  private static cancelPlayback?: () => void;
+  private static onStatus?: (status: TtsStatus) => void;
+
+  private static updateStatus(status: TtsStatus): void {
+    this.status = status;
+    this.onStatus?.(status);
+  }
+
+  private static async deleteAudio(uri: string): Promise<void> {
+    try { await require('expo-file-system').deleteAsync(uri, { idempotent: true }); } catch {}
+  }
 
   static setRate(rate: number): void {
     this.rate = Math.min(1.6, Math.max(0.7, rate));
@@ -63,105 +74,108 @@ export class TextToSpeechService {
     } catch {}
   }
 
-  /**
-   * Synthesizes `cleaned` with `voiceId` through Kokoro ONNX and plays it.
-   * Shared by `speak` (active voice) and `previewVoice` (explicit voice).
-   */
   private static async synthesizeAndPlay(
     cleaned: string,
-    voiceId: any,
-    generation: number,
-    onDone?: () => void
+    voiceId: KokoroVoiceId,
+    generation: number
   ): Promise<void> {
     if (!(await isKokoroOnnxRuntimeReady())) {
-      throw new Error(
-        'Kokoro voice engine is not available in this build. Reinstall the Brown APK.'
-      );
+      throw new Error('Kokoro voice engine is not available in this build. Reinstall the Brown APK.');
     }
-    const result = await synthesizeKokoroOnnx(cleaned, voiceId, this.rate);
     if (generation !== this.speakGeneration) return;
-    if (!result?.uri) {
-      throw new Error('Kokoro ONNX returned no audio.');
-    }
     const { Audio } = require('expo-av');
-    await Audio.setAudioModeAsync?.({
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-    });
-    const { sound } = await Audio.Sound.createAsync(
-      { uri: result.uri },
-      { shouldPlay: true, rate: 1.0 }
-    );
-    if (generation !== this.speakGeneration) {
-      try {
-        await sound.stopAsync();
-        await sound.unloadAsync();
-      } catch {}
-      return;
-    }
-    this.activeSound = sound;
-    sound.setOnPlaybackStatusUpdate((status: any) => {
-      if (!status?.isLoaded) return;
-      const finished =
-        status.didJustFinish ||
-        (status.isPlaying === false &&
-          status.durationMillis != null &&
-          status.positionMillis >= status.durationMillis - 32);
-      if (finished && this.activeSound === sound) {
-        this.activeSound = null;
-        this.status = 'idle';
-        this.fullText = '';
-        const done = this.onDone;
-        this.onDone = undefined;
-        done?.();
-        sound.unloadAsync?.().catch(() => {});
+    await Audio.setAudioModeAsync?.({ playsInSilentModeIOS: true, staysActiveInBackground: false });
+    const chunks = streamKokoroOnnx(cleaned, voiceId, this.rate, () => generation !== this.speakGeneration);
+    // Always handle prefetch failures immediately, including when playback is cancelled.
+    const next = () => chunks.next().then(value => ({ value, error: null as unknown }), error => ({ value: null, error }));
+    let pending = next();
+    try {
+      while (generation === this.speakGeneration) {
+        const result = await pending;
+        if (result.error) throw result.error;
+        if (!result.value || result.value.done) break;
+        const { uri } = result.value.value;
+        if (generation !== this.speakGeneration) { await this.deleteAudio(uri); break; }
+        let sound: any;
+        let finish: () => void = () => {};
+        let playbackError: Error | undefined;
+        const finished = new Promise<void>(resolve => { finish = resolve; });
+        this.cancelPlayback = finish;
+        try {
+          const created = await Audio.Sound.createAsync(
+            { uri }, { shouldPlay: false, rate: 1.0, progressUpdateIntervalMillis: 100 }
+          );
+          sound = created.sound;
+          if (generation !== this.speakGeneration) break;
+          this.activeSound = sound;
+          sound.setOnPlaybackStatusUpdate((status: any) => {
+            if (generation !== this.speakGeneration) return;
+            if (status.error) { playbackError = new Error(status.error); finish(); return; }
+            if (!status.isLoaded) return;
+            this.updateStatus(status.isPlaying ? 'speaking' : status.isBuffering ? 'loading' : this.status);
+            if (status.didJustFinish) finish();
+          });
+          await sound.playAsync();
+          // Generate only one chunk ahead, bounding memory and starting audio sooner.
+          pending = next();
+          await finished;
+          if (playbackError) throw playbackError;
+        } finally {
+          if (this.activeSound === sound) { this.activeSound = null; this.cancelPlayback = undefined; }
+          if (sound) {
+            sound.setOnPlaybackStatusUpdate(null);
+            try { await sound.stopAsync(); await sound.unloadAsync(); } catch {}
+          }
+          await this.deleteAudio(uri);
+        }
+        if (generation === this.speakGeneration) this.updateStatus('loading');
       }
-    });
+    } finally {
+      // A cancelled native inference may finish later; discard its file without playing it.
+      const leftover = await pending;
+      if (leftover.value && !leftover.value.done) await this.deleteAudio(leftover.value.value.uri);
+      await chunks.return(undefined);
+    }
   }
 
-  static async speak(text: string, onDone?: () => void): Promise<void> {
-    await this.ensureKokoroReady();
-    const cleaned = stripForSpeech(text);
-    if (!cleaned) {
-      onDone?.();
-      return;
-    }
-
-    this.stopInternal(false);
+  static async speak(text: string, onDone?: () => void, onStatus?: (status: TtsStatus) => void): Promise<void> {
+    this.stop();
     const generation = ++this.speakGeneration;
-    this.fullText = cleaned;
+    this.onStatus = onStatus;
     this.onDone = onDone;
-    this.paused = false;
-    this.status = 'speaking';
-
-    const voiceId = await getActiveKokoroVoice();
+    this.fullText = stripForSpeech(text);
+    this.updateStatus('loading');
     try {
-      await this.synthesizeAndPlay(cleaned, voiceId, generation, onDone);
-    } catch (err) {
-      this.status = 'idle';
+      const voiceId = await getActiveKokoroVoice();
+      if (generation !== this.speakGeneration) return;
+      await this.ensureKokoroReady(voiceId);
+      if (generation !== this.speakGeneration) return;
+      if (this.fullText) await this.synthesizeAndPlay(this.fullText, voiceId, generation);
+      if (generation !== this.speakGeneration) return;
+      this.updateStatus('idle');
       this.fullText = '';
       this.onDone = undefined;
+      this.onStatus = undefined;
+      onDone?.();
+    } catch (err) {
+      if (generation !== this.speakGeneration) return;
+      this.stop();
       throw err instanceof Error ? err : new Error(String(err));
     }
   }
 
-  /**
-   * Plays a short preview using a specific (possibly inactive) voice.
-   * Does not touch the active-speak text/callback.
-   */
   static async previewVoice(voiceId: KokoroVoiceId, text?: string): Promise<void> {
-    await this.ensureKokoroReady(voiceId);
-    const cleaned =
-      stripForSpeech(text || '') || 'Hi, this is how I sound. Nice to meet you.';
-    this.stopInternal(false);
+    this.stop();
     const generation = ++this.speakGeneration;
-    this.status = 'speaking';
+    this.updateStatus('loading');
     try {
-      await this.synthesizeAndPlay(cleaned, voiceId, generation, () => {
-        this.status = 'idle';
-      });
+      await this.ensureKokoroReady(voiceId);
+      if (generation !== this.speakGeneration) return;
+      await this.synthesizeAndPlay(stripForSpeech(text || '') || 'Hi, this is how I sound. Nice to meet you.', voiceId, generation);
+      if (generation === this.speakGeneration) this.updateStatus('idle');
     } catch (err) {
-      this.status = 'idle';
+      if (generation !== this.speakGeneration) return;
+      this.stop();
       throw err instanceof Error ? err : new Error(String(err));
     }
   }
@@ -181,6 +195,9 @@ export class TextToSpeechService {
 
   private static stopInternal(clearDone: boolean): void {
     this.speakGeneration += 1;
+    this.cancelPlayback?.();
+    this.cancelPlayback = undefined;
+    this.onStatus = undefined;
     void this.unloadActiveSound();
     this.status = 'idle';
     this.paused = false;

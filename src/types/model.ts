@@ -53,6 +53,8 @@ export interface ModelDownloadState {
 }
 
 export interface InferenceSettings {
+  /** Optional smaller output budget for background tasks such as chat titles. */
+  maxTokens?: number;
   temperature: number;
   topP: number;
   contextSize: number;

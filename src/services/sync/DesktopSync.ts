@@ -718,7 +718,7 @@ export class DesktopSyncService {
     }
   }
 
-  async chatOllama(model: string, messages: Array<{ role: string; content: string }>): Promise<string> {
+  async chatOllama(model: string, messages: Array<{ role: string; content: string }>, signal?: AbortSignal): Promise<string> {
     const desktop = this.status.activeDesktop;
     const token = this.status.authToken;
     if (!desktop || !token) {
@@ -727,6 +727,7 @@ export class DesktopSyncService {
     let data: any;
     try {
       data = await this.authorizedJson('/ollama/chat', {
+        signal,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

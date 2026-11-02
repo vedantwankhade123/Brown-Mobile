@@ -64,7 +64,9 @@ export class CompanionTransport {
     throw new Error('Desktop is offline or unreachable. Keep Brown open; remote access also needs a configured direct address or running relay.');
   }
   async request(desktop: DesktopInstance, secret: string, path: string, init: RequestInit = {}, bootstrap = false): Promise<{ status: number; body: any }> {
+    if(init.signal?.aborted)throw new Error('Request cancelled');
     if (!this.route) await this.select(desktop, secret, bootstrap);
+    if(init.signal?.aborted)throw new Error('Request cancelled');
     try { return await this.exchange(desktop, secret, this.route!, path, init, 180000, bootstrap); }
     catch (error) { this.reset(); throw error; }
   }
@@ -79,14 +81,17 @@ export class CompanionTransport {
         const socket = new WebSocket(route.url);
         let settled = false;
         const timer = setTimeout(() => finish(new Error('Relay request timed out')), timeout);
-        const finish = (error?: Error, value?: any) => { if (settled) return; settled = true; clearTimeout(timer); socket.close(); error ? reject(error) : resolve(value); };
-        socket.onopen = () => socket.send(JSON.stringify({ type: 'request', room: desktop.companion?.relayRoom, envelope }));
+        const cancel=()=>finish(new Error('Request cancelled'));
+        const finish = (error?: Error, value?: any) => { if (settled) return; settled = true; clearTimeout(timer);init.signal?.removeEventListener('abort',cancel); socket.close(); error ? reject(error) : resolve(value); };
+        init.signal?.addEventListener('abort',cancel,{once:true});if(init.signal?.aborted)cancel();
+        socket.onopen = () => {if(!settled)socket.send(JSON.stringify({ type: 'request', room: desktop.companion?.relayRoom, envelope }));};
         socket.onmessage = event => { try { const message = JSON.parse(String(event.data)); if (message.type === 'response') finish(undefined, message.envelope); else finish(new Error('Desktop unavailable through relay')); } catch { finish(new Error('Invalid relay response')); } };
         socket.onerror = () => finish(new Error('Relay connection failed'));
         socket.onclose = () => finish(new Error('Relay connection interrupted'));
       });
     } else {
       const controller = new AbortController();
+      const cancel=()=>controller.abort();init.signal?.addEventListener('abort',cancel,{once:true});if(init.signal?.aborted)cancel();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
         const response = await fetch(`${route.url}/companion`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(envelope), signal: controller.signal });
@@ -97,7 +102,7 @@ export class CompanionTransport {
           throw error;
         }
         received = await response.json();
-      } finally { clearTimeout(timer); }
+      } finally { clearTimeout(timer);init.signal?.removeEventListener('abort',cancel); }
     }
     return JSON.parse(await bridge.open(secret, keyId, envelope.id, JSON.stringify(received)));
   }

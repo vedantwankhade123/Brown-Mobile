@@ -1,6 +1,6 @@
 import { BrownButton as TouchableOpacity } from './ButtonSurface';
 import React, { useEffect, useRef, useState, memo } from 'react';
-import { View, StyleSheet,  Animated, Text } from 'react-native';
+import { View, StyleSheet, Animated, Text, ActivityIndicator } from 'react-native';
 import { ChatMessage } from '../types/chat';
 import { spacing } from '../theme/typography';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -13,6 +13,7 @@ interface ChatBubbleProps {
   onSpeak?: (messageId: string, text: string) => void;
   isSpeaking?: boolean;
   isPaused?: boolean;
+  isLoadingSpeech?: boolean;
 }
 
 const TYPE_INTERVAL_MS = 32;
@@ -25,6 +26,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
   onSpeak,
   isSpeaking = false,
   isPaused = false,
+  isLoadingSpeech = false,
 }) => {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
@@ -241,9 +243,12 @@ export const ChatBubble: React.FC<ChatBubbleProps> = memo(({
                 style={styles.actionIconBtn}
                 onPress={() => onSpeak(message.id, message.content)}
                 activeOpacity={0.6}
-                accessibilityLabel={isSpeaking ? 'Stop speaking' : isPaused ? 'Resume speaking' : 'Listen'}
+                accessibilityLabel={isLoadingSpeech ? 'Preparing audio. Tap to cancel' : isSpeaking ? 'Stop speaking' : isPaused ? 'Resume speaking' : 'Listen'}
+                accessibilityState={{ busy: isLoadingSpeech }}
               >
-                {isSpeaking ? (
+                {isLoadingSpeech ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : isSpeaking ? (
                   <PauseIcon size={18} color="#ffffff" />
                 ) : (
                   <SpeakerIcon size={20} color="#ffffff" />
@@ -262,8 +267,9 @@ ChatBubble.displayName = 'ChatBubble';
 const styles = StyleSheet.create({
   container: {
     marginVertical: 4,
-    paddingHorizontal: spacing.md,
-    width: '100%',
+    width: '91%',
+    maxWidth: 660,
+    alignSelf: 'center',
   },
   userContainer: {
     alignItems: 'flex-end',
@@ -272,7 +278,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   bubble: {
-    maxWidth: '94%',
+    maxWidth: '100%',
+    minWidth: 0,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },
@@ -292,7 +299,7 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: 'transparent',
     borderWidth: 0,
-    paddingHorizontal: 2,
+    paddingHorizontal: 0,
     paddingVertical: 4,
   },
   streamingBubble: {

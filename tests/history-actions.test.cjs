@@ -76,7 +76,7 @@ actions = nodes(dialog()).filter(n => n.props.accessibilityRole === 'button');
 actions[0].props.onPress();
 assert.match(text(dialog()), /Rename chat/);
 const input = nodes(dialog()).find(n => n.type === 'TextInput');
-assert.equal(input.props.value, 'Test Chat');
+assert.equal(input.props.value, 'Test chat', 'rename preserves the saved title casing');
 input.props.onChangeText('Updated name');
 nodes(dialog()).find(n => n.props.onPress && text(n) === 'Save').props.onPress().then(() => {
   assert.deepEqual(renamed, [['fixture', 'Updated name']]);

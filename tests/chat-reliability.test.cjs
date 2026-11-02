@@ -1,0 +1,27 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),ts=require('typescript');
+function load(file,mocks){const module={exports:{}};new Function('require','module','exports',ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText)(name=>{if(name in mocks)return mocks[name];throw Error('Unexpected dependency: '+name);},module,module.exports);return module.exports;}
+const values=new Map(),storage={getItem:async key=>values.get(key)||null,setItem:async(key,value)=>values.set(key,value),removeItem:async key=>values.delete(key)};
+(async()=>{
+ const {PendingReplyStore}=load('services/storage/PendingReplyStore.ts',{'@react-native-async-storage/async-storage':storage});
+ const journal=new PendingReplyStore(storage),first={id:'one',sessionId:'a',prompt:'Question',content:'',timestamp:1};
+ await journal.begin(first);journal.update('one','Recovered partial');await journal.flush();assert.equal((await new PendingReplyStore(storage).read()).content,'Recovered partial');
+ await journal.begin({...first,id:'two',sessionId:'b'});await journal.finish('one');journal.update('one','Late wrong answer');await journal.flush();assert.equal((await journal.read()).id,'two','Old completion cleared a newer request');await journal.finish('two');assert.equal(await journal.read(),null);
+ await journal.begin({...first,requestId:'old-run'});await journal.begin({...first,requestId:'new-run'});await journal.finish('old-run');journal.update('old-run','Stale retry');await journal.flush();assert.equal((await journal.read()).requestId,'new-run','Old attempt cleared a retry of the same answer');await journal.finish('new-run');
+ values.set('@brown_pending_reply_v1','broken');assert.equal(await journal.read(),null);assert.equal(values.size,0);
+ const broken=new PendingReplyStore({...storage,setItem:async()=>{throw Error('Storage full');}});await assert.rejects(()=>broken.begin(first),/Storage full/);
+ const status=load('services/inference/ChatExecutionStatus.ts',{}).chatExecutionStatus;
+ assert(status({provider:'device'},false).label.includes('Offline'));assert(status({provider:'ollama'},false).label.includes('Unavailable'));assert(status({provider:'ollama'},true).label.includes('Connected'));assert(status({provider:'gemini'},true).label.includes('Internet'));
+ const lifecycle={isAccountResetting:()=>false};const database=load('services/storage/Database.ts',{'react-native':{Platform:{OS:'web'}},'./AccountLifecycle':lifecycle});
+ const {ChatRepository}=load('services/storage/ChatRepository.ts',{'./Database':database});const repo=new ChatRepository(),session=await repo.createSession('Recovery','device');
+ const user=await repo.addMessage({id:'stable-user',sessionId:session.id,role:'user',content:'Question',timestamp:1});assert.equal(user.id,'stable-user');
+ const answer={id:'stable-answer',sessionId:session.id,role:'assistant',content:'Partial',timestamp:2};await repo.saveReply(answer);await repo.saveReply({...answer,content:'Finished'});
+ assert.equal((await repo.getMessagesForSession(session.id)).length,2);assert.equal((await repo.getSessionById(session.id)).messageCount,2);await repo.deleteSession(session.id);await repo.saveReply(answer);assert.equal(await repo.getSessionById(session.id),null,'Late recovery recreated a deleted chat');
+ const native=load('services/storage/Database.ts',{'react-native':{Platform:{OS:'android'}},'expo-sqlite':{openDatabaseSync:()=>{throw Error('Disk failure');}},'./AccountLifecycle':lifecycle});await assert.rejects(()=>native.AppDatabase.getInstance().init(),/storage could not be opened/,'Native persistence failure silently fell back to volatile memory');
+ const source=ts.createSourceFile('ChatScreen.tsx',fs.readFileSync(path.join(__dirname,'../src/screens/ChatScreen.tsx'),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);let callback;
+ const visit=node=>{if(ts.isVariableDeclaration(node)&&node.name.getText(source)==='handleSendMessage')callback=node.initializer.getText(source);ts.forEachChild(node,visit);};visit(source);
+ const sendCode=ts.transpileModule('module.exports = '+callback,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+ let release,preparations=0,added=0;const env={currentSessionId:'test',isGenerating:false,sendLock:{current:false},modelActivation:{current:null},activeModel:{id:'device'},desktopConnected:false,chatExecutionStatus:()=>({desktop:false}),titleService:{cancel(){}},replyEpoch:{current:0},setIsGenerating(){},setReplyFailure(){},requestPrompt:{current:''},sessionSavedRef:{current:false},currentSessionRef:{current:{id:'test'}},chatRepo:{upsertSession:()=>{preparations++;return new Promise(resolve=>release=resolve);},addMessage:()=>added++},setDraftText(){},cancelStreamUpdate(){},activeReplyRef:{current:null}};
+ const sendModule={exports:{}};new Function('module','env','with(env){'+sendCode+'}')(sendModule,env);
+ const sending=sendModule.exports('Question');await sendModule.exports('Question');assert.equal(preparations,1,'Rapid send bypassed synchronous lock');env.replyEpoch.current++;release();await sending;assert.equal(added,0,'Cancelled preparation inserted a message in the next chat');
+ console.log('PASS: durable partial recovery, stable retry IDs/counts, stale checkpoint isolation, explicit execution modes and native storage failure reporting.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

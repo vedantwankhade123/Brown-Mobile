@@ -40,7 +40,7 @@ function requireTs(filePath) {
     }
     if (modName === 'react-native') {
       return {
-        Platform: { OS: 'android', select: (obj) => obj.android || obj.default },
+        Platform: { OS: fullPath.endsWith('Database.ts')?'web':'android', select: (obj) => obj.android || obj.default },
         AppState: { addEventListener: () => ({ remove() {} }) },
       };
     }

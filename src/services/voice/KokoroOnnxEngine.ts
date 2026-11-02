@@ -229,7 +229,7 @@ async function synthesizeChunk(
 }
 
 /** Split long text into sentence-ish chunks that fit Kokoro's 510 phoneme budget. */
-function chunkTextForKokoro(text: string, maxChars = 220): string[] {
+export function chunkTextForKokoro(text: string, maxChars = 220): string[] {
   const cleaned = String(text || '').trim();
   if (!cleaned) return [];
   if (cleaned.length <= maxChars) return [cleaned];
@@ -267,7 +267,7 @@ async function cleanupTempAudio(cacheDir: string): Promise<void> {
     const FileSystem = require('expo-file-system');
     const entries = await FileSystem.readDirectoryAsync(cacheDir);
     for (const name of entries) {
-      if (name.startsWith('tts-out-') && name.endsWith('.wav')) {
+      if (/^tts-out-\d+.*\.wav$/.test(name) && Number(name.split('-')[2].split('.')[0]) < Date.now() - 3600000) {
         FileSystem.deleteAsync(`${cacheDir}${name}`, { idempotent: true }).catch(() => {});
       }
     }
@@ -322,4 +322,24 @@ export async function synthesizeKokoroOnnx(
 
 export function resetKokoroOnnxSession(): void {
   sessionPromise = null;
+}
+
+/** Yield a short opening phrase first, then synthesize ahead while it plays. */
+export async function* streamKokoroOnnx(
+  text: string,
+  voiceId: KokoroVoiceId,
+  speed = 1,
+  isCancelled: () => boolean = () => false
+): AsyncGenerator<KokoroOnnxResult> {
+  const cleaned = text.trim();
+  if (!cleaned) return;
+  const opening = cleaned.slice(0, 100);
+  const sentenceEnd = opening.search(/[.!?](?:\s|$)/);
+  const boundary = cleaned.length <= 100 ? cleaned.length : sentenceEnd >= 0 ? sentenceEnd + 1 : opening.lastIndexOf(' ') > 0 ? opening.lastIndexOf(' ') : 100;
+  const chunks = [cleaned.slice(0, boundary), ...chunkTextForKokoro(cleaned.slice(boundary))];
+  for (const chunk of chunks) {
+    if (isCancelled()) return;
+    const result = await synthesizeKokoroOnnx(chunk, voiceId, speed);
+    if (result) yield result;
+  }
 }

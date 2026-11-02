@@ -49,25 +49,6 @@ interface DrawerSidebarProps {
   onClose: () => void;
 }
 
-/**
- * Formats conversation titles so the first letter of each word is in uppercase
- * and the remaining letters are in lowercase.
- */
-function formatConversationTitle(rawTitle: string): string {
-  if (!rawTitle) return 'New Chat';
-  return rawTitle
-    .trim()
-    .split(/\s+/)
-    .map((word) => {
-      if (!word) return '';
-      if (word.length <= 4 && word === word.toUpperCase() && /^[A-Z0-9]+$/.test(word)) {
-        return word;
-      }
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
-}
-
 const SWIPE_MAX = 132;
 const SWIPE_THRESHOLD = 62;
 
@@ -135,7 +116,7 @@ const SwipeableHistoryRow: React.FC<{
     })
   ).current;
 
-  const restColor = isActive ? 'rgba(41, 82, 148, 0.22)' : 'rgba(0, 0, 0, 0)';
+  const restColor = 'rgba(0, 0, 0, 0)';
 
   // Content tracks the finger 1:1 for a connected, responsive feel.
   const translateX = dragX.interpolate({
@@ -192,10 +173,11 @@ const SwipeableHistoryRow: React.FC<{
             onLongPress={onShowActions}
             delayLongPress={400}
             accessibilityLabel={title}
+            accessibilityState={{ selected: isActive }}
             accessibilityHint="Touch and hold to show chat actions. Swipe left to delete."
             activeOpacity={0.7}
           >
-            <Text style={styles.historyTitleText} numberOfLines={1}>
+            <Text style={[styles.historyTitleText, isActive && styles.historyTitleActive]} numberOfLines={1}>
               {title}
             </Text>
           </TouchableOpacity>
@@ -351,7 +333,7 @@ export const DrawerSidebar: React.FC<DrawerSidebarProps> = ({
     const isActive = item.id === activeSessionId;
     const isFirst = !arr || index === undefined || index === 0;
     const isLast = !arr || index === undefined || index === arr.length - 1;
-    const formattedTitle = formatConversationTitle(item.title);
+    const formattedTitle = item.title.trim().replace(/\s+/g, ' ') || 'New Chat';
     return (
       <SwipeableHistoryRow
         key={item.id}
@@ -823,10 +805,10 @@ const styles = StyleSheet.create({
   historyCard: {
     overflow: 'hidden',
     borderRadius: 13,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'transparent',
   },
   historyRowGap: {
-    marginBottom: 4,
+    marginBottom: 0,
   },
   historyRowReveal: {
     ...StyleSheet.absoluteFillObject,
@@ -836,7 +818,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 0,
   },
   historyTitleTouch: {
     flex: 1,
@@ -846,8 +828,12 @@ const styles = StyleSheet.create({
   },
   historyTitleText: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    lineHeight: 25,
+    fontWeight: '500',
+  },
+  historyTitleActive: {
+    fontWeight: '700',
   },
   historyMenuWrap: {
     position: 'absolute',

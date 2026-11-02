@@ -32,6 +32,12 @@ function isTableSeparator(line: string): boolean {
   return /^\s*\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?\s*$/.test(line);
 }
 
+// Models often put email drafts in plain-text fences. Keep those readable on a phone.
+export function isProseFence(language: string, body: string): boolean {
+  if (/^(text|txt|plaintext|plain|email|mail|markdown|md)$/i.test(language.trim())) return true;
+  return !language.trim();
+}
+
 export function splitTableRow(line: string): string[] {
   let trimmed = line.trim();
   if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
@@ -414,9 +420,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                   </View>
                 </TouchableOpacity>
               </View>
-              <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>
+              {isProseFence(codeLanguage, codeContent) ? (
+                <Text style={styles.proseText}>{codeContent || ' '}</Text>
+              ) : <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>
                 <Text style={styles.codeText}>{codeContent || ' '}</Text>
-              </ScrollView>
+              </ScrollView>}
             </View>
           );
 
@@ -555,9 +563,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
     } else if (inCodeBlock && codeBuffer.length > 0) {
       out.push(
         <View key="code-unclosed" style={styles.codeBlockWrapper}>
-          <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>
+          {isProseFence(codeLanguage, codeBuffer.join('\n')) ? (
+            <Text style={styles.proseText}>{codeBuffer.join('\n')}</Text>
+          ) : <ScrollView horizontal style={styles.codeScroll} showsHorizontalScrollIndicator={false}>
             <Text style={styles.codeText}>{codeBuffer.join('\n')}</Text>
-          </ScrollView>
+          </ScrollView>}
         </View>
       );
     }
@@ -573,6 +583,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
+    minWidth: 0,
   },
   paragraph: {
     color: '#ececf1',
@@ -667,6 +678,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   codeBlockWrapper: {
+    maxWidth: '100%',
+    minWidth: 0,
     backgroundColor: '#0d0d0f',
     borderRadius: 12,
     marginVertical: 10,
@@ -714,7 +727,15 @@ const styles = StyleSheet.create({
   },
   codeScroll: {
     flexGrow: 0,
-    flexShrink: 0,
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
+  proseText: {
+    color: '#ececf1',
+    fontSize: 16,
+    lineHeight: 26,
+    padding: 12,
+    flexShrink: 1,
   },
   listContainer: {
     marginVertical: 6,
