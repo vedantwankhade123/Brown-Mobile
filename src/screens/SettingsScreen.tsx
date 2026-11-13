@@ -2931,7 +2931,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <Text style={styles.aboutSubtitle}>Your AI, on your device.</Text>
               <Text style={[styles.aboutSubtitle, { marginTop: 6 }]}>Brown AI by Vedant Wankhade · © 2025–2026</Text>
               <TouchableOpacity onPress={() => handleOpenDownloadLink('https://github.com/vedantwankhade123/Brown-Mobile/blob/main/LICENSE')} accessibilityRole="link" accessibilityLabel="View Brown AI source code license">
-                <Text style={[styles.aboutSubtitle, { marginTop: 4, textDecorationLine: 'underline' }]}>Source code: GNU AGPL-3.0-only</Text>
+                <Text style={[styles.aboutSubtitle, { marginTop: 4 }]}>Licensed under GNU AGPL-3.0-only. Redistribution is allowed under its terms; no warranty.</Text>
+                <Text style={[styles.aboutSubtitle, { marginTop: 3, textDecorationLine: 'underline' }]}>View license</Text>
               </TouchableOpacity>
             </View>
 
