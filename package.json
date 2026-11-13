@@ -3,7 +3,7 @@
   "version": "1.0.7",
   "description": "Brown Mobile - Privacy-First On-Device AI Assistant",
   "author": "Vedant Wankhade",
-  "license": "Proprietary",
+  "license": "AGPL-3.0-only",
   "private": true,
   "main": "index.js",
   "scripts": {

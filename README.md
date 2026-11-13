@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/badge/Release-v1.0.7-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest)
 [![Android](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)](https://usebrown.online/download)
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA)](https://usebrown.online/)
-[![License](https://img.shields.io/badge/License-Proprietary-red)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
 
 <p align="center">
   <img src="Assets/Brown-white.png" alt="Brown AI" width="150" />
@@ -127,4 +127,23 @@ TypeScript, mobile behavior tests, UI tests, update discovery/cache regressions,
 
 [Website](https://usebrown.online/) · [Documentation](https://usebrown.online/docs) · [Issues](https://github.com/vedantwankhade123/Brown-Mobile/issues) · [Contact](https://usebrown.online/contact)
 
-Created by **Vedant Wankhade**. Copyright © 2026. Proprietary software; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+## License and branding
+
+Brown AI Mobile's project-authored software is licensed under the **GNU Affero General Public
+License v3.0 only (AGPL-3.0-only)**. See [LICENSE](LICENSE) for the complete license and
+[NOTICE](NOTICE) for project attribution. Copyright © 2025–2026 Vedant Wankhade.
+
+You may inspect, modify, build, self-host, and redistribute covered code under the AGPL.
+When you convey a covered modified version, provide its corresponding source as the license
+requires. If users interact with a modified version over a network, offer those users its
+corresponding source as required by the AGPL. Third-party libraries, models, and media keep
+their own licenses.
+
+The **Brown AI** and **UseBrown** names, official logos, app icons, favicons, and
+`usebrown.online` are reserved brand identifiers; AGPL grants no trademark rights. A public
+fork should choose a distinct product name, replace official branding, and avoid implying
+official endorsement or affiliation. See [TRADEMARK.md](TRADEMARK.md) and
+[ASSET-LICENSING.md](ASSET-LICENSING.md). We ask forks to credit the upstream project in
+their README and About screen with **“Based on Brown AI by Vedant Wankhade”** and describe
+their changes; this exact placement and the request for improvements are community guidance,
+not additional AGPL conditions. See [FORKING.md](FORKING.md) and [CONTRIBUTING.md](CONTRIBUTING.md).

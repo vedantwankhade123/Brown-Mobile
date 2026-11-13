@@ -1,6 +1,6 @@
 export type LegalDocumentId = 'privacy' | 'terms';
 export interface LegalDocument { title: string; introduction: string; sections: { title: string; paragraphs: string[] }[]; }
-export const LEGAL_REVISION = '2026-10-04';
+export const LEGAL_REVISION = '2026-11-13';
 
 export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
   privacy: {
@@ -39,15 +39,15 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
   },
   terms: {
     title: 'Terms of Use',
-    introduction: 'These terms explain your license to use Brown, your responsibilities, and the limits of AI-generated responses.',
+    introduction: 'This page summarizes the software license and connected-service terms. The AGPL license governs the Brown AI software code.',
     sections: [
       { title: 'Using Brown', paragraphs: [
-        'By downloading, installing or using Brown AI, you agree to these terms. If you do not agree, discontinue use and uninstall the app. Brown supports local AI and optional online services on supported devices.',
+        'Brown supports local AI and optional online services on supported devices. The project-authored software code is licensed under the GNU Affero General Public License v3.0 only (AGPL-3.0-only). This page does not add restrictions to the rights granted by that license.',
         'A mobile profile is stored locally. Creating or deleting it does not create or delete a website account or an account with a cloud provider.',
       ] },
       { title: 'Ownership and license', paragraphs: [
-        'Brown AI’s proprietary code, interface, branding, design assets and documentation belong to Vedant Wankhade. Rights not expressly granted are reserved.',
-        'Subject to these terms, you receive a non-exclusive, non-transferable, revocable personal license to use Brown for personal and professional productivity. Do not redistribute or resell proprietary binaries or intellectual property, or reverse engineer or decompile them without written permission, except where applicable law permits it. Third-party models and libraries retain their own licenses.',
+        'Project-authored Brown AI software is licensed under the GNU Affero General Public License v3.0 only. You may use, inspect, modify, and redistribute covered code under that license. It requires corresponding source in the cases it describes, including when users interact over a network with a modified version. The full license is at github.com/vedantwankhade123/Brown/blob/main/LICENSE.',
+        'Brown AI and UseBrown names, official logos, app icons, and usebrown.online are reserved brand identifiers; the AGPL grants no trademark rights. Forks should use a distinct product name and replace official branding. See github.com/vedantwankhade123/Brown/blob/main/TRADEMARK.md. Third-party dependencies and model licenses remain separate.',
       ] },
       { title: 'Your Data', paragraphs: [
         'You retain control of your local conversations and files. See the Privacy Policy for storage, saved memory, backups and optional online processing.',
@@ -58,18 +58,18 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
         'Review which model and connected services are active before sending sensitive information. Supervise any actions you authorize on a paired desktop.',
       ] },
       { title: 'Acceptable use', paragraphs: [
-        'Do not use Brown to violate applicable laws, infringe intellectual property or privacy rights, create or distribute malicious software, or bypass authentication, security boundaries or safety controls.',
+        'You are responsible for complying with laws that apply to your use. This reminder does not add restrictions to the permissions granted by AGPL-3.0-only.',
       ] },
       { title: 'AI & Warranties', paragraphs: [
         'AI-generated responses can be incomplete, inaccurate or inappropriate. Verify important information and review generated content before relying on it.',
-        'Brown is provided “as is” and “as available”, without warranties of accuracy, availability, merchantability, fitness for a particular purpose or non-infringement, to the extent permitted by law.',
+        'For AGPL-covered software, the warranty and liability terms in the AGPL license apply, subject to rights that cannot be excluded by applicable law. AI-generated responses can be incomplete, inaccurate or inappropriate; verify important information.',
       ] },
       { title: 'Liability and changes', paragraphs: [
         'To the maximum extent permitted by law, the owner and contributors are not liable for indirect, incidental, special, consequential or punitive damages, including data loss, hardware malfunction or downtime resulting from use or inability to use Brown. These terms do not exclude rights or liabilities that applicable law does not allow to be excluded.',
-        'Software and terms may change. Significant updates will be reflected in the revision date and app or website release information. Continued use signifies acceptance of updated terms, where permitted by applicable law.',
+        'Software and information may change. A change to this page does not modify AGPL-3.0-only or revoke rights already granted under that license.',
       ] },
       { title: 'Contact', paragraphs: [
-        'For licensing requests, questions or feedback, contact Vedant Wankhade at contact@usebrown.online. The website terms are available at usebrown.online/terms.',
+        'For licensing questions, contact Vedant Wankhade at contact@usebrown.online. The full license and brand policy are linked from the official Brown AI repositories.',
       ] },
     ],
   },
