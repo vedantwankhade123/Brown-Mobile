@@ -256,6 +256,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const [profile, setProfile] = useState<ConsentRecord | null>(null);
   const [viewHistory, setViewHistory] = useState<SettingsView[]>(['main']);
   const currentView = viewHistory[viewHistory.length - 1] || 'main';
+  const [showIntroVideo, setShowIntroVideo] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSpotlightOpen, setIsSpotlightOpen] = useState(false);
 
@@ -2936,6 +2937,26 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TouchableOpacity>
             </View>
 
+            <TouchableOpacity brownSurface
+              style={styles.aboutWatchButton}
+              onPress={() => setShowIntroVideo(value => !value)}
+              accessibilityRole="button"
+              accessibilityLabel={showIntroVideo ? 'Close Meet Brown AI introduction video' : 'Watch Meet Brown AI introduction video'}
+            >
+              <Text style={styles.aboutWatchButtonText}>{showIntroVideo ? 'Close introduction video' : '▶  Watch Meet Brown AI'}</Text>
+            </TouchableOpacity>
+            {showIntroVideo && <View style={styles.aboutVideoFrame}>
+              {React.createElement(require('expo-av').Video, {
+                source: { uri: 'https://usebrown.online/Assets/brown-ai-launch.mp4' },
+                style: styles.aboutVideo,
+                shouldPlay: true,
+                useNativeControls: true,
+                resizeMode: 'contain',
+                isLooping: false,
+                accessibilityLabel: 'Meet Brown AI introduction video',
+              })}
+            </View>}
+
             <View style={styles.aboutDetails}>
               <View style={styles.aboutDetailRow}><Text style={styles.aboutDetailLabel}>Version</Text><Text selectable style={styles.aboutDetailValue}>{currentAppVersion}</Text></View>
               <View style={[styles.aboutDetailRow, styles.aboutDetailDivider]}><Text style={styles.aboutDetailLabel}>Platform</Text><Text style={styles.aboutDetailValue}>{Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web'}</Text></View>
@@ -2944,6 +2965,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <View style={styles.aboutContactRow}>
               <TouchableOpacity brownSurface style={styles.aboutContactButton} onPress={() => handleOpenDownloadLink('mailto:contact@usebrown.online')} accessibilityRole="link" accessibilityLabel="Email Brown support">
                 <MailIcon size={20} color="#ffffff" /><Text style={styles.aboutContactText}>Contact</Text>
+              </TouchableOpacity>
+              <TouchableOpacity brownSurface style={styles.aboutContactButton} onPress={() => handleOpenDownloadLink('https://github.com/vedantwankhade123/Brown')} accessibilityRole="link" accessibilityLabel="View Brown AI on GitHub">
+                <Svg width={18} height={18} viewBox="0 0 24 24"><Path fill="#ffffff" d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.56.1.76-.24.76-.54v-2.08c-3.1.67-3.76-1.32-3.76-1.32-.51-1.3-1.24-1.65-1.24-1.65-1.01-.69.08-.68.08-.68 1.12.08 1.71 1.15 1.71 1.15 1 1.72 2.62 1.22 3.26.93.1-.72.39-1.22.71-1.5-2.47-.28-5.07-1.24-5.07-5.5 0-1.21.43-2.2 1.15-2.98-.12-.28-.5-1.41.11-2.94 0 0 .94-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.11-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.66.11 2.94.72.78 1.15 1.77 1.15 2.98 0 4.27-2.6 5.21-5.08 5.49.4.35.76 1.02.76 2.06v3.06c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z" /></Svg>
+                <Text style={styles.aboutContactText}>GitHub</Text>
               </TouchableOpacity>
               <TouchableOpacity brownSurface style={styles.aboutContactButton} onPress={() => handleOpenDownloadLink('https://www.instagram.com/ultron_offline')} accessibilityRole="link" accessibilityLabel="Brown on Instagram">
                 <InstagramIcon size={20} color="#ffffff" /><Text style={styles.aboutContactText}>Instagram</Text>
@@ -4688,6 +4713,10 @@ const styles = StyleSheet.create({
   aboutName: { color: '#ffffff', fontSize: 28, fontWeight: '600', letterSpacing: -0.8 },
   aboutSubtitle: { color: '#ffffff', fontSize: 15, marginTop: 6, textAlign: 'center' },
   aboutDescription: { color: '#bdbdc4', fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 330, marginTop: 12 },
+  aboutWatchButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center', marginTop: 8, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: '#171717' },
+  aboutWatchButtonText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  aboutVideoFrame: { width: '100%', marginTop: 12, overflow: 'hidden', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', backgroundColor: '#000000' },
+  aboutVideo: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   aboutDetails: { backgroundColor: '#1c1c1e', borderRadius: 20, paddingHorizontal: 16 },
   aboutDetailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, minHeight: 52, paddingVertical: 14 },
   aboutDetailDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#3a3a3c' },

@@ -3,6 +3,7 @@
 [![Release](https://img.shields.io/badge/Release-v1.0.7-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest)
 [![Android](https://img.shields.io/badge/Android-10%2B-3DDC84?logo=android&logoColor=white)](https://usebrown.online/download)
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA)](https://usebrown.online/)
+[![GitHub stars](https://img.shields.io/github/stars/vedantwankhade123/Brown?style=social)](https://github.com/vedantwankhade123/Brown)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
 
 <p align="center">
@@ -10,6 +11,14 @@
 </p>
 
 Brown is an Android AI assistant that runs downloaded GGUF language models on your device. Chat locally, manage models and downloads, use supported voice features, and connect to Brown Desktop. Optional cloud providers and model downloads require an internet connection.
+
+<p align="center">
+  <a href="https://usebrown.online/Assets/brown-ai-launch.mp4" target="_blank" rel="noopener noreferrer">
+    <img src="https://usebrown.online/Assets/brown-introduction-thumbnail.png" alt="Watch the Meet Brown AI introduction video" width="820" />
+  </a>
+  <br />
+  <a href="https://usebrown.online/Assets/brown-ai-launch.mp4">▶ Watch the Meet Brown AI introduction</a>
+</p>
 
 **Current release: v1.0.7 · Android build 19 · ARM64 (`arm64-v8a`)**
 
